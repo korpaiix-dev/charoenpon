@@ -194,8 +194,15 @@ async def _approve_payment(
     user_telegram_id: int,
     bot,
 ) -> list[str]:
-    """Approve payment: create subscription and generate invite links."""
+    """Approve payment: create subscription and generate one-time invite links.
+
+    ใช้ Guardian Bot สร้าง one-time invite link (member_limit=1, expire 24h)
+    สำหรับทุกกลุ่มที่แพ็กเกจให้สิทธิ์
+    """
+    from bots.guardian_bot.group_monitor import generate_invite_links_for_user
+
     invite_links: list[str] = []
+    package_id: int = 0
 
     async with get_session() as session:
         # Update payment status
@@ -211,6 +218,7 @@ async def _approve_payment(
             select(Package).where(Package.id == db_payment.package_id)
         )
         package = pkg_result.scalar_one()
+        package_id = package.id
 
         # Create subscription
         now = datetime.now(timezone.utc)
@@ -225,29 +233,20 @@ async def _approve_payment(
         session.add(sub)
         await session.flush()
 
-        # Get group invite links
-        group_slugs = package.group_list
-        for slug in group_slugs:
+    # สร้าง one-time invite link ผ่าน Guardian Bot
+    links_dict = await generate_invite_links_for_user(
+        bot, user_telegram_id, package_id
+    )
+
+    # จับคู่ slug กับ title สำหรับแสดงผล
+    for slug, link in links_dict.items():
+        async with get_session() as session:
             grp_result = await session.execute(
                 select(GroupRegistry).where(GroupRegistry.slug == slug)
             )
             group = grp_result.scalar_one_or_none()
-            if group and group.invite_link:
-                invite_links.append(f"• {group.title}: {group.invite_link}")
-            elif group:
-                # Generate invite link
-                try:
-                    link = await bot.create_chat_invite_link(
-                        chat_id=group.chat_id,
-                        member_limit=1,
-                        name=f"user_{user_telegram_id}_{package.tier.value}",
-                    )
-                    invite_links.append(f"• {group.title}: {link.invite_link}")
-                except Exception as exc:
-                    logger.error(
-                        "Failed to create invite for group %s: %s", slug, exc
-                    )
-                    invite_links.append(f"• {group.title}: (ติดต่อแอดมินค่ะ)")
+            title = group.title if group else slug
+        invite_links.append(f"• {title}: {link}")
 
     return invite_links
 
@@ -387,10 +386,29 @@ async def handle_photo_slip(
             f"✅ <b>ชำระเงินสำเร็จค่ะ!</b>\n\n"
             f"💰 ยอด: {format_thb(expected_price)}\n"
             f"📦 แพ็กเกจ: {selected_tier} บาท\n\n"
-            f"🔗 <b>ลิงก์เข้ากลุ่ม:</b>\n{links_text}\n\n"
+            f"🔗 <b>ลิงก์เข้ากลุ่ม VIP:</b>\n{links_text}\n\n"
+            f"⚠️ <b>ลิงก์แต่ละลิงก์ใช้ได้ 1 ครั้งเท่านั้น และหมดอายุใน 24 ชั่วโมงค่ะ</b>\n"
+            f"กรุณากดเข้าร่วมกลุ่มโดยเร็วนะคะ\n\n"
             f"ขอบคุณที่ใช้บริการค่ะ 🙏",
             parse_mode="HTML",
         )
+
+        # ส่ง DM ลูกค้าพร้อมลิงก์ทุกกลุ่ม (กรณีอยู่ในกลุ่มหรือ callback)
+        try:
+            await context.bot.send_message(
+                chat_id=user.id,
+                text=(
+                    f"🎉 <b>ยินดีต้อนรับสู่ VIP ค่ะ!</b>\n\n"
+                    f"📦 แพ็กเกจ: {selected_tier} บาท\n\n"
+                    f"🔗 <b>ลิงก์เข้ากลุ่มของคุณ:</b>\n{links_text}\n\n"
+                    f"⚠️ ลิงก์แต่ละลิงก์ใช้ได้ 1 ครั้งเท่านั้น และหมดอายุใน 24 ชั่วโมงค่ะ\n"
+                    f"กรุณากดเข้าร่วมกลุ่มโดยเร็วนะคะ\n\n"
+                    f"หากมีปัญหา สามารถติดต่อแอดมินได้ตลอดค่ะ"
+                ),
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.warning("Failed to send DM invite links to user %s: %s", user.id, exc)
 
         await log_admin_action(
             admin_id=0,
@@ -594,10 +612,30 @@ async def handle_truemoney_link(
             f"💰 ยอด: {format_thb(expected_price)}\n"
             f"📦 แพ็กเกจ: {selected_tier} บาท\n"
             f"💳 ช่องทาง: TrueMoney\n\n"
-            f"🔗 <b>ลิงก์เข้ากลุ่ม:</b>\n{links_text}\n\n"
+            f"🔗 <b>ลิงก์เข้ากลุ่ม VIP:</b>\n{links_text}\n\n"
+            f"⚠️ <b>ลิงก์แต่ละลิงก์ใช้ได้ 1 ครั้งเท่านั้น และหมดอายุใน 24 ชั่วโมงค่ะ</b>\n"
+            f"กรุณากดเข้าร่วมกลุ่มโดยเร็วนะคะ\n\n"
             f"ขอบคุณที่ใช้บริการค่ะ 🙏",
             parse_mode="HTML",
         )
+
+        # ส่ง DM ลูกค้าพร้อมลิงก์ทุกกลุ่ม
+        try:
+            await context.bot.send_message(
+                chat_id=user.id,
+                text=(
+                    f"🎉 <b>ยินดีต้อนรับสู่ VIP ค่ะ!</b>\n\n"
+                    f"📦 แพ็กเกจ: {selected_tier} บาท\n"
+                    f"💳 ช่องทาง: TrueMoney\n\n"
+                    f"🔗 <b>ลิงก์เข้ากลุ่มของคุณ:</b>\n{links_text}\n\n"
+                    f"⚠️ ลิงก์แต่ละลิงก์ใช้ได้ 1 ครั้งเท่านั้น และหมดอายุใน 24 ชั่วโมงค่ะ\n"
+                    f"กรุณากดเข้าร่วมกลุ่มโดยเร็วนะคะ\n\n"
+                    f"หากมีปัญหา สามารถติดต่อแอดมินได้ตลอดค่ะ"
+                ),
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.warning("Failed to send DM invite links to user %s: %s", user.id, exc)
 
         await log_admin_action(
             admin_id=0,

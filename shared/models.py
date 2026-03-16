@@ -226,7 +226,6 @@ class GroupRegistry(Base):
     slug: Mapped[GroupSlug] = mapped_column(Enum(GroupSlug), unique=True, nullable=False)
     chat_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
-    invite_link: Mapped[str | None] = mapped_column(String(512), nullable=True)
     min_tier: Mapped[PackageTier] = mapped_column(Enum(PackageTier), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     member_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

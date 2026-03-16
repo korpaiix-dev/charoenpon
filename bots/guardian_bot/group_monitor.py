@@ -3,15 +3,16 @@
 ตรวจสมาชิกทุกกลุ่ม:
 - kick ผู้ที่ไม่มีสิทธิ์ทันที
 - Lifetime (duration_days=NULL) ห้ามแตะ
+- สร้าง one-time invite link สำหรับลูกค้าที่ชำระเงินแล้ว
 - บันทึก log ทุก action
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, select
+from sqlalchemy import select
 from telegram import Bot
 from telegram.error import BadRequest, Forbidden
 
@@ -28,6 +29,102 @@ from shared.utils import log_admin_action
 logger = logging.getLogger(__name__)
 
 GUARDIAN_BOT_ID = 0  # System admin ID
+
+
+async def create_one_time_invite(bot: Bot, chat_id: int, user_id: int) -> str:
+    """สร้าง one-time invite link สำหรับกลุ่ม VIP.
+
+    - member_limit=1 เสมอ
+    - หมดอายุใน 24 ชั่วโมง
+    - บันทึก log ลง admin_logs ทุกครั้ง
+
+    Args:
+        bot: Telegram Bot instance (ต้องเป็น admin ในกลุ่ม)
+        chat_id: chat_id ของกลุ่ม VIP
+        user_id: telegram_id ของลูกค้าที่จะได้รับ link
+
+    Returns:
+        invite_link URL string
+    """
+    expire = datetime.now(timezone.utc) + timedelta(hours=24)
+
+    link_obj = await bot.create_chat_invite_link(
+        chat_id=chat_id,
+        member_limit=1,
+        expire_date=expire,
+        name=f"user_{user_id}",
+    )
+
+    await log_admin_action(
+        admin_id=GUARDIAN_BOT_ID,
+        action="create_one_time_invite",
+        target_type="user",
+        target_id=user_id,
+        details=f"chat_id={chat_id} link={link_obj.invite_link} expire={expire.isoformat()}",
+    )
+
+    logger.info(
+        "Created one-time invite for user %s in chat %s (expires %s)",
+        user_id, chat_id, expire.isoformat(),
+    )
+
+    return link_obj.invite_link
+
+
+async def generate_invite_links_for_user(
+    bot: Bot, user_id: int, package_id: int
+) -> dict[str, str]:
+    """สร้าง one-time invite link ทุกกลุ่มที่แพ็กเกจให้สิทธิ์.
+
+    Args:
+        bot: Telegram Bot instance (Guardian Bot ต้องเป็น admin ในทุกกลุ่ม)
+        user_id: telegram_id ของลูกค้า
+        package_id: ID ของแพ็กเกจที่ซื้อ
+
+    Returns:
+        dict ของ {group_slug: invite_link} สำหรับทุกกลุ่มที่มีสิทธิ์
+    """
+    async with get_session() as session:
+        pkg_result = await session.execute(
+            select(Package).where(Package.id == package_id)
+        )
+        package = pkg_result.scalar_one()
+        group_slugs = package.group_list
+
+    invite_links: dict[str, str] = {}
+
+    for slug in group_slugs:
+        async with get_session() as session:
+            grp_result = await session.execute(
+                select(GroupRegistry).where(
+                    GroupRegistry.slug == slug,
+                    GroupRegistry.is_active == True,  # noqa: E712
+                )
+            )
+            group = grp_result.scalar_one_or_none()
+
+        if not group:
+            logger.warning("Group slug %s not found or inactive, skipping", slug)
+            continue
+
+        try:
+            link = await create_one_time_invite(bot, group.chat_id, user_id)
+            invite_links[slug] = link
+        except Forbidden:
+            logger.error(
+                "Bot is not admin in group %s (chat_id=%s), cannot create invite",
+                slug, group.chat_id,
+            )
+        except BadRequest as e:
+            logger.error(
+                "Failed to create invite for group %s: %s", slug, e,
+            )
+        except Exception as exc:
+            logger.error(
+                "Unexpected error creating invite for group %s: %s", slug, exc,
+            )
+
+    return invite_links
 
 
 async def _get_authorized_telegram_ids(group_slug: str) -> set[int]:
