@@ -1,0 +1,155 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: charoenpon-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-charoenpon}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  sales-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: charoenpon-sales-bot
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      BOT_MODULE: bots.sales_bot
+    command: python -m bots.sales_bot
+
+  guardian-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: charoenpon-guardian-bot
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      BOT_MODULE: bots.guardian_bot
+    command: python -m bots.guardian_bot
+
+  admin-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: charoenpon-admin-bot
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      BOT_MODULE: bots.admin_bot
+    command: python -m bots.admin_bot
+
+  discord-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: charoenpon-discord-bot
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    command: python -m discord_bot.main
+
+  content-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: charoenpon-content-scheduler
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    command: python -m agents.content_scheduler
+
+  marketing-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: charoenpon-marketing-scheduler
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    command: python -m agents.marketing_scheduler
+
+  finance-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: charoenpon-finance-scheduler
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    command: python -m agents.finance_scheduler
+
+  growth-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: charoenpon-growth-scheduler
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    command: python -m agents.growth_scheduler
+
+  monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: charoenpon-monitor
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    command: python -m agents.monitor
+
+  backup-cron:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: charoenpon-backup-cron
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      PGDATABASE: ${POSTGRES_DB:-charoenpon}
+    command: python -m agents.backup_cron
+
+volumes:
+  postgres_data:
+    driver: local

@@ -1,0 +1,173 @@
+"""/start handler - Sales Bot แพร.
+
+บันทึก user + source, แสดงปุ่มหลัก.
+"""
+
+from __future__ import annotations
+
+import logging
+
+from sqlalchemy import select
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import (
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+)
+
+from shared.database import get_session
+from shared.models import Lead, LeadStatus, User
+
+logger = logging.getLogger(__name__)
+
+WELCOME_TEXT = (
+    "สวัสดีค่ะ ยินดีต้อนรับสู่ <b>บริษัทเจริญพร VIP</b> 🎉\n\n"
+    "ดิฉันชื่อ <b>แพร</b> ค่ะ เป็นผู้ช่วยดูแลเรื่องแพ็กเกจ VIP\n"
+    "สามารถเลือกเมนูด้านล่างได้เลยนะคะ 👇"
+)
+
+MAIN_KEYBOARD = InlineKeyboardMarkup(
+    [
+        [InlineKeyboardButton("📦 ดูแพ็กเกจ", callback_data="view_packages")],
+        [InlineKeyboardButton("🆓 ห้องฟรี", callback_data="free_room")],
+        [InlineKeyboardButton("👩‍💼 ติดต่อแอดมิน", callback_data="contact_admin")],
+    ]
+)
+
+
+def _extract_source(args: list[str]) -> str | None:
+    """Extract referral/campaign source from /start deep link."""
+    if args and args[0]:
+        return args[0]
+    return None
+
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/start command — register user and show main menu."""
+    if not update.effective_user or not update.message:
+        return
+
+    tg_user = update.effective_user
+    source = _extract_source(context.args or [])
+
+    async with get_session() as session:
+        # Upsert user
+        result = await session.execute(
+            select(User).where(User.telegram_id == tg_user.id)
+        )
+        user = result.scalar_one_or_none()
+
+        if user is None:
+            user = User(
+                telegram_id=tg_user.id,
+                username=tg_user.username,
+                first_name=tg_user.first_name,
+                last_name=tg_user.last_name,
+            )
+            session.add(user)
+            await session.flush()
+            logger.info(
+                "New user registered: %s (tg:%d) source=%s",
+                tg_user.username,
+                tg_user.id,
+                source,
+            )
+        else:
+            # Update profile info
+            user.username = tg_user.username
+            user.first_name = tg_user.first_name
+            user.last_name = tg_user.last_name
+
+        # Create/update lead
+        lead_result = await session.execute(
+            select(Lead).where(Lead.telegram_id == tg_user.id)
+        )
+        lead = lead_result.scalar_one_or_none()
+
+        if lead is None:
+            lead = Lead(
+                user_id=user.id,
+                telegram_id=tg_user.id,
+                username=tg_user.username,
+                source=source,
+                status=LeadStatus.NEW,
+            )
+            session.add(lead)
+        elif source and not lead.source:
+            lead.source = source
+
+    await update.message.reply_text(
+        WELCOME_TEXT,
+        parse_mode="HTML",
+        reply_markup=MAIN_KEYBOARD,
+    )
+
+
+async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Callback: return to the main menu."""
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    await query.edit_message_text(
+        WELCOME_TEXT,
+        parse_mode="HTML",
+        reply_markup=MAIN_KEYBOARD,
+    )
+
+
+async def free_room_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Callback: show free room info."""
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+
+    text = (
+        "🆓 <b>ห้องฟรี</b>\n\n"
+        "เรามีห้องทดลองให้ดูก่อนตัดสินใจค่ะ\n"
+        "สามารถเข้าไปดูบรรยากาศและคุณภาพสัญญาณได้เลย\n\n"
+        "📌 กดปุ่มด้านล่างเพื่อขอลิงก์เข้าห้องฟรีค่ะ\n\n"
+        "หากสนใจอัปเกรดเป็น VIP ทักแพรได้เลยนะคะ 😊"
+    )
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("📦 ดูแพ็กเกจ VIP", callback_data="view_packages")],
+            [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
+        ]
+    )
+    await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
+
+
+async def contact_admin_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Callback: show admin contact info."""
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+
+    text = (
+        "👩‍💼 <b>ติดต่อแอดมิน</b>\n\n"
+        "หากมีปัญหาหรือข้อสงสัยที่แพรช่วยไม่ได้\n"
+        "สามารถติดต่อแอดมินได้โดยตรงค่ะ\n\n"
+        "📩 พิมพ์ข้อความที่ต้องการส่งถึงแอดมิน\n"
+        "แพรจะรีบส่งต่อให้นะคะ 😊"
+    )
+    keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")]]
+    )
+    await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
+
+
+def get_start_handlers() -> list:
+    """Return all handlers for the start module."""
+    return [
+        CommandHandler("start", start_command),
+        CallbackQueryHandler(back_to_main_menu, pattern="^back_main$"),
+        CallbackQueryHandler(free_room_callback, pattern="^free_room$"),
+        CallbackQueryHandler(contact_admin_callback, pattern="^contact_admin$"),
+    ]
