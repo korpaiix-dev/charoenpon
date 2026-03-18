@@ -39,8 +39,9 @@ logger = logging.getLogger(__name__)
 MODEL = "deepseek/deepseek-chat"
 CALLER = "finance_agent/reports"
 
-DISCORD_WEBHOOK_FINANCE: str = os.environ.get("DISCORD_WEBHOOK_FINANCE", "")
-DISCORD_WEBHOOK_ALERTS: str = os.environ.get("DISCORD_WEBHOOK_ALERTS", "")
+DISCORD_BOT_TOKEN: str = os.environ.get("DISCORD_BOT_TOKEN", "")
+DISCORD_CH_FINANCE: str = os.environ.get("DISCORD_CH_FINANCE", "")
+DISCORD_CH_ALERTS: str = os.environ.get("DISCORD_CH_ALERTS", "")
 
 ALERT_REVENUE_DROP_THRESHOLD = 0.30
 ALERT_ADS_OVERSPEND_THRESHOLD = 0.20
@@ -466,31 +467,43 @@ async def check_alerts() -> list[dict[str, Any]]:
     return alerts
 
 
-async def send_discord_report(
-    content: str,
-    webhook_url: str | None = None,
-) -> bool:
-    """ส่งรายงานไป Discord."""
-    url = webhook_url or DISCORD_WEBHOOK_FINANCE
-    if not url:
-        logger.warning("No Discord webhook configured for finance reports")
+async def _send_discord(channel_env_value: str, content: str) -> bool:
+    """ส่งข้อความไป Discord channel via Bot API."""
+    token = DISCORD_BOT_TOKEN
+    ch = channel_env_value
+    if not token or not ch:
         return False
-
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(url, json={"content": content})
+            resp = await client.post(
+                f"https://discord.com/api/v10/channels/{ch}/messages",
+                headers={"Authorization": f"Bot {token}", "Content-Type": "application/json"},
+                json={"content": content},
+            )
             resp.raise_for_status()
         return True
     except Exception as exc:
-        logger.error("Failed to send Discord report: %s", exc)
+        logger.error("Failed to send Discord message: %s", exc)
         return False
+
+
+async def send_discord_report(
+    content: str,
+    channel_id: str | None = None,
+) -> bool:
+    """ส่งรายงานไป Discord #finance."""
+    ch = channel_id or DISCORD_CH_FINANCE
+    if not ch:
+        logger.warning("No Discord channel configured for finance reports")
+        return False
+    return await _send_discord(ch, content)
 
 
 async def send_alert(alert: dict[str, Any]) -> bool:
     """ส่ง alert ไป Discord #alerts."""
-    url = DISCORD_WEBHOOK_ALERTS or DISCORD_WEBHOOK_FINANCE
-    if not url:
-        logger.warning("No Discord webhook configured for alerts")
+    ch = DISCORD_CH_ALERTS or DISCORD_CH_FINANCE
+    if not ch:
+        logger.warning("No Discord channel configured for alerts")
         return False
 
     severity_emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(
@@ -502,7 +515,7 @@ async def send_alert(alert: dict[str, Any]) -> bool:
         f"{alert.get('message', '-')}"
     )
 
-    return await send_discord_report(content, url)
+    return await _send_discord(ch, content)
 
 
 async def run_daily_routine() -> None:

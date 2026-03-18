@@ -167,6 +167,11 @@ async def spam_filter_middleware(update: Update, context: CallbackContext) -> bo
     if update.callback_query:
         return False
 
+    # --- TrueMoney gift link — always pass through ---
+    if "gift.truemoney.com" in text:
+        _reset_nonsense(user_id)
+        return False
+
     # --- Check for spam links ---
     if _is_spam_link(text):
         logger.warning("Spam link detected from user %s: %s", user_id, text[:200])

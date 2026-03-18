@@ -144,7 +144,7 @@ async def get_expiring_users(days: int = 3) -> list[dict[str, Any]]:
     Returns list of dicts with: user_id, telegram_id, username, package_name,
     end_date, days_left.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     cutoff = now + timedelta(days=days)
 
     async with get_session() as session:

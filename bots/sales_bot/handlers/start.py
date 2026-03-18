@@ -21,16 +21,16 @@ from shared.models import Lead, LeadStatus, User
 logger = logging.getLogger(__name__)
 
 WELCOME_TEXT = (
-    "สวัสดีค่ะ ยินดีต้อนรับสู่ <b>บริษัทเจริญพร VIP</b> 🎉\n\n"
-    "ดิฉันชื่อ <b>แพร</b> ค่ะ เป็นผู้ช่วยดูแลเรื่องแพ็กเกจ VIP\n"
-    "สามารถเลือกเมนูด้านล่างได้เลยนะคะ 👇"
+    "หวัดดีค่า~ ยินดีต้อนรับสู่ <b>กลุ่ม VIP เจริญพร</b> 🎉\n\n"
+    "แพรเองค่า 😊 มีอะไรให้ช่วยบอกได้เลยนะ\n"
+    "จะดูแพ็กเกจ จะสมัคร หรือมีคำถามอะไร กดด้านล่างเลยค่า 👇"
 )
 
 MAIN_KEYBOARD = InlineKeyboardMarkup(
     [
         [InlineKeyboardButton("📦 ดูแพ็กเกจ", callback_data="view_packages")],
-        [InlineKeyboardButton("🆓 ห้องฟรี", callback_data="free_room")],
-        [InlineKeyboardButton("👩‍💼 ติดต่อแอดมิน", callback_data="contact_admin")],
+        [InlineKeyboardButton("🆓 ห้องฟรี", url="https://t.me/addlist/2xN-ag15W4U2MTNl")],
+        [InlineKeyboardButton("👩‍💼 ติดต่อแอดมิน", url="https://t.me/zeinju_bunker")],
     ]
 )
 
@@ -95,6 +95,27 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             session.add(lead)
         elif source and not lead.source:
             lead.source = source
+
+        # Record teaser click if source is a tracking link
+        if source and source.startswith("t_"):
+            parts = source.split("_")  # t_2300_g5
+            if len(parts) == 3:
+                try:
+                    round_time = parts[1]
+                    group_index = int(parts[2].replace("g", ""))
+                    from shared.models import TeaserClick
+                    click = TeaserClick(
+                        user_id=tg_user.id,
+                        round_time=round_time,
+                        group_index=group_index,
+                    )
+                    session.add(click)
+                    logger.info(
+                        "TeaserClick recorded: user=%d round=%s group=%d",
+                        tg_user.id, round_time, group_index,
+                    )
+                except (ValueError, IndexError) as exc:
+                    logger.warning("Failed to parse teaser source '%s': %s", source, exc)
 
     await update.message.reply_text(
         WELCOME_TEXT,

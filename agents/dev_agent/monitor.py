@@ -22,7 +22,8 @@ from shared.database import engine
 
 logger = logging.getLogger(__name__)
 
-DISCORD_WEBHOOK_ALERTS: str = os.environ.get("DISCORD_WEBHOOK_ALERTS", "")
+DISCORD_BOT_TOKEN: str = os.environ.get("DISCORD_BOT_TOKEN", "")
+DISCORD_CH_SYSTEM: str = os.environ.get("DISCORD_CH_SYSTEM_LOGS", "")
 
 CPU_THRESHOLD = 80.0
 RAM_THRESHOLD = 80.0
@@ -31,9 +32,7 @@ RESPONSE_TIME_THRESHOLD = 3.0
 
 CHECK_INTERVAL_SECONDS = 300
 
-BOT_HEALTH_ENDPOINTS: list[str] = [
-    os.environ.get("BOT_HEALTH_URL", "http://localhost:8080/health"),
-]
+# Bot health endpoints removed — bots don't have health endpoints
 
 
 async def check_database() -> dict[str, Any]:
@@ -168,7 +167,6 @@ async def run_health_check() -> dict[str, Any]:
     now = datetime.now(timezone.utc)
 
     db_result = await check_database()
-    bot_result = await check_bot_health()
     cpu_result = check_cpu()
     ram_result = check_ram()
     disk_result = check_disk()
@@ -180,11 +178,6 @@ async def run_health_check() -> dict[str, Any]:
     elif db_result.get("slow"):
         issues.append(f"Database slow: {db_result['response_time']}s")
 
-    if bot_result["status"] != "ok":
-        for ep in bot_result.get("endpoints", []):
-            if ep["status"] != "ok":
-                issues.append(f"Bot ({ep['url']}): {ep.get('error', 'not responding')}")
-
     if cpu_result.get("exceeded"):
         issues.append(f"CPU high: {cpu_result['usage_percent']}% (>{CPU_THRESHOLD}%)")
 
@@ -194,10 +187,6 @@ async def run_health_check() -> dict[str, Any]:
     if disk_result.get("exceeded"):
         issues.append(f"Disk high: {disk_result['usage_percent']}% (>{DISK_THRESHOLD}%)")
 
-    for ep in bot_result.get("endpoints", []):
-        if ep.get("slow") and ep["status"] == "ok":
-            issues.append(f"Slow response ({ep['url']}): {ep['response_time']}s")
-
     overall = "healthy" if not issues else "unhealthy"
 
     result = {
@@ -206,7 +195,6 @@ async def run_health_check() -> dict[str, Any]:
         "issues": issues,
         "checks": {
             "database": db_result,
-            "bot": bot_result,
             "cpu": cpu_result,
             "ram": ram_result,
             "disk": disk_result,
@@ -241,10 +229,6 @@ def format_health_report(result: dict[str, Any]) -> str:
     db_emoji = "✅" if db.get("status") == "ok" else "❌"
     lines.append(f"{db_emoji} Database: {db.get('status', 'unknown')} ({db.get('response_time', '?')}s)")
 
-    bot = checks.get("bot", {})
-    bot_emoji = "✅" if bot.get("status") == "ok" else "❌"
-    lines.append(f"{bot_emoji} Bot: {bot.get('status', 'unknown')}")
-
     cpu = checks.get("cpu", {})
     cpu_emoji = "✅" if not cpu.get("exceeded") else "⚠️"
     lines.append(f"{cpu_emoji} CPU: {cpu.get('usage_percent', '?')}%")
@@ -269,8 +253,8 @@ def format_health_report(result: dict[str, Any]) -> str:
 
 async def send_alert(result: dict[str, Any]) -> bool:
     """ส่ง alert ไป Discord #alerts เมื่อพบปัญหา."""
-    if not DISCORD_WEBHOOK_ALERTS:
-        logger.warning("No Discord webhook configured for system alerts")
+    if not DISCORD_BOT_TOKEN or not DISCORD_CH_SYSTEM:
+        logger.warning("Discord bot token or system channel not configured")
         return False
 
     content = format_health_report(result)
@@ -278,7 +262,8 @@ async def send_alert(result: dict[str, Any]) -> bool:
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
-                DISCORD_WEBHOOK_ALERTS,
+                f"https://discord.com/api/v10/channels/{DISCORD_CH_SYSTEM}/messages",
+                headers={"Authorization": f"Bot {DISCORD_BOT_TOKEN}", "Content-Type": "application/json"},
                 json={"content": content},
             )
             resp.raise_for_status()

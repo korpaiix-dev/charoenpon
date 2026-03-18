@@ -18,6 +18,7 @@ from shared.models import (
     PaymentStatus,
     Subscription,
     SubscriptionStatus,
+    TeaserClick,
     User,
 )
 from shared.utils import format_thb
@@ -209,6 +210,112 @@ async def cmd_costs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         update.effective_user.id,
         summary["total_usd"],
         summary["total_calls"],
+    )
+
+
+async def cmd_teaser(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/teaser [week|best] — สถิติ teaser clicks."""
+    if not update.effective_user or not _is_admin(update.effective_user.id):
+        await update.effective_message.reply_text("⛔ คุณไม่มีสิทธิ์ใช้งาน")
+        return
+
+    args = context.args or []
+    mode = args[0].lower() if args else "today"
+
+    from sqlalchemy import text
+
+    now = datetime.now(timezone.utc)
+
+    if mode == "week":
+        since = now - timedelta(days=7)
+        period_label = "7 วันที่ผ่านมา"
+    else:
+        since = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        period_label = "วันนี้"
+
+    async with get_session() as session:
+        # Totals
+        total_q = await session.execute(
+            text(
+                "SELECT COUNT(*) as clicks, SUM(CASE WHEN converted THEN 1 ELSE 0 END) as conversions "
+                "FROM teaser_clicks WHERE created_at >= :since"
+            ),
+            {"since": since.replace(tzinfo=None)},
+        )
+        totals = total_q.fetchone()
+
+        if mode == "best":
+            # Best round
+            round_q = await session.execute(
+                text(
+                    "SELECT round_time, COUNT(*) as clicks, "
+                    "SUM(CASE WHEN converted THEN 1 ELSE 0 END) as conversions "
+                    "FROM teaser_clicks WHERE created_at >= :since "
+                    "GROUP BY round_time ORDER BY clicks DESC LIMIT 3"
+                ),
+                {"since": since.replace(tzinfo=None)},
+            )
+            best_rounds = round_q.fetchall()
+
+            # Best group
+            group_q = await session.execute(
+                text(
+                    "SELECT group_index, COUNT(*) as clicks, "
+                    "SUM(CASE WHEN converted THEN 1 ELSE 0 END) as conversions "
+                    "FROM teaser_clicks WHERE created_at >= :since "
+                    "GROUP BY group_index ORDER BY clicks DESC LIMIT 3"
+                ),
+                {"since": since.replace(tzinfo=None)},
+            )
+            best_groups = group_q.fetchall()
+        else:
+            # By round for today/week
+            round_q = await session.execute(
+                text(
+                    "SELECT round_time, COUNT(*) as clicks, "
+                    "SUM(CASE WHEN converted THEN 1 ELSE 0 END) as conversions "
+                    "FROM teaser_clicks WHERE created_at >= :since "
+                    "GROUP BY round_time ORDER BY round_time"
+                ),
+                {"since": since.replace(tzinfo=None)},
+            )
+            best_rounds = round_q.fetchall()
+            best_groups = []
+
+    total_clicks = totals.clicks or 0
+    total_convs = totals.conversions or 0
+    overall_cvr = (total_convs / total_clicks * 100) if total_clicks > 0 else 0.0
+
+    lines = [
+        f"📊 <b>Teaser Stats — {period_label}</b>\n",
+        f"🔢 Clicks: <b>{total_clicks}</b> | Conversions: <b>{total_convs}</b> | CVR: <b>{overall_cvr:.1f}%</b>",
+    ]
+
+    if mode == "best":
+        lines.append("\n<b>🏆 รอบที่ดีที่สุด:</b>")
+        for r in best_rounds:
+            cvr = (r.conversions / r.clicks * 100) if r.clicks else 0.0
+            lines.append(f"  • รอบ {r.round_time}: {r.clicks} คลิก ({cvr:.1f}%)")
+        lines.append("\n<b>🏆 กลุ่มที่ดีที่สุด:</b>")
+        for g in best_groups:
+            cvr = (g.conversions / g.clicks * 100) if g.clicks else 0.0
+            lines.append(f"  • กลุ่ม #{g.group_index}: {g.clicks} คลิก ({cvr:.1f}%)")
+    else:
+        lines.append("\n<b>⏰ แยกตามรอบ:</b>")
+        for r in best_rounds:
+            cvr = (r.conversions / r.clicks * 100) if r.clicks else 0.0
+            lines.append(f"  • รอบ {r.round_time}: {r.clicks} คลิก → {r.conversions} สมัคร ({cvr:.1f}%)")
+        if not best_rounds:
+            lines.append("  (ยังไม่มีข้อมูล)")
+
+    await update.effective_message.reply_text("\n".join(lines), parse_mode="HTML")
+
+    logger.info(
+        "[%s] [ADMIN_BOT] [TEASER_REPORT] [%s] [mode=%s total_clicks=%d]",
+        datetime.now(timezone.utc).isoformat(),
+        update.effective_user.id,
+        mode,
+        total_clicks,
     )
 
 

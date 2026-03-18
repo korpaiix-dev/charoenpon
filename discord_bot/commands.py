@@ -552,6 +552,181 @@ class CharoenponCommands(commands.Cog):
         )
 
 
+# ─── Payment Approval View ────────────────────────────────────────────────────
+
+class PaymentApprovalView(discord.ui.View):
+    """Discord Buttons สำหรับอนุมัติ/ไม่อนุมัติ payment."""
+
+    def __init__(self) -> None:
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="อนุมัติ", emoji="✅", style=discord.ButtonStyle.success, custom_id="pay_approve")
+    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        # Extract payment_id from embed
+        payment_id = _extract_payment_id(interaction)
+        if not payment_id:
+            await interaction.response.send_message("❌ ไม่พบ Payment ID", ephemeral=True)
+            return
+
+        try:
+            from bots.sales_bot.handlers.payment import _approve_payment
+            from shared.models import Package, User
+
+            async with get_session() as session:
+                payment = await session.get(Payment, payment_id)
+                if not payment:
+                    await interaction.response.send_message("❌ ไม่พบ Payment", ephemeral=True)
+                    return
+                if payment.status == PaymentStatus.CONFIRMED:
+                    await interaction.response.send_message("⚠️ อนุมัติไปแล้ว", ephemeral=True)
+                    return
+
+                # Get user telegram_id
+                user = await session.get(User, payment.user_id)
+                if not user:
+                    await interaction.response.send_message("❌ ไม่พบ User", ephemeral=True)
+                    return
+                user_tg_id = user.telegram_id
+
+            # Approve payment & generate invite links
+            import telegram as tg
+            import os
+            sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+            invite_links = await _approve_payment(payment, user_tg_id, sales_bot)
+            links_text = "\n".join(invite_links) if invite_links else "ไม่สามารถสร้างลิงก์ได้"
+
+            # Send invite links to customer via Sales Bot
+            try:
+                await sales_bot.send_message(
+                    chat_id=user_tg_id,
+                    text=(
+                        f"✅ <b>ชำระเงินสำเร็จค่ะ!</b>\n\n"
+                        f"🔗 <b>ลิงก์เข้ากลุ่ม VIP:</b>\n{links_text}\n\n"
+                        f"⚠️ ลิงก์แต่ละลิงก์ใช้ได้ 1 ครั้ง หมดอายุ 24 ชม.\n"
+                        f"กรุณากดเข้าร่วมโดยเร็วนะคะ 🙏"
+                    ),
+                    parse_mode="HTML",
+                )
+            except Exception as exc:
+                logger.warning("Failed to send invite to user: %s", exc)
+
+            # Update embed
+            embed = interaction.message.embeds[0] if interaction.message.embeds else None
+            if embed:
+                embed.title = "✅ APPROVED — อนุมัติแล้ว"
+                embed.color = discord.Color.green()
+                embed.set_footer(text=f"อนุมัติโดย {interaction.user.display_name}")
+
+            await interaction.response.edit_message(embed=embed, view=None)
+            await interaction.followup.send(
+                f"✅ อนุมัติ #PAY{payment_id} แล้ว — ส่งลิงก์ให้ลูกค้าเรียบร้อย",
+                ephemeral=True,
+            )
+        except Exception as exc:
+            logger.error("Payment approve error: %s", exc)
+            await interaction.response.send_message(f"❌ Error: {exc}", ephemeral=True)
+
+    @discord.ui.button(label="ไม่อนุมัติ", emoji="❌", style=discord.ButtonStyle.danger, custom_id="pay_reject")
+    async def reject(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        payment_id = _extract_payment_id(interaction)
+        if not payment_id:
+            await interaction.response.send_message("❌ ไม่พบ Payment ID", ephemeral=True)
+            return
+
+        try:
+            async with get_session() as session:
+                payment = await session.get(Payment, payment_id)
+                if not payment:
+                    await interaction.response.send_message("❌ ไม่พบ Payment", ephemeral=True)
+                    return
+                payment.status = PaymentStatus.REJECTED
+                payment.reject_reason = f"ไม่อนุมัติโดย {interaction.user.display_name}"
+
+            # Notify customer
+            from shared.models import User
+            import telegram as tg
+            import os
+
+            async with get_session() as session:
+                user = await session.get(User, payment.user_id)
+                if user:
+                    try:
+                        sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+                        await sales_bot.send_message(
+                            chat_id=user.telegram_id,
+                            text=(
+                                f"❌ <b>สลิปไม่ผ่านการตรวจสอบค่ะ</b>\n\n"
+                                f"กรุณาส่งสลิปใหม่ หรือติดต่อแอดมินค่ะ\n"
+                                f"หมายเลข: #PAY{payment_id}"
+                            ),
+                            parse_mode="HTML",
+                        )
+                    except Exception as exc:
+                        logger.warning("Failed to notify user rejection: %s", exc)
+
+            # Update embed
+            embed = interaction.message.embeds[0] if interaction.message.embeds else None
+            if embed:
+                embed.title = "❌ REJECTED — ไม่อนุมัติ"
+                embed.color = discord.Color.red()
+                embed.set_footer(text=f"ไม่อนุมัติโดย {interaction.user.display_name}")
+
+            await interaction.response.edit_message(embed=embed, view=None)
+        except Exception as exc:
+            logger.error("Payment reject error: %s", exc)
+            await interaction.response.send_message(f"❌ Error: {exc}", ephemeral=True)
+
+    @discord.ui.button(label="ตรวจเพิ่ม", emoji="🔍", style=discord.ButtonStyle.secondary, custom_id="pay_inspect")
+    async def inspect(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        payment_id = _extract_payment_id(interaction)
+        if not payment_id:
+            await interaction.response.send_message("❌ ไม่พบ Payment ID", ephemeral=True)
+            return
+
+        async with get_session() as session:
+            payment = await session.get(Payment, payment_id)
+            if not payment:
+                await interaction.response.send_message("❌ ไม่พบ Payment", ephemeral=True)
+                return
+
+            from shared.models import User, Package
+            user = await session.get(User, payment.user_id)
+            package = await session.get(Package, payment.package_id)
+
+        embed = discord.Embed(
+            title=f"🔍 รายละเอียด #PAY{payment_id}",
+            color=discord.Color.blue(),
+        )
+        embed.add_field(name="สถานะ", value=payment.status.value, inline=True)
+        embed.add_field(name="ยอด", value=format_thb(payment.amount), inline=True)
+        embed.add_field(name="วิธีชำระ", value=payment.method.value, inline=True)
+        if user:
+            embed.add_field(name="ลูกค้า", value=f"@{user.username or user.first_name} (TG: {user.telegram_id})", inline=False)
+        if package:
+            embed.add_field(name="แพ็กเกจ", value=f"{package.name} ({format_thb(package.price)})", inline=False)
+        embed.add_field(name="สร้างเมื่อ", value=str(payment.created_at)[:19], inline=True)
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+def _extract_payment_id(interaction: discord.Interaction) -> int | None:
+    """Extract payment_id from embed description (#PAYxx)."""
+    import re
+    if interaction.message and interaction.message.embeds:
+        desc = interaction.message.embeds[0].description or ""
+        match = re.search(r"#PAY(\d+)", desc)
+        if match:
+            return int(match.group(1))
+    # Try from custom_id
+    if hasattr(interaction, "data") and interaction.data:
+        cid = interaction.data.get("custom_id", "")
+        match = re.search(r"(\d+)$", cid)
+        if match:
+            return int(match.group(1))
+    return None
+
+
 async def setup(bot: commands.Bot) -> None:
-    """Add the commands cog to the bot."""
+    """Add the commands cog and persistent views to the bot."""
     await bot.add_cog(CharoenponCommands(bot))
+    bot.add_view(PaymentApprovalView())

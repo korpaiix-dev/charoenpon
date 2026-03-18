@@ -131,7 +131,7 @@ async def approve_payment_callback(update: Update, context: ContextTypes.DEFAULT
         duration_days = package.duration_days if package else 30
 
         # Create subscription
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         from datetime import timedelta
         subscription = Subscription(
             user_id=payment.user_id,
@@ -148,6 +148,15 @@ async def approve_payment_callback(update: Update, context: ContextTypes.DEFAULT
         if user:
             user.total_spent = user.total_spent + payment.amount
 
+            # Mark teaser clicks as converted for this user
+            from sqlalchemy import update as sa_update
+            from shared.models import TeaserClick
+            await session.execute(
+                sa_update(TeaserClick)
+                .where(TeaserClick.user_id == user.telegram_id, TeaserClick.converted == False)
+                .values(converted=True)
+            )
+
         await session.flush()
 
     # Log admin action
@@ -159,13 +168,54 @@ async def approve_payment_callback(update: Update, context: ContextTypes.DEFAULT
         details=f"Approved payment #{payment_id}, amount={payment.amount}",
     )
 
+    # Send invite links to customer
+    invite_text = ""
+    if user:
+        try:
+            from bots.guardian_bot.group_monitor import generate_invite_links_for_user
+            import os
+            import telegram as tg
+            sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+            invite_links = await generate_invite_links_for_user(
+                sales_bot, user.telegram_id, payment.package_id
+            )
+            links_list = []
+            async with get_session() as session:
+                from shared.models import GroupRegistry
+                for slug, link in invite_links.items():
+                    grp_result = await session.execute(
+                        select(GroupRegistry).where(GroupRegistry.slug == slug)
+                    )
+                    group = grp_result.scalar_one_or_none()
+                    title = group.title if group else slug
+                    links_list.append(f"• {title}: {link}")
+            links_text = "\n".join(links_list) if links_list else "ไม่สามารถสร้างลิงก์ได้"
+
+            await sales_bot.send_message(
+                chat_id=user.telegram_id,
+                text=(
+                    f"✅ <b>ชำระเงินสำเร็จค่ะ!</b>\n\n"
+                    f"🔗 <b>ลิงก์เข้ากลุ่ม VIP:</b>\n{links_text}\n\n"
+                    f"⚠️ ลิงก์แต่ละลิงก์ใช้ได้ 1 ครั้ง หมดอายุ 24 ชม.\n"
+                    f"กรุณากดเข้าร่วมโดยเร็วนะคะ 🙏"
+                ),
+                parse_mode="HTML",
+            )
+            invite_text = "\n📩 ส่งลิงก์ให้ลูกค้าแล้ว"
+        except Exception as exc:
+            logger.error("Failed to send invite links: %s", exc)
+            invite_text = "\n⚠️ ส่งลิงก์ไม่สำเร็จ"
+
     package_name = package.name if package else "N/A"
-    await query.edit_message_text(
-        f"✅ <b>อนุมัติ Payment #{payment_id}</b>\n"
-        f"📦 แพ็กเกจ: {package_name}\n"
-        f"💰 จำนวน: {format_thb(payment.amount)}\n"
-        f"⏱ ระยะเวลา: {duration_days} วัน\n"
-        f"👤 อนุมัติโดย: {query.from_user.first_name}",
+    await query.edit_message_caption(
+        caption=(
+            f"✅ <b>อนุมัติ Payment #{payment_id}</b>\n"
+            f"📦 แพ็กเกจ: {package_name}\n"
+            f"💰 จำนวน: {format_thb(payment.amount)}\n"
+            f"⏱ ระยะเวลา: {duration_days} วัน\n"
+            f"👤 อนุมัติโดย: {query.from_user.first_name}"
+            f"{invite_text}"
+        ),
         parse_mode="HTML",
     )
 
@@ -383,3 +433,395 @@ async def reject_broadcast_callback(update: Update, context: ContextTypes.DEFAUL
         query.from_user.id,
         broadcast_id,
     )
+
+
+async def inspect_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """ดูรายละเอียด payment เพิ่มเติม."""
+    query = update.callback_query
+    await query.answer()
+
+    if not query.from_user or not _is_admin(query.from_user.id):
+        await query.answer("⛔ คุณไม่มีสิทธิ์", show_alert=True)
+        return
+
+    payment_id = int(query.data.split(":")[1])
+
+    async with get_session() as session:
+        payment = await session.get(Payment, payment_id)
+        if not payment:
+            await query.answer(f"❌ ไม่พบ Payment #{payment_id}", show_alert=True)
+            return
+
+        user = await session.get(User, payment.user_id)
+        package = await session.get(Package, payment.package_id)
+
+    info = (
+        f"🔍 รายละเอียด #PAY{payment_id}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"สถานะ: {payment.status.value}\n"
+        f"ยอด: {format_thb(payment.amount)}\n"
+        f"วิธี: {payment.method.value}\n"
+    )
+    if user:
+        info += f"ลูกค้า: @{user.username or user.first_name} (TG: {user.telegram_id})\n"
+    if package:
+        info += f"แพ็กเกจ: {package.name} ({format_thb(package.price)})\n"
+    info += f"สร้างเมื่อ: {str(payment.created_at)[:19]}"
+
+    await query.answer(info[:200], show_alert=True)
+
+
+async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """อนุมัติสลิปโดยเลือกราคา — approve_300_userid format."""
+    query = update.callback_query
+    await query.answer()
+
+    if not query.from_user or not _is_admin(query.from_user.id):
+        await query.answer("⛔ คุณไม่มีสิทธิ์", show_alert=True)
+        return
+
+    parts = query.data.split("_")  # approve_300_12345
+    price = parts[1]
+    target_user_id = int(parts[2])
+
+    import os
+    import telegram as tg
+    from datetime import timedelta
+    from bots.guardian_bot.group_monitor import generate_invite_links_for_user
+
+    try:
+        # Find package by price
+        async with get_session() as session:
+            from shared.models import Package, PackageTier
+            tier_map = {"300": "300", "500": "500", "1299": "1299", "2499": "2499"}
+            tier = tier_map.get(price)
+            if not tier:
+                await query.answer(f"❌ ราคา {price} ไม่ถูกต้อง", show_alert=True)
+                return
+
+            pkg_result = await session.execute(
+                select(Package).where(Package.tier == PackageTier(tier))
+            )
+            package = pkg_result.scalar_one_or_none()
+            if not package:
+                await query.answer("❌ ไม่พบแพ็กเกจ", show_alert=True)
+                return
+
+            # Find or create user
+            user_result = await session.execute(
+                select(User).where(User.telegram_id == target_user_id)
+            )
+            db_user = user_result.scalar_one_or_none()
+            if not db_user:
+                db_user = User(telegram_id=target_user_id, first_name="ลูกค้า")
+                session.add(db_user)
+                await session.flush()
+
+            # Create subscription
+            from decimal import Decimal
+            now = datetime.utcnow()
+            subscription = Subscription(
+                user_id=db_user.id,
+                package_id=package.id,
+                status=SubscriptionStatus.ACTIVE,
+                start_date=now,
+                end_date=now + timedelta(days=package.duration_days),
+            )
+            session.add(subscription)
+            db_user.total_spent = (db_user.total_spent or Decimal("0")) + package.price
+
+            # Mark teaser clicks as converted for this user
+            from sqlalchemy import update as sa_update
+            from shared.models import TeaserClick
+            await session.execute(
+                sa_update(TeaserClick)
+                .where(TeaserClick.user_id == target_user_id, TeaserClick.converted == False)
+                .values(converted=True)
+            )
+
+            await session.flush()
+            pkg_name = package.name
+            duration = package.duration_days
+            pkg_id = package.id
+
+        # Generate invite links using Guardian Bot (must be admin in all VIP groups)
+        guardian_bot = tg.Bot(token=os.environ.get("GUARDIAN_BOT_TOKEN", ""))
+        sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+        invite_links = await generate_invite_links_for_user(guardian_bot, target_user_id, pkg_id)
+
+        links_list = []
+        async with get_session() as session:
+            from shared.models import GroupRegistry
+            for slug, link in invite_links.items():
+                grp_result = await session.execute(
+                    select(GroupRegistry).where(GroupRegistry.slug == slug)
+                )
+                group = grp_result.scalar_one_or_none()
+                title = group.title if group else slug
+                links_list.append({"text": f"🚀 {title}", "url": link})
+
+        # Send invite links to customer (2 buttons per row)
+        link_buttons = [links_list[i:i+2] for i in range(0, len(links_list), 2)]
+
+        expire_date = (datetime.utcnow() + timedelta(days=duration)).strftime("%d/%m/%Y")
+        msg = (
+            f"✅ <b>อนุมัติยอด {price} บาท เรียบร้อยค่ะ</b>\n"
+            f"📦 แพ็กเกจ: {pkg_name}\n"
+            f"📅 หมดอายุ: {expire_date}\n\n"
+            f"👇 <b>กดเข้ากลุ่มที่ปุ่มด้านล่างได้เลย</b>\n\n"
+            f"🆓 <b>ห้องฟรี:</b> https://t.me/addlist/2xN-ag15W4U2MTNl"
+        )
+        keyboard = tg.InlineKeyboardMarkup(
+            [[tg.InlineKeyboardButton(b["text"], url=b["url"]) for b in row]
+             for row in link_buttons]
+        )
+        await sales_bot.send_message(chat_id=target_user_id, text=msg, parse_mode="HTML", reply_markup=keyboard)
+
+        # Update admin message — keep chat button
+        safe_admin = query.from_user.first_name or "Admin"
+        old_caption = query.message.caption or ""
+        new_caption = f"{old_caption}\n\n✅ <b>สถานะ: อนุมัติ ({price}บ.) โดย {safe_admin}</b>"
+        post_keyboard = tg.InlineKeyboardMarkup([
+            [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", url=f"tg://user?id={target_user_id}")],
+        ])
+        try:
+            await query.edit_message_caption(caption=new_caption[:1024], parse_mode="HTML", reply_markup=post_keyboard)
+        except:
+            pass
+
+        # Notify Discord
+        await _notify_discord_alert(
+            f"✅ อนุมัติ {price} บาท",
+            f"👤 ลูกค้า: TG ID {target_user_id}\n📦 แพ็กเกจ: {pkg_name}\n👮 โดย: {safe_admin}",
+            color=0x2ECC71,
+        )
+
+    except Exception as exc:
+        logger.error("approve_by_price error: %s", exc)
+        await query.answer(f"❌ Error: {str(exc)[:100]}", show_alert=True)
+
+
+async def reject_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """ปฏิเสธสลิป — reject_userid format."""
+    query = update.callback_query
+    await query.answer()
+
+    if not query.from_user or not _is_admin(query.from_user.id):
+        await query.answer("⛔ คุณไม่มีสิทธิ์", show_alert=True)
+        return
+
+    target_user_id = int(query.data.split("_")[1])
+
+    import os, telegram as tg
+    try:
+        sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+        await sales_bot.send_message(
+            chat_id=target_user_id,
+            text="❌ <b>สลิปไม่ผ่านการตรวจสอบค่ะ</b>\nกรุณาส่งสลิปใหม่ หรือติดต่อแอดมิน https://t.me/zeinju_bunker",
+            parse_mode="HTML",
+        )
+    except Exception as exc:
+        logger.warning("Failed to notify rejection: %s", exc)
+
+    safe_admin = query.from_user.first_name or "Admin"
+    old_caption = query.message.caption or ""
+    new_caption = f"{old_caption}\n\n❌ <b>สถานะ: ปฏิเสธ โดย {safe_admin}</b>"
+    await _notify_discord_alert(f"❌ ปฏิเสธสลิป", f"👤 TG ID {target_user_id}\n👮 โดย: {safe_admin}", color=0xE74C3C)
+    import telegram as tg
+    post_keyboard = tg.InlineKeyboardMarkup([
+        [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", url=f"tg://user?id={target_user_id}")],
+    ])
+    try:
+        await query.edit_message_caption(caption=new_caption[:1024], parse_mode="HTML", reply_markup=post_keyboard)
+    except:
+        pass
+
+
+async def ban_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """แบนลูกค้า — ban_userid format."""
+    query = update.callback_query
+    await query.answer()
+
+    if not query.from_user or not _is_admin(query.from_user.id):
+        await query.answer("⛔ คุณไม่มีสิทธิ์", show_alert=True)
+        return
+
+    target_user_id = int(query.data.split("_")[1])
+
+    import os, telegram as tg
+    try:
+        # Ban user in DB
+        async with get_session() as session:
+            user_result = await session.execute(
+                select(User).where(User.telegram_id == target_user_id)
+            )
+            db_user = user_result.scalar_one_or_none()
+            if db_user:
+                db_user.is_banned = True
+
+        sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+        await sales_bot.send_message(
+            chat_id=target_user_id,
+            text="🚫 <b>คุณถูกระงับการใช้งานถาวร</b>\nเนื่องจากส่งรูปภาพที่ไม่เหมาะสมหรือสลิปปลอม หากมีข้อสงสัยกรุณาติดต่อแอดมิน",
+            parse_mode="HTML",
+        )
+    except Exception as exc:
+        logger.warning("Failed to ban user: %s", exc)
+
+    safe_admin = query.from_user.first_name or "Admin"
+    old_caption = query.message.caption or ""
+    new_caption = f"{old_caption}\n\n🚫 <b>สถานะ: แบนถาวร โดย {safe_admin}</b>"
+    await _notify_discord_alert(f"🚫 แบนลูกค้า", f"👤 TG ID {target_user_id}\n👮 โดย: {safe_admin}", color=0x992D22)
+    import telegram as tg
+    post_keyboard = tg.InlineKeyboardMarkup([
+        [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", url=f"tg://user?id={target_user_id}")],
+    ])
+    try:
+        await query.edit_message_caption(caption=new_caption[:1024], parse_mode="HTML", reply_markup=post_keyboard)
+    except:
+        pass
+
+
+async def sos_resend_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """SOS: ส่งลิงก์เข้ากลุ่มใหม่ให้ลูกค้า."""
+    query = update.callback_query
+    await query.answer()
+
+    if not query.from_user or not _is_admin(query.from_user.id):
+        await query.answer("⛔ คุณไม่มีสิทธิ์", show_alert=True)
+        return
+
+    target_user_id = int(query.data.split("_")[2])
+
+    import os
+    import telegram as tg
+    from bots.guardian_bot.group_monitor import generate_invite_links_for_user
+
+    try:
+        # Find user's active subscription to determine package
+        async with get_session() as session:
+            sub_result = await session.execute(
+                select(Subscription).where(
+                    Subscription.user_id == (
+                        select(User.id).where(User.telegram_id == target_user_id).scalar_subquery()
+                    ),
+                    Subscription.status == SubscriptionStatus.ACTIVE,
+                ).order_by(Subscription.end_date.desc())
+            )
+            sub = sub_result.scalars().first()
+
+        if not sub:
+            # เช็ค CSV whitelist — ลูกค้าเก่าอาจไม่มี subscription ในระบบใหม่
+            import csv
+            csv_path = "/app/data/members2_latest.csv"
+            csv_found = False
+            csv_status = None
+            try:
+                with open(csv_path) as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        if row.get("User ID", "").strip() == str(target_user_id):
+                            csv_found = True
+                            csv_status = (row.get("Status") or "").strip()
+                            break
+            except Exception:
+                pass
+
+            if not csv_found:
+                await query.answer("❌ ลูกค้าไม่มี subscription และไม่อยู่ในฐานข้อมูลลูกค้าเก่า", show_alert=True)
+                return
+
+            if csv_status == "Expired":
+                await query.answer("❌ ลูกค้าหมดอายุแล้ว ไม่สามารถส่งลิ้งค์ได้", show_alert=True)
+                return
+
+            # ลูกค้าเก่า — ส่ง invite ทุกกลุ่ม (ใช้ package_id=None)
+            sub_package_id = None
+        else:
+            sub_package_id = sub.package_id
+
+        # Generate invite links using Guardian Bot
+        guardian_bot = tg.Bot(token=os.environ.get("GUARDIAN_BOT_TOKEN", ""))
+        sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+        invite_links = await generate_invite_links_for_user(guardian_bot, target_user_id, sub_package_id)
+
+        if not invite_links:
+            await query.answer("❌ สร้างลิงก์ไม่สำเร็จ", show_alert=True)
+            return
+
+        # Build link buttons
+        links_list = []
+        async with get_session() as session:
+            from shared.models import GroupRegistry
+            for slug, link in invite_links.items():
+                grp_result = await session.execute(
+                    select(GroupRegistry).where(GroupRegistry.slug == slug)
+                )
+                group = grp_result.scalar_one_or_none()
+                title = group.title if group else slug
+                links_list.append(tg.InlineKeyboardButton(f"🚀 {title}", url=link))
+
+        link_buttons = [links_list[i:i+2] for i in range(0, len(links_list), 2)]
+        keyboard = tg.InlineKeyboardMarkup(link_buttons)
+
+        # Send to customer via Sales Bot
+        is_sent = True
+        try:
+            await sales_bot.send_message(
+                chat_id=target_user_id,
+                text="🔄 <b>ส่งลิงก์เข้ากลุ่มให้ใหม่แล้วค่า</b>\nกดเข้าได้เลยนะ 👇",
+                parse_mode="HTML",
+                reply_markup=keyboard,
+            )
+        except Exception:
+            is_sent = False
+
+        # Update admin message
+        safe_admin = query.from_user.first_name or "Admin"
+        old_text = query.message.text or ""
+        if is_sent:
+            new_text = f"{old_text}\n\n✅ <b>สถานะ: ส่งลิงก์สำรองสำเร็จ โดย {safe_admin}</b>"
+            new_keyboard = tg.InlineKeyboardMarkup([
+                [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", url=f"tg://user?id={target_user_id}")],
+            ])
+        else:
+            new_text = f"{old_text}\n\n❌ <b>ส่งไม่สำเร็จ (ลูกค้าบล็อกบอท)</b>"
+            new_keyboard = tg.InlineKeyboardMarkup([
+                [tg.InlineKeyboardButton("🔄 ส่งลิงก์ใหม่", callback_data=f"sos_resend_{target_user_id}")],
+                [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", url=f"tg://user?id={target_user_id}")],
+            ])
+
+        try:
+            await query.edit_message_text(text=new_text[:4096], parse_mode="HTML", reply_markup=new_keyboard)
+        except:
+            pass
+
+    except Exception as exc:
+        logger.error("SOS resend error: %s", exc)
+        await query.answer(f"❌ Error: {str(exc)[:100]}", show_alert=True)
+
+
+async def _notify_discord_alert(title: str, details: str, color: int = 0x3498DB) -> None:
+    """Send notification to Discord #alerts as embed."""
+    import os, httpx
+    from datetime import timezone, timedelta
+    discord_token = os.environ.get("DISCORD_BOT_TOKEN", "")
+    discord_ch = os.environ.get("DISCORD_CH_ALERTS", "")
+    if not discord_token or not discord_ch:
+        return
+    try:
+        now_th = datetime.now(timezone(timedelta(hours=7)))
+        embed = {
+            "title": title,
+            "description": details,
+            "color": color,
+            "footer": {"text": f"⊙ เจริญพร | {now_th.strftime('%d/%m/%Y %H:%M')}"},
+        }
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                f"https://discord.com/api/v10/channels/{discord_ch}/messages",
+                headers={"Authorization": f"Bot {discord_token}", "Content-Type": "application/json"},
+                json={"embeds": [embed]},
+            )
+    except Exception as exc:
+        logger.warning("Discord notify failed: %s", exc)

@@ -18,11 +18,17 @@ from datetime import time as dt_time
 from datetime import timedelta, timezone
 
 from telegram import Update
-from telegram.ext import Application, ChatMemberHandler, ContextTypes
+from telegram.ext import Application, CallbackQueryHandler, ChatMemberHandler, ContextTypes
 
-from shared.database import close_db, init_db
+from shared.database import close_db, get_session, init_db
 
-from bots.guardian_bot.group_monitor import check_and_kick_unauthorized
+from bots.guardian_bot.group_monitor import (
+    check_and_kick_unauthorized,
+    is_in_csv_whitelist,
+    load_csv_whitelist,
+    notify_admin_for_decision,
+    pending_guardian_decisions,
+)
 from bots.guardian_bot.scheduler import (
     check_unauthorized_members,
     generate_daily_report,
@@ -127,7 +133,7 @@ async def handle_chat_member_update(
     authorized_ids = await _get_authorized_telegram_ids(slug)
 
     if user.id in authorized_ids:
-        logger.info("User %s joined group %s — authorized", user.id, slug)
+        logger.info("User %s joined group %s — authorized (DB)", user.id, slug)
         return
 
     # Check if admin
@@ -137,57 +143,116 @@ async def handle_chat_member_update(
     if user.id in admin_ids:
         return
 
-    # Unauthorized — kick immediately
+    # ชั้น 2: Check CSV whitelist
+    if is_in_csv_whitelist(user.id):
+        logger.info("User %s joined group %s — authorized (CSV)", user.id, slug)
+        return
+
+    # ชั้น 3: ไม่เจอเลย → แจ้ง Admin พร้อมปุ่ม (ไม่เตะทันที!)
+    logger.info(
+        "User %s (@%s) joined group %s — NOT authorized, notifying admin",
+        user.id, user.username, slug,
+    )
+
+    await notify_admin_for_decision(
+        bot=context.bot,
+        user_id=user.id,
+        username=user.username,
+        chat_id=chat_id,
+        group_title=group.title,
+        job_queue=context.application.job_queue,
+    )
+
+
+# --- Callback query handlers for admin decisions ---
+
+async def handle_guardian_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle ✅ ปล่อย / ❌ เตะ callback from admin group."""
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    await query.answer()
+
+    data = query.data  # guardian_keep_{user_id}_{chat_id} or guardian_kick_{user_id}_{chat_id}
+    parts = data.split("_")
+    # Format: guardian_keep_12345_-100xxx or guardian_kick_12345_-100xxx
+    if len(parts) < 4:
+        return
+
+    action = parts[1]  # keep or kick
     try:
-        await context.bot.ban_chat_member(chat_id=chat_id, user_id=user.id)
-        await context.bot.unban_chat_member(
-            chat_id=chat_id, user_id=user.id, only_if_banned=True
+        user_id = int(parts[2])
+        chat_id = int("_".join(parts[3:]))  # chat_id can be negative with underscore
+    except (ValueError, IndexError):
+        return
+
+    admin_user = query.from_user
+    admin_name = f"@{admin_user.username}" if admin_user.username else admin_user.full_name
+
+    decision_key = f"{user_id}_{chat_id}"
+
+    # Cancel the timeout job
+    job_name = pending_guardian_decisions.pop(decision_key, None)
+    if job_name:
+        jobs = context.job_queue.get_jobs_by_name(job_name)
+        for job in jobs:
+            job.schedule_removal()
+
+    if action == "keep":
+        # ปล่อย — don't kick
+        await query.edit_message_text(
+            text=f"✅ ปล่อยแล้ว โดย {admin_name}\n\n👤 User: {user_id}"
         )
+        logger.info("Admin %s decided to KEEP user %s in chat %s", admin_name, user_id, chat_id)
 
-        from shared.utils import log_admin_action
-
-        await log_admin_action(
-            admin_id=0,
-            action="kick_unauthorized_realtime",
-            target_type="user",
-            target_id=user.id,
-            details=f"tg={user.id} group={slug} username={user.username} realtime_join",
-        )
-
-        logger.info(
-            "Kicked unauthorized user %s (@%s) from group %s (realtime)",
-            user.id,
-            user.username,
-            slug,
-        )
-
+    elif action == "kick":
+        # เตะ
         try:
-            await context.bot.send_message(
-                chat_id=user.id,
-                text=(
-                    f"⚠️ คุณถูกนำออกจากกลุ่ม {group.title} "
-                    "เนื่องจากไม่มี subscription ที่ active ครับ\n\n"
-                    "หากต้องการเข้าใช้งาน สามารถสมัครแพ็กเกจได้ที่ @CharoenponBot ครับ"
-                ),
-            )
-        except Exception:
-            pass
+            await context.bot.ban_chat_member(chat_id=chat_id, user_id=user_id)
+            await context.bot.unban_chat_member(chat_id=chat_id, user_id=user_id, only_if_banned=True)
 
-    except Exception as exc:
-        logger.error(
-            "Failed to kick unauthorized join %s from %s: %s",
-            user.id,
-            slug,
-            exc,
+            from shared.utils import log_admin_action
+            await log_admin_action(
+                admin_id=admin_user.id,
+                action="kick_by_admin_decision",
+                target_type="user",
+                target_id=user_id,
+                details=f"tg={user_id} chat={chat_id} by={admin_name}",
+            )
+
+            # Notify user
+            try:
+                from telegram import Bot as _Bot
+                _sales = _Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+                await _sales.send_message(
+                    chat_id=user_id,
+                    text=(
+                        "⚠️ คุณถูกนำออกจากกลุ่มเนื่องจากไม่มี subscription ที่ active ครับ\n\n"
+                        "หากต้องการเข้าใหม่ สามารถสมัครแพ็กเกจได้ที่ @NamwarnJarern_bot ครับ"
+                    ),
+                )
+            except Exception:
+                pass
+
+        except Exception as exc:
+            logger.error("Failed to kick user %s from chat %s: %s", user_id, chat_id, exc)
+
+        await query.edit_message_text(
+            text=f"❌ เตะแล้ว โดย {admin_name}\n\n👤 User: {user_id}"
         )
+        logger.info("Admin %s decided to KICK user %s from chat %s", admin_name, user_id, chat_id)
 
 
 # --- Application setup ---
 
 async def post_init(application: Application) -> None:
-    """Post-init hook — initialize database."""
+    """Post-init hook — initialize database + load CSV whitelist."""
     await init_db()
-    logger.info("Guardian Bot (ยาม) initialized — database ready")
+    load_csv_whitelist()
+    logger.info("Guardian Bot (ยาม) initialized — database ready, CSV whitelist loaded")
 
 
 async def post_shutdown(application: Application) -> None:
@@ -204,21 +269,26 @@ def create_application() -> Application:
     builder = Application.builder().token(GUARDIAN_BOT_TOKEN)
     app = builder.post_init(post_init).post_shutdown(post_shutdown).build()
 
-    # --- Real-time chat member handler ---
+    # --- Real-time chat member handler --- DISABLED
+    # app.add_handler(
+    #     ChatMemberHandler(handle_chat_member_update, ChatMemberHandler.CHAT_MEMBER)
+    # )
+
+    # --- Callback query handler for admin decisions ---
     app.add_handler(
-        ChatMemberHandler(handle_chat_member_update, ChatMemberHandler.CHAT_MEMBER)
+        CallbackQueryHandler(handle_guardian_callback, pattern=r"^guardian_(keep|kick)_")
     )
 
     # --- Scheduled jobs ---
     job_queue = app.job_queue
 
-    # Every 6 hours: kick expired members
-    job_queue.run_repeating(
-        _job_kick_expired,
-        interval=timedelta(hours=6),
-        first=timedelta(minutes=1),  # Start 1 min after boot
-        name="kick_expired_6h",
-    )
+    # DISABLED: kick expired members
+    # job_queue.run_repeating(
+    #     _job_kick_expired,
+    #     interval=timedelta(hours=6),
+    #     first=timedelta(minutes=5),
+    #     name="kick_expired_6h",
+    # )
 
     # Daily 09:00 TH: send expiring list
     job_queue.run_daily(
@@ -227,11 +297,11 @@ def create_application() -> Application:
         name="expiring_list_0900",
     )
 
-    # Every 30 minutes: check unauthorized members
+    # Check unauthorized members (3-tier: DB → CSV → ถาม Admin)
     job_queue.run_repeating(
         _job_check_unauthorized,
         interval=timedelta(minutes=30),
-        first=timedelta(minutes=5),  # Start 5 min after boot
+        first=timedelta(minutes=10),
         name="check_unauthorized_30min",
     )
 
@@ -257,7 +327,7 @@ def main() -> None:
     app = create_application()
     logger.info("Starting Guardian Bot (ยาม)...")
     app.run_polling(
-        allowed_updates=[Update.CHAT_MEMBER],
+        allowed_updates=[Update.CHAT_MEMBER, Update.CALLBACK_QUERY],
         drop_pending_updates=True,
     )
 

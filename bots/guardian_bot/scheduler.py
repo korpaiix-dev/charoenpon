@@ -45,17 +45,22 @@ from bots.guardian_bot.group_monitor import check_and_kick_unauthorized
 
 logger = logging.getLogger(__name__)
 
-DISCORD_WEBHOOK_URL: str = os.environ.get("DISCORD_WEBHOOK_URL", "")
 GUARDIAN_BOT_ID = 0  # System/bot admin ID for logging
 
 
 async def _notify_discord(content: str) -> None:
-    """Send notification to Discord."""
-    if not DISCORD_WEBHOOK_URL:
+    """Send notification to Discord #ยาม-สมาชิก via Bot API."""
+    token = os.environ.get("DISCORD_BOT_TOKEN", "")
+    ch = os.environ.get("DISCORD_CH_MEMBER_EXPIRING", "")
+    if not token or not ch:
         return
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            await client.post(DISCORD_WEBHOOK_URL, json={"content": content})
+            await client.post(
+                f"https://discord.com/api/v10/channels/{ch}/messages",
+                headers={"Authorization": f"Bot {token}", "Content-Type": "application/json"},
+                json={"content": content},
+            )
     except Exception as exc:
         logger.error("Discord notification failed: %s", exc)
 
@@ -159,13 +164,16 @@ async def kick_expired_members(bot: Bot) -> dict[str, int]:
 
         # Notify user
         try:
-            await bot.send_message(
+            import os
+            from telegram import Bot as _Bot
+            _sales = _Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+            await _sales.send_message(
                 chat_id=user.telegram_id,
                 text=(
                     "⏰ แพ็กเกจของคุณหมดอายุแล้วครับ\n\n"
                     f"📦 แพ็กเกจ: {package.name}\n"
                     f"📅 หมดอายุ: {format_datetime_thai(sub.end_date)}\n\n"
-                    "หากต้องการต่ออายุ สามารถสมัครใหม่ได้ที่ @CharoenponBot ครับ"
+                    "หากต้องการต่ออายุ สามารถสมัครใหม่ได้ที่ @NamwarnJarern_bot ครับ"
                 ),
                 parse_mode="HTML",
             )

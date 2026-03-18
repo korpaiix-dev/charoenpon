@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 DISCORD_WEBHOOK_AD_APPROVAL: str = os.environ.get("DISCORD_WEBHOOK_AD_APPROVAL", "")
 DISCORD_BOT_TOKEN: str = os.environ.get("DISCORD_BOT_TOKEN", "")
-DISCORD_AD_APPROVAL_CHANNEL: str = os.environ.get("DISCORD_AD_APPROVAL_CHANNEL", "")
+DISCORD_AD_APPROVAL_CHANNEL: str = os.environ.get("DISCORD_CH_AD_APPROVAL", "") or os.environ.get("DISCORD_AD_APPROVAL_CHANNEL", "")
 
 DISCORD_API_BASE = "https://discord.com/api/v10"
 

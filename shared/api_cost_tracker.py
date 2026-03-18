@@ -195,7 +195,7 @@ async def daily_summary() -> dict[str, Any]:
     """
     from sqlalchemy import func, select
 
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     today_end = today_start + timedelta(days=1)
 
     async with get_session() as session:
