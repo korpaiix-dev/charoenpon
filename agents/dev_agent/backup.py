@@ -32,7 +32,8 @@ DO_SPACES_BUCKET: str = os.environ.get("DO_SPACES_BUCKET", "charoenpon-backups")
 DO_SPACES_KEY: str = os.environ.get("DO_SPACES_KEY", "")
 DO_SPACES_SECRET: str = os.environ.get("DO_SPACES_SECRET", "")
 
-DISCORD_WEBHOOK_SYSTEM_LOGS: str = os.environ.get("DISCORD_WEBHOOK_SYSTEM_LOGS", "")
+DISCORD_BOT_TOKEN_VAL: str = os.environ.get("DISCORD_BOT_TOKEN", "")
+DISCORD_CH_SYSTEM_LOGS: str = os.environ.get("DISCORD_CH_SYSTEM_LOGS", "")
 
 BACKUP_RETENTION_DAYS = 30
 BACKUP_DIR = Path("/tmp/charoenpon_backups")
@@ -255,15 +256,18 @@ def _find_latest_local_backup() -> Path | None:
 
 
 async def send_discord_log(message: str) -> bool:
-    """ส่ง log ไป Discord #system-logs."""
-    if not DISCORD_WEBHOOK_SYSTEM_LOGS:
-        logger.warning("No Discord webhook for system logs")
+    """ส่ง log ไป Discord #บิ๊ก-ระบบ via Bot API."""
+    token = DISCORD_BOT_TOKEN_VAL
+    ch = DISCORD_CH_SYSTEM_LOGS
+    if not token or not ch:
+        logger.warning("No Discord Bot token/channel configured for system logs")
         return False
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
-                DISCORD_WEBHOOK_SYSTEM_LOGS,
+                f"https://discord.com/api/v10/channels/{ch}/messages",
+                headers={"Authorization": f"Bot {token}", "Content-Type": "application/json"},
                 json={"content": message},
             )
             resp.raise_for_status()

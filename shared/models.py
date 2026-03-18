@@ -37,13 +37,13 @@ class PackageTier(str, enum.Enum):
 
 
 class GroupSlug(str, enum.Enum):
-    G300 = "g300"
-    G500 = "g500"
-    SSS = "sss"
-    VGOD = "vgod"
-    OF = "of"
-    INTER = "inter"
-    SERIES = "series"
+    G300 = "G300"
+    G500 = "G500"
+    SSS = "SSS"
+    VGOD = "VGOD"
+    OF = "OF"
+    INTER = "INTER"
+    SERIES = "SERIES"
 
 
 class PaymentStatus(str, enum.Enum):
@@ -110,8 +110,8 @@ class User(Base):
     )
 
     subscriptions: Mapped[list[Subscription]] = relationship(back_populates="user", lazy="selectin")
-    payments: Mapped[list[Payment]] = relationship(back_populates="user", lazy="selectin")
-    admin_logs: Mapped[list[AdminLog]] = relationship(back_populates="admin", lazy="selectin")
+    payments: Mapped[list[Payment]] = relationship(back_populates="user", foreign_keys="[Payment.user_id]", lazy="selectin")
+    # admin_logs relationship removed — admin_id stores telegram_id directly
     referrals: Mapped[list[User]] = relationship(back_populates="referrer", lazy="selectin")
     referrer: Mapped[User | None] = relationship(back_populates="referrals", remote_side=[id], lazy="selectin")
     leads: Mapped[list[Lead]] = relationship(back_populates="user", lazy="selectin")
@@ -140,7 +140,14 @@ class Package(Base):
 
     @property
     def group_list(self) -> list[str]:
-        return [g.strip() for g in self.groups_access.split(",") if g.strip()]
+        import json as _json
+        text = self.groups_access.strip()
+        if text.startswith("["):
+            try:
+                return _json.loads(text)
+            except Exception:
+                pass
+        return [g.strip().strip('"') for g in text.split(",") if g.strip()]
 
 
 class Subscription(Base):
@@ -186,7 +193,7 @@ class Payment(Base):
     slip_file_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
     slip_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     slip_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    verified_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    verified_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     reject_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     transaction_ref: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -197,10 +204,10 @@ class Payment(Base):
     subscription: Mapped[Subscription | None] = relationship(
         back_populates="payment", foreign_keys=[Subscription.payment_id], lazy="selectin"
     )
-    verifier: Mapped[User | None] = relationship(foreign_keys=[verified_by], lazy="selectin")
+    # verifier relationship removed — verified_by stores telegram_id directly
 
     __table_args__ = (
-        UniqueConstraint("slip_hash", name="uq_payment_slip_hash"),
+        # UniqueConstraint("slip_hash", name="uq_payment_slip_hash"),  # disabled: admin reviews manually
     )
 
 
@@ -208,15 +215,15 @@ class AdminLog(Base):
     __tablename__ = "admin_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    admin_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    admin_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     action: Mapped[str] = mapped_column(String(100), nullable=False)
     target_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    target_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
 
-    admin: Mapped[User] = relationship(back_populates="admin_logs", lazy="selectin")
+    # admin relationship removed — admin_id stores telegram_id directly
 
 
 class GroupRegistry(Base):
@@ -239,7 +246,7 @@ class BroadcastLog(Base):
     __tablename__ = "broadcast_log"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    admin_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    admin_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     message_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     media_file_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
     target_tier: Mapped[PackageTier | None] = mapped_column(Enum(PackageTier), nullable=True)
@@ -248,7 +255,7 @@ class BroadcastLog(Base):
     total_failed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
 
-    admin: Mapped[User] = relationship(lazy="selectin")
+    # admin relationship removed — admin_id stores telegram_id directly
 
 
 class Lead(Base):
@@ -354,6 +361,75 @@ class ContentSchedule(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
 
     creator: Mapped[User | None] = relationship(lazy="selectin")
+
+
+class TeaserClick(Base):
+    __tablename__ = "teaser_clicks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    round_time: Mapped[str] = mapped_column(String(10), nullable=False)  # "1230", "1800", "2100", "2300", "0100"
+    group_index: Mapped[int] = mapped_column(Integer, nullable=False)  # 0-10
+    converted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_teaser_clicks_round", "round_time"),
+    )
+
+
+class GroupMigration(Base):
+    __tablename__ = "group_migrations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    old_group_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    new_group_link: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    member_count_before: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    member_count_after_24h: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    member_count_after_48h: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    member_count_after_7d: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class Broadcast(Base):
+    """ตาราง broadcasts สำหรับระบบ broadcast ใหม่ (ส่งตรงจาก Admin Bot)."""
+
+    __tablename__ = "broadcasts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    message_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    message_photo_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_type: Mapped[str] = mapped_column(String(50), nullable=False, comment="all, group, user, filter")
+    target_value: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="group slug, user_id, filter name")
+    total_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    success_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    sent_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    sent_by_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class ContentQueue(Base):
+    """รูปที่ authorized users ส่งมาให้ content bot โพสต์เป็น teaser."""
+
+    __tablename__ = "content_queue"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    file_id: Mapped[str] = mapped_column(Text, nullable=False)
+    file_type: Mapped[str] = mapped_column(String(20), default="photo", nullable=False, comment="'photo' or 'video'")
+    sent_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    __table_args__ = (
+        Index("ix_content_queue_is_used", "is_used", "created_at"),
+    )
 
 
 class ExpiryNotification(Base):

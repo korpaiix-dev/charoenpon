@@ -50,6 +50,43 @@ async def handle_support_text(
 
     user_text = update.message.text.strip()
 
+    # SOS detection — เข้ากลุ่มไม่ได้ / กลุ่มหาย / กลุ่มบิน
+    SOS_KEYWORDS = ["SOS", "sos", "Sos", "เอสโอเอส", "เข้าไม่ได้", "กลุ่มบิน", "กลุ่มหาย", "กดไม่ได้", "ลิงก์หมด", "ลิ้งค์หมด", "ลิ้งหมด", "เข้ากลุ่มไม่ได้", "กลุ่มไม่ขึ้น", "ลิงค์เข้าไม่ได้", "ลิ้งค์เข้าไม่ได้", "เข้ากลุ่ม", "ขอลิ้ง", "ขอลิงก์", "ขอลิงค์"]
+    if any(w in user_text for w in SOS_KEYWORDS):
+        await update.message.reply_text(
+            "📩 รับทราบค่า แพรส่งเรื่องให้แอดมินดูแล้วนะ\n"
+            "รอสักครู่นะคะ ถ้านานไป ทักแอดมินได้เลย → https://t.me/zeinju_bunker"
+        )
+        # Send SOS to admin group
+        try:
+            import os, html as _html
+            import telegram as tg
+            from datetime import datetime, timezone, timedelta
+            safe_name = _html.escape(str(user.first_name or "ลูกค้า"))
+            now_th = datetime.now(timezone(timedelta(hours=7)))
+            ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+            admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
+            
+            sos_msg = (
+                f"🆘 <b>SOS แจ้งปัญหาการเข้ากลุ่ม</b>\n\n"
+                f"👤 <b>ลูกค้า:</b> <a href='tg://user?id={user.id}'>{safe_name}</a> (ID: <code>{user.id}</code>)\n"
+                f"🕒 <b>เวลา:</b> {now_th.strftime('%d/%m/%Y %H:%M')}\n"
+                f"💬 <b>ข้อความ:</b> {_html.escape(user_text[:200])}"
+            )
+            keyboard = tg.InlineKeyboardMarkup([
+                [tg.InlineKeyboardButton("🔄 ส่งลิงก์ใหม่", callback_data=f"sos_resend_{user.id}")],
+                [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", url=f"tg://user?id={user.id}")],
+            ])
+            await admin_bot.send_message(
+                chat_id=ADMIN_GROUP_ID,
+                text=sos_msg,
+                parse_mode="HTML",
+                reply_markup=keyboard,
+            )
+        except Exception as exc:
+            logger.error("SOS notification failed: %s", exc)
+        return
+
     # Build conversation history from context
     history = context.user_data.get("chat_history", [])
     history.append({"role": "user", "content": user_text})
@@ -141,7 +178,7 @@ def get_support_handlers() -> list:
         CommandHandler("help", help_command),
         # Generic text handler — must be LAST in handler list
         MessageHandler(
-            filters.TEXT & ~filters.COMMAND & ~filters.Regex(r"gift\.truemoney\.com"),
+            filters.TEXT & ~filters.COMMAND & ~filters.Regex(r"gift\.truemoney\.com") & filters.ChatType.PRIVATE,
             handle_support_text,
         ),
     ]

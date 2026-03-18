@@ -45,6 +45,8 @@ services:
     env_file: .env
     environment:
       BOT_MODULE: bots.guardian_bot
+    volumes:
+      - ./data:/app/data:ro
     command: python -m bots.guardian_bot
 
   admin-bot:
@@ -60,6 +62,8 @@ services:
     environment:
       BOT_MODULE: bots.admin_bot
     command: python -m bots.admin_bot
+    volumes:
+      - ./data:/app/data:ro
 
   discord-bot:
     build:
@@ -73,17 +77,7 @@ services:
     env_file: .env
     command: python -m discord_bot.main
 
-  content-scheduler:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: charoenpon-content-scheduler
-    restart: always
-    depends_on:
-      postgres:
-        condition: service_healthy
-    env_file: .env
-    command: python -m agents.content_scheduler
+  # content-scheduler: REMOVED — replaced by content-bot (มิน @jarernAD4_bot)
 
   marketing-scheduler:
     build:
@@ -95,7 +89,7 @@ services:
       postgres:
         condition: service_healthy
     env_file: .env
-    command: python -m agents.marketing_scheduler
+    command: python -m agents.marketing_agent
 
   finance-scheduler:
     build:
@@ -107,7 +101,7 @@ services:
       postgres:
         condition: service_healthy
     env_file: .env
-    command: python -m agents.finance_scheduler
+    command: python -m agents.finance_agent
 
   growth-scheduler:
     build:
@@ -119,7 +113,7 @@ services:
       postgres:
         condition: service_healthy
     env_file: .env
-    command: python -m agents.growth_scheduler
+    command: python -m agents.growth_agent
 
   monitor:
     build:
@@ -131,7 +125,7 @@ services:
       postgres:
         condition: service_healthy
     env_file: .env
-    command: python -m agents.monitor
+    command: python -m agents.dev_agent monitor
 
   backup-cron:
     build:
@@ -148,7 +142,49 @@ services:
       PGUSER: ${POSTGRES_USER:-postgres}
       PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
       PGDATABASE: ${POSTGRES_DB:-charoenpon}
-    command: python -m agents.backup_cron
+    command: python -m agents.dev_agent backup
+
+  content-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: charoenpon-content-bot
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    command: python -m bots.content_bot
+
+  announce-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: charoenpon-announce-bot
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      BOT_MODULE: bots.announce_bot
+    command: python -m bots.announce_bot
+
+  manager-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: charoenpon-manager-agent
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      BOT_MODULE: agents.manager_agent
+    command: python -m agents.manager_agent
+    volumes:
+      - ./data:/app/data:ro
 
 volumes:
   postgres_data:

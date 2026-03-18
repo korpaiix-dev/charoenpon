@@ -26,7 +26,8 @@ logger = logging.getLogger(__name__)
 MODEL = "google/gemini-2.5-flash"
 CALLER = "growth_agent/analyzer"
 
-DISCORD_WEBHOOK_GROWTH: str = os.environ.get("DISCORD_WEBHOOK_GROWTH", "")
+DISCORD_BOT_TOKEN_ENV: str = os.environ.get("DISCORD_BOT_TOKEN", "")
+DISCORD_CH_AD_PERFORMANCE: str = os.environ.get("DISCORD_CH_AD_PERFORMANCE", "")
 
 
 def _format_data_for_ai(data: dict[str, Any]) -> str:
@@ -236,19 +237,104 @@ def format_growth_report_discord(report: dict[str, Any]) -> str:
 
 
 async def send_discord_growth_report(content: str) -> bool:
-    """ส่ง growth report ไป Discord."""
-    if not DISCORD_WEBHOOK_GROWTH:
-        logger.warning("No Discord webhook configured for growth reports")
+    """ส่ง growth report ไป Discord #ad-performance via Bot API."""
+    token = DISCORD_BOT_TOKEN_ENV
+    ch = DISCORD_CH_AD_PERFORMANCE
+    if not token or not ch:
+        logger.warning("No Discord Bot token/channel configured for growth reports")
         return False
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(DISCORD_WEBHOOK_GROWTH, json={"content": content})
+            resp = await client.post(
+                f"https://discord.com/api/v10/channels/{ch}/messages",
+                headers={"Authorization": f"Bot {token}", "Content-Type": "application/json"},
+                json={"content": content},
+            )
             resp.raise_for_status()
         return True
     except Exception as exc:
         logger.error("Failed to send growth report to Discord: %s", exc)
         return False
+
+
+async def analyze_teaser_performance() -> str:
+    """วิเคราะห์ performance ของ teaser clicks ใน 7 วันที่ผ่านมา."""
+    from datetime import timedelta
+    from sqlalchemy import text
+    from shared.database import get_session
+
+    now = datetime.now(TH_TZ)
+    week_ago = now - timedelta(days=7)
+
+    try:
+        async with get_session() as session:
+            # Query by round_time
+            round_result = await session.execute(
+                text(
+                    "SELECT round_time, COUNT(*) as clicks, SUM(CASE WHEN converted THEN 1 ELSE 0 END) as conversions "
+                    "FROM teaser_clicks WHERE created_at >= :since GROUP BY round_time ORDER BY clicks DESC"
+                ),
+                {"since": week_ago.replace(tzinfo=None)},
+            )
+            by_round = round_result.fetchall()
+
+            # Query by group_index
+            group_result = await session.execute(
+                text(
+                    "SELECT group_index, COUNT(*) as clicks, SUM(CASE WHEN converted THEN 1 ELSE 0 END) as conversions "
+                    "FROM teaser_clicks WHERE created_at >= :since GROUP BY group_index ORDER BY clicks DESC"
+                ),
+                {"since": week_ago.replace(tzinfo=None)},
+            )
+            by_group = group_result.fetchall()
+
+            # Total stats
+            total_result = await session.execute(
+                text(
+                    "SELECT COUNT(*) as total_clicks, SUM(CASE WHEN converted THEN 1 ELSE 0 END) as total_conversions "
+                    "FROM teaser_clicks WHERE created_at >= :since"
+                ),
+                {"since": week_ago.replace(tzinfo=None)},
+            )
+            totals = total_result.fetchone()
+
+    except Exception as exc:
+        logger.error("analyze_teaser_performance DB error: %s", exc)
+        return ""
+
+    total_clicks = totals.total_clicks or 0
+    total_conversions = totals.total_conversions or 0
+    overall_cvr = (total_conversions / total_clicks * 100) if total_clicks > 0 else 0.0
+
+    lines = [
+        "📊 **Teaser Performance (7 วันที่ผ่านมา)**",
+        "━━━━━━━━━━━━━━━━━━━━",
+        f"🔢 Total Clicks: **{total_clicks}** | Conversions: **{total_conversions}** | CVR: **{overall_cvr:.1f}%**",
+        "",
+        "**⏰ แยกตามรอบเวลา:**",
+    ]
+
+    for row in by_round:
+        clicks = row.clicks or 0
+        convs = row.conversions or 0
+        cvr = (convs / clicks * 100) if clicks > 0 else 0.0
+        lines.append(f"• รอบ {row.round_time}: {clicks} คลิก → {convs} สมัคร ({cvr:.1f}%)")
+
+    if not by_round:
+        lines.append("• ยังไม่มีข้อมูล")
+
+    lines.extend(["", "**👥 แยกตามกลุ่ม (Top 5):**"])
+    for row in list(by_group)[:5]:
+        clicks = row.clicks or 0
+        convs = row.conversions or 0
+        cvr = (convs / clicks * 100) if clicks > 0 else 0.0
+        lines.append(f"• กลุ่ม #{row.group_index}: {clicks} คลิก → {convs} สมัคร ({cvr:.1f}%)")
+
+    if not by_group:
+        lines.append("• ยังไม่มีข้อมูล")
+
+    return "\n".join(lines)
 
 
 async def run_weekly_analysis() -> dict[str, Any]:
@@ -262,7 +348,13 @@ async def run_weekly_analysis() -> dict[str, Any]:
     report_msg = format_growth_report_discord(growth_report)
     await send_discord_growth_report(report_msg)
 
-    logger.info("Weekly analysis completed: growth report + audience brief + content brief")
+    # Teaser performance analysis
+    teaser_msg = await analyze_teaser_performance()
+    if teaser_msg:
+        await send_discord_growth_report(teaser_msg)
+        logger.info("Teaser performance analysis sent to Discord")
+
+    logger.info("Weekly analysis completed: growth report + audience brief + content brief + teaser performance")
 
     return {
         "growth_report": growth_report,

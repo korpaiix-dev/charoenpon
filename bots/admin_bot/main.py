@@ -25,12 +25,19 @@ from bots.admin_bot.handlers.approval import (
     approve_broadcast_callback,
     reject_payment_callback,
     reject_broadcast_callback,
+    inspect_payment_callback,
+    approve_by_price_callback,
+    reject_user_callback,
+    ban_user_callback,
+    sos_resend_callback,
 )
+from bots.admin_bot.handlers.broadcast import get_broadcast_handlers
 from bots.admin_bot.handlers.reports import (
     cmd_costs,
     cmd_members,
     cmd_revenue,
     cmd_summary,
+    cmd_teaser,
 )
 
 logging.basicConfig(
@@ -73,10 +80,17 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "📋 คำสั่งที่ใช้ได้:\n"
         "/pending - ดู payment ที่รออนุมัติ\n"
         "/broadcasts - ดู broadcast ที่รออนุมัติ\n"
+        "/broadcast - ส่งข้อความถึงทุกคน\n"
+        "/broadcast_group - ส่งเฉพาะกลุ่ม VIP\n"
+        "/broadcast_filter - ส่งตามสถานะ\n"
+        "/broadcast_user - ส่งเฉพาะคน\n"
+        "/broadcast_status - สถานะ broadcast ล่าสุด\n"
+        "/broadcast_history - ประวัติ broadcast\n"
         "/revenue - รายงานรายได้\n"
         "/members - จำนวนสมาชิก active\n"
         "/costs - ค่า API วันนี้\n"
         "/summary - สรุปภาพรวม\n"
+        "/teaser - สถิติ teaser clicks\n"
         "/help - วิธีใช้งาน"
     )
     await update.effective_message.reply_text(text, parse_mode="HTML")
@@ -93,12 +107,21 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "  → กดปุ่ม ✅อนุมัติ หรือ ❌ไม่อนุมัติ\n\n"
         "<b>📢 Broadcast:</b>\n"
         "/broadcasts — ดู broadcast ที่รออนุมัติ\n"
-        "  → กดปุ่ม ✅อนุมัติ หรือ ❌ไม่อนุมัติ\n\n"
+        "/broadcast — ส่งข้อความถึงทุกคน\n"
+        "/broadcast_group — ส่งเฉพาะกลุ่ม VIP\n"
+        "/broadcast_filter — ส่งตามสถานะ\n"
+        "/broadcast_user &lt;id/@user&gt; — ส่งเฉพาะคน\n"
+        "/broadcast_status — สถานะล่าสุด\n"
+        "/broadcast_history — ประวัติย้อนหลัง\n\n"
         "<b>📊 รายงาน:</b>\n"
         "/revenue — รายได้วันนี้/เดือนนี้\n"
         "/members — จำนวนสมาชิก active\n"
         "/costs — ค่า API วันนี้\n"
-        "/summary — สรุปภาพรวมทั้งหมด"
+        "/summary — สรุปภาพรวมทั้งหมด\n\n"
+        "<b>📈 Teaser Tracking:</b>\n"
+        "/teaser — clicks + conversions วันนี้\n"
+        "/teaser week — สรุปสัปดาห์นี้\n"
+        "/teaser best — รอบ + กลุ่มที่ดีที่สุด"
     )
     await update.effective_message.reply_text(text, parse_mode="HTML")
 
@@ -119,12 +142,18 @@ async def post_init(application: Application) -> None:
 
     commands = [
         BotCommand("start", "เริ่มต้นใช้งาน"),
-        BotCommand("pending", "ดู payment ที่รออนุมัติ"),
-        BotCommand("broadcasts", "ดู broadcast ที่รออนุมัติ"),
+        BotCommand("pending", "ดูสลิปที่รออนุมัติ"),
+        BotCommand("broadcast", "ส่งข้อความถึงทุกคน"),
+        BotCommand("broadcast_group", "ส่งเฉพาะกลุ่ม VIP"),
+        BotCommand("broadcast_filter", "ส่งตามสถานะ"),
+        BotCommand("broadcast_user", "ส่งเฉพาะคน"),
+        BotCommand("broadcast_status", "สถานะ broadcast"),
+        BotCommand("broadcast_history", "ประวัติ broadcast"),
         BotCommand("revenue", "รายงานรายได้"),
-        BotCommand("members", "จำนวนสมาชิก active"),
-        BotCommand("costs", "ค่า API วันนี้"),
+        BotCommand("members", "จำนวนสมาชิก"),
+        BotCommand("costs", "ค่า API"),
         BotCommand("summary", "สรุปภาพรวม"),
+        BotCommand("teaser", "สถิติ teaser clicks"),
         BotCommand("help", "วิธีใช้งาน"),
     ]
     await application.bot.set_my_commands(commands)
@@ -154,6 +183,10 @@ def main() -> None:
         .build()
     )
 
+    # Broadcast conversation handlers (must be before simple command handlers)
+    for handler in get_broadcast_handlers():
+        application.add_handler(handler)
+
     # Command handlers
     application.add_handler(CommandHandler("start", cmd_start))
     application.add_handler(CommandHandler("help", cmd_help))
@@ -163,12 +196,22 @@ def main() -> None:
     application.add_handler(CommandHandler("members", cmd_members))
     application.add_handler(CommandHandler("costs", cmd_costs))
     application.add_handler(CommandHandler("summary", cmd_summary))
+    application.add_handler(CommandHandler("teaser", cmd_teaser))
 
     # Callback query handlers for inline buttons
     application.add_handler(CallbackQueryHandler(approve_payment_callback, pattern=r"^pay_approve:\d+$"))
     application.add_handler(CallbackQueryHandler(reject_payment_callback, pattern=r"^pay_reject:\d+$"))
     application.add_handler(CallbackQueryHandler(approve_broadcast_callback, pattern=r"^bc_approve:\d+$"))
     application.add_handler(CallbackQueryHandler(reject_broadcast_callback, pattern=r"^bc_reject:\d+$"))
+
+    # Payment inspect callback
+    application.add_handler(CallbackQueryHandler(inspect_payment_callback, pattern=r"^pay_inspect:\d+$"))
+
+    # New-style approval buttons (approve_300_userid, reject_userid, ban_userid)
+    application.add_handler(CallbackQueryHandler(approve_by_price_callback, pattern=r"^approve_\d+_\d+$"))
+    application.add_handler(CallbackQueryHandler(reject_user_callback, pattern=r"^reject_\d+$"))
+    application.add_handler(CallbackQueryHandler(ban_user_callback, pattern=r"^ban_\d+$"))
+    application.add_handler(CallbackQueryHandler(sos_resend_callback, pattern=r"^sos_resend_\d+$"))
 
     # Unknown command handler
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))

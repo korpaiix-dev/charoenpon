@@ -30,6 +30,7 @@ from discord_bot.channels import get_channel_id, CHANNEL_DEFS
 from discord_bot.commands import (
     AdApprovalView,
     BroadcastApprovalView,
+    PaymentApprovalView,
     setup as setup_commands,
 )
 
@@ -64,6 +65,7 @@ async def on_ready() -> None:
     # Register persistent views for button callbacks
     bot.add_view(AdApprovalView(0))
     bot.add_view(BroadcastApprovalView(0))
+    bot.add_view(PaymentApprovalView())
 
     # Load commands cog
     await setup_commands(bot)
@@ -179,8 +181,10 @@ async def help_cmd(ctx: commands.Context) -> None:
 async def daily_report_task() -> None:
     """ส่งรายงานประจำวันไปที่ #daily-report เวลา 08:00 UTC+7 (01:00 UTC)."""
     now = datetime.now(timezone.utc)
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    # DB uses naive datetime, so strip tz for queries
+    now_naive = now.replace(tzinfo=None)
+    today_start = now_naive.replace(hour=0, minute=0, second=0, microsecond=0)
+    month_start = now_naive.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
     async with get_session() as session:
         # Revenue today
@@ -210,7 +214,7 @@ async def daily_report_task() -> None:
         active_q = await session.execute(
             select(func.count(Subscription.id)).where(
                 Subscription.status == SubscriptionStatus.ACTIVE,
-                Subscription.end_date > now,
+                Subscription.end_date > now_naive,
             )
         )
         active = active_q.scalar()
@@ -307,7 +311,7 @@ async def ad_performance_task() -> None:
     from shared.models import AdPerformance
 
     now = datetime.now(timezone.utc)
-    yesterday = now - timedelta(days=1)
+    yesterday = datetime.utcnow() - timedelta(days=1)  # naive for DB query
 
     async with get_session() as session:
         result = await session.execute(
