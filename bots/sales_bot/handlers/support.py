@@ -75,7 +75,7 @@ async def handle_support_text(
             )
             keyboard = tg.InlineKeyboardMarkup([
                 [tg.InlineKeyboardButton("🔄 ส่งลิงก์ใหม่", callback_data=f"sos_resend_{user.id}")],
-                [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", url=f"tg://user?id={user.id}")],
+                [tg.InlineKeyboardButton(f"💬 แชท ID: {user.id}", callback_data=f"chat_{user.id}")],
             ])
             await admin_bot.send_message(
                 chat_id=ADMIN_GROUP_ID,

@@ -124,15 +124,23 @@ async def approve_payment_callback(update: Update, context: ContextTypes.DEFAULT
         # Update payment status
         payment.status = PaymentStatus.CONFIRMED
         payment.verified_by = query.from_user.id
-        payment.verified_at = datetime.now(timezone.utc)
+        payment.verified_at = datetime.utcnow()
 
         # Get package for duration
         package = await session.get(Package, payment.package_id)
         duration_days = package.duration_days if package else 30
 
+        # Expire existing active subscriptions (prevent duplicates)
+        from datetime import timedelta
+        from sqlalchemy import update as sa_update_sub
+        await session.execute(
+            sa_update_sub(Subscription)
+            .where(Subscription.user_id == payment.user_id, Subscription.status == SubscriptionStatus.ACTIVE)
+            .values(status=SubscriptionStatus.EXPIRED)
+        )
+
         # Create subscription
         now = datetime.utcnow()
-        from datetime import timedelta
         subscription = Subscription(
             user_id=payment.user_id,
             package_id=payment.package_id,
@@ -219,6 +227,22 @@ async def approve_payment_callback(update: Update, context: ContextTypes.DEFAULT
         parse_mode="HTML",
     )
 
+    # ── Sync Google Sheets ──
+    try:
+        from sheets.daily_revenue import DailyRevenueSheet
+        from sheets.members import MembersSheet
+        from sheets.income_log import IncomeLogSheet
+        await DailyRevenueSheet.update()
+        from sheets.daily_summary import DailySummarySheet
+        await DailySummarySheet.update()
+        await IncomeLogSheet.log_payment(payment_id, approved_by=query.from_user.first_name or "Admin")
+        if user:
+            await MembersSheet.update_member(user.id)
+        logger.info("Sheets synced for payment #%d", payment_id)
+    except Exception as exc:
+        logger.warning("Sheets sync failed for payment #%d: %s", payment_id, exc)
+        logger.warning("Sheets sync failed for payment #%d: %s", payment_id, exc)
+
     logger.info(
         "[%s] [ADMIN_BOT] [APPROVE_PAYMENT] [%s] [payment_id=%d amount=%s]",
         datetime.now(timezone.utc).isoformat(),
@@ -253,7 +277,7 @@ async def reject_payment_callback(update: Update, context: ContextTypes.DEFAULT_
 
         payment.status = PaymentStatus.REJECTED
         payment.verified_by = query.from_user.id
-        payment.verified_at = datetime.now(timezone.utc)
+        payment.verified_at = datetime.utcnow()
         payment.reject_reason = "ไม่อนุมัติโดยแอดมิน"
 
         await session.flush()
@@ -291,7 +315,7 @@ async def cmd_pending_broadcasts(update: Update, context: ContextTypes.DEFAULT_T
     async with get_session() as session:
         result = await session.execute(
             select(BroadcastLog, User)
-            .join(User, BroadcastLog.admin_id == User.id)
+            .join(User, BroadcastLog.admin_id == User.telegram_id)
             .where(BroadcastLog.total_sent == 0, BroadcastLog.total_failed == 0)
             .order_by(BroadcastLog.created_at.asc())
         )
@@ -517,8 +541,30 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
                 session.add(db_user)
                 await session.flush()
 
-            # Create subscription
+            # Check for existing active subscription (prevent duplicates)
             from decimal import Decimal
+            existing_sub = await session.execute(
+                select(Subscription).where(
+                    Subscription.user_id == db_user.id,
+                    Subscription.status == SubscriptionStatus.ACTIVE,
+                )
+            )
+            if existing_sub.scalar_one_or_none():
+                # Expire existing subscription first
+                await session.execute(
+                    select(Subscription).where(
+                        Subscription.user_id == db_user.id,
+                        Subscription.status == SubscriptionStatus.ACTIVE,
+                    )
+                )
+                from sqlalchemy import update as sa_update_sub
+                await session.execute(
+                    sa_update_sub(Subscription)
+                    .where(Subscription.user_id == db_user.id, Subscription.status == SubscriptionStatus.ACTIVE)
+                    .values(status=SubscriptionStatus.EXPIRED)
+                )
+
+            # Create subscription
             now = datetime.utcnow()
             subscription = Subscription(
                 user_id=db_user.id,
@@ -595,6 +641,40 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
             f"👤 ลูกค้า: TG ID {target_user_id}\n📦 แพ็กเกจ: {pkg_name}\n👮 โดย: {safe_admin}",
             color=0x2ECC71,
         )
+
+        # ── Create Payment record for tracking ──
+        try:
+            async with get_session() as session:
+                from shared.models import PaymentMethod
+                new_payment = Payment(
+                    user_id=db_user.id,
+                    package_id=pkg_id,
+                    amount=package.price if package else Decimal(price),
+                    method=PaymentMethod.SLIP,
+                    status=PaymentStatus.CONFIRMED,
+                    verified_by=query.from_user.id,
+                    verified_at=datetime.utcnow(),
+                )
+                session.add(new_payment)
+                await session.flush()
+                new_payment_id = new_payment.id
+        except Exception as exc_p:
+            logger.warning("Failed to create payment record: %s", exc_p)
+            new_payment_id = 0
+
+        # ── Sync Google Sheets ──
+        try:
+            from sheets.daily_revenue import DailyRevenueSheet
+            from sheets.members import MembersSheet
+            from sheets.income_log import IncomeLogSheet
+            await DailyRevenueSheet.update()
+            from sheets.daily_summary import DailySummarySheet
+            await DailySummarySheet.update()
+            await IncomeLogSheet.log_payment(new_payment_id, approved_by=safe_admin)
+            await MembersSheet.update_member(db_user.id)
+            logger.info("Sheets synced for approve_by_price user %d", target_user_id)
+        except Exception as exc_s:
+            logger.warning("Sheets sync failed: %s", exc_s)
 
     except Exception as exc:
         logger.error("approve_by_price error: %s", exc)
@@ -735,15 +815,21 @@ async def sos_resend_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await query.answer("❌ ลูกค้าหมดอายุแล้ว ไม่สามารถส่งลิ้งค์ได้", show_alert=True)
                 return
 
-            # ลูกค้าเก่า — ส่ง invite ทุกกลุ่ม (ใช้ package_id=None)
-            sub_package_id = None
+            # ลูกค้าเก่า — ตรวจสอบว่าเป็นสมาชิกกลุ่มไหนอยู่แล้ว แล้วส่งเฉพาะกลุ่มนั้น
+            sub_package_id = "__csv_member__"
         else:
             sub_package_id = sub.package_id
 
         # Generate invite links using Guardian Bot
         guardian_bot = tg.Bot(token=os.environ.get("GUARDIAN_BOT_TOKEN", ""))
         sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
-        invite_links = await generate_invite_links_for_user(guardian_bot, target_user_id, sub_package_id)
+
+        if sub_package_id == "__csv_member__":
+            # CSV user: ตรวจสอบ membership จริงในแต่ละกลุ่ม แล้วสร้าง invite เฉพาะกลุ่มที่เป็นสมาชิก
+            from bots.guardian_bot.group_monitor import generate_invite_links_for_csv_user
+            invite_links = await generate_invite_links_for_csv_user(guardian_bot, target_user_id)
+        else:
+            invite_links = await generate_invite_links_for_user(guardian_bot, target_user_id, sub_package_id)
 
         if not invite_links:
             await query.answer("❌ สร้างลิงก์ไม่สำเร็จ", show_alert=True)

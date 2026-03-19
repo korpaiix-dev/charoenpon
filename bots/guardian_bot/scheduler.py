@@ -41,7 +41,7 @@ from shared.models import (
 )
 from shared.utils import format_datetime_thai, format_thb, log_admin_action
 
-from bots.guardian_bot.group_monitor import check_and_kick_unauthorized
+from bots.guardian_bot.group_monitor import check_and_kick_unauthorized, _log_kick_action
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ async def kick_expired_members(bot: Bot) -> dict[str, int]:
 
     Returns dict with counts: checked, kicked, errors.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     stats = {"checked": 0, "kicked": 0, "errors": 0, "skipped_lifetime": 0}
 
     async with get_session() as session:
@@ -97,8 +97,8 @@ async def kick_expired_members(bot: Bot) -> dict[str, int]:
     for sub, user, package in expired_rows:
         stats["checked"] += 1
 
-        # Skip lifetime subscriptions (duration_days is NULL or very large)
-        if package.duration_days is None:
+        # Skip lifetime subscriptions (duration_days is NULL or > 3650 days / ~10 years)
+        if package.duration_days is None or package.duration_days > 3650:
             stats["skipped_lifetime"] += 1
             continue
 
@@ -209,7 +209,7 @@ async def send_expiring_list(bot: Bot) -> dict[str, Any]:
 
     Returns summary dict.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     summary: dict[str, Any] = {"1d": [], "3d": [], "7d": []}
 
     tiers = [
@@ -307,12 +307,12 @@ async def send_expiring_list(bot: Bot) -> dict[str, Any]:
     return summary
 
 
-async def check_unauthorized_members(bot: Bot) -> dict[str, int]:
+async def check_unauthorized_members(bot: Bot, job_queue=None) -> dict[str, int]:
     """Check all groups for unauthorized members. Runs every 30 minutes.
 
     Delegates to group_monitor.check_and_kick_unauthorized.
     """
-    return await check_and_kick_unauthorized(bot)
+    return await check_and_kick_unauthorized(bot, job_queue=job_queue)
 
 
 async def generate_daily_report(bot: Bot) -> str:
@@ -320,7 +320,7 @@ async def generate_daily_report(bot: Bot) -> str:
 
     Includes: new users, payments, kicks, subscription stats.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     async with get_session() as session:

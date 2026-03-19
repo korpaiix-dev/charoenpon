@@ -182,14 +182,21 @@ class MembersSheet:
     @classmethod
     async def sync_all_members(cls) -> int:
         """Full sync: update all members in the sheet. Returns count."""
+        import asyncio
+
         async with get_session() as session:
             result = await session.execute(select(User.id).order_by(User.id))
             user_ids = [row[0] for row in result.all()]
 
         count = 0
         for uid in user_ids:
-            await cls.update_member(uid)
-            count += 1
+            try:
+                await cls.update_member(uid)
+                count += 1
+            except Exception as exc:
+                logger.warning("Skipped member %d: %s", uid, exc)
+            # Rate limit: Google Sheets API = 60 requests/min
+            await asyncio.sleep(1.5)
 
         logger.info("Synced %d members to sheet", count)
         return count

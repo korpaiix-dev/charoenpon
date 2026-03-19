@@ -49,7 +49,7 @@ FREE_GROUPS = [
     -1003740382332,  # นักตำแตก
     -1003861673687,  # ตรงนี้มีกี
     -1003841389411,  # มาดูไรกัน
-    -1003888282439,  # หลุมหลบภัย
+    -1003876840312,  # หลุมหลบภัยบิน
     -1003723154612,  # โห่โห่ซ้อ
     -1003789621076,  # เจริญพร
 ]
@@ -84,6 +84,8 @@ async def _send_discord_content_log(content: str) -> None:
 
 async def generate_teaser_caption() -> str:
     """AI สร้าง caption teaser เสียวๆ ล่อใจ."""
+    from shared.api_cost_tracker import call_openrouter
+
     prompts = [
         "เขียน caption สั้นๆ 1-2 บรรทัด ภาษาไทย สำหรับโพสต์ teaser คอนเทนต์ 18+ ในกลุ่ม Telegram ให้น่าสนใจ อยากดูต่อ ล่อให้สมัคร VIP ห้ามใส่ลิงก์ ห้ามใส่ราคา แค่ caption เสียวๆ ล่อใจ สร้างสรรค์ ไม่ซ้ำกัน",
         "เขียน caption teaser 18+ ภาษาไทย 1-2 บรรทัด ให้คนอยากดูเต็มๆ ใช้คำพูดเร้าใจแต่ไม่หยาบ สร้างความอยากรู้อยากเห็น",
@@ -91,25 +93,14 @@ async def generate_teaser_caption() -> str:
     ]
 
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": AI_MODEL,
-                    "messages": [
-                        {"role": "user", "content": random.choice(prompts)},
-                    ],
-                    "max_tokens": 100,
-                    "temperature": 0.9,
-                },
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                return data["choices"][0]["message"]["content"].strip().strip('"')
+        data = await call_openrouter(
+            model=AI_MODEL,
+            messages=[{"role": "user", "content": random.choice(prompts)}],
+            caller="content_bot/teaser_caption",
+            temperature=0.9,
+            max_tokens=100,
+        )
+        return data["choices"][0]["message"]["content"].strip().strip('"')
     except Exception as exc:
         logger.error("AI caption failed: %s", exc)
 
@@ -337,6 +328,37 @@ async def post_teaser_with_image(context: ContextTypes.DEFAULT_TYPE, content_id:
     )
 
 
+async def _check_content_queue_alert() -> None:
+    """แจ้งเตือนกลุ่ม Admin เมื่อรูปในคิวเหลือน้อยกว่า 5."""
+    import os
+    try:
+        async with get_session() as session:
+            from sqlalchemy import func as sqlfunc, select as sa_select
+            result = await session.execute(
+                sa_select(sqlfunc.count(ContentQueue.id)).where(ContentQueue.is_used == False)
+            )
+            remaining = result.scalar() or 0
+
+        if remaining < 5:
+            ADMIN_BOT_TOKEN = os.environ.get("ADMIN_BOT_TOKEN", "")
+            ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", os.environ.get("TG_GROUP_ADMIN", "-1003830920430")))
+            if ADMIN_BOT_TOKEN:
+                from telegram import Bot as _Bot
+                admin_bot = _Bot(token=ADMIN_BOT_TOKEN)
+                await admin_bot.send_message(
+                    chat_id=ADMIN_GROUP_ID,
+                    text=(
+                        f"⚠️ <b>แจ้งเตือน: รูปในคิว Content เหลือ {remaining} รูป!</b>\n\n"
+                        f"{'🔴 หมดแล้ว! โพสต์รอบถัดไปจะไม่มีรูป' if remaining == 0 else f'🟡 เหลืออีก {remaining} รอบ'}\n\n"
+                        f"📷 ส่งรูปเพิ่มที่ @jarernAD4_bot ได้เลยค่ะ"
+                    ),
+                    parse_mode="HTML",
+                )
+                logger.info("Content queue alert sent: %d remaining", remaining)
+    except Exception as exc:
+        logger.error("Content queue alert failed: %s", exc)
+
+
 async def scheduled_teaser(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Scheduled job: โพสต์ teaser — ใช้รูปจาก DB ถ้ามี, ไม่งั้นโพสต์แค่ข้อความ."""
     logger.info("scheduled_teaser triggered")
@@ -349,6 +371,9 @@ async def scheduled_teaser(context: ContextTypes.DEFAULT_TYPE) -> None:
     else:
         logger.info("No content in queue, posting text-only teaser")
         await post_teaser_to_free_groups(context)
+
+    # เช็คและแจ้งเตือนหลังโพสต์ทุกรอบ
+    await _check_content_queue_alert()
 
 
 # --- Entry point ---

@@ -28,6 +28,8 @@ from bots.guardian_bot.group_monitor import (
     load_csv_whitelist,
     notify_admin_for_decision,
     pending_guardian_decisions,
+    _log_kick_action,
+    _log_member_join,
 )
 from bots.guardian_bot.scheduler import (
     check_unauthorized_members,
@@ -70,7 +72,7 @@ async def _job_check_unauthorized(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Job: check unauthorized members every 30 minutes."""
     logger.info("Running scheduled job: check_unauthorized_members")
     try:
-        stats = await check_unauthorized_members(context.bot)
+        stats = await check_unauthorized_members(context.bot, job_queue=context.job_queue)
         logger.info("check_unauthorized result: %s", stats)
     except Exception as exc:
         logger.error("Job check_unauthorized_members failed: %s", exc)
@@ -134,6 +136,10 @@ async def handle_chat_member_update(
 
     if user.id in authorized_ids:
         logger.info("User %s joined group %s — authorized (DB)", user.id, slug)
+        await _log_member_join(
+            context.bot, user.id, user.username,
+            user.full_name, group.title, "✅ DB authorized"
+        )
         return
 
     # Check if admin
@@ -146,9 +152,36 @@ async def handle_chat_member_update(
     # ชั้น 2: Check CSV whitelist
     if is_in_csv_whitelist(user.id):
         logger.info("User %s joined group %s — authorized (CSV)", user.id, slug)
+        await _log_member_join(
+            context.bot, user.id, user.username,
+            user.full_name, group.title, "✅ CSV whitelist"
+        )
+        return
+
+    # ── CSV Expired → เตะอัตโนมัติ ──
+    from bots.guardian_bot.group_monitor import is_csv_expired
+    if is_csv_expired(user.id):
+        try:
+            await context.bot.ban_chat_member(chat_id=chat_id, user_id=user.id)
+            await context.bot.unban_chat_member(chat_id=chat_id, user_id=user.id, only_if_banned=True)
+            log_msg = (
+                f"👤 {user.full_name} (@{user.username or '-'})\n"
+                f"🆔 TG ID: <code>{user.id}</code>\n"
+                f"📍 กลุ่ม: {group.title}\n"
+                f"📋 CSV status = Expired\n"
+                f"✅ เตะ + unban อัตโนมัติ"
+            )
+            await _log_kick_action(context.bot, log_msg)
+            logger.info("Auto-kicked CSV expired user %s from %s on join", user.id, slug)
+        except Exception as exc:
+            logger.error("Failed to kick CSV expired %s on join: %s", user.id, exc)
         return
 
     # ชั้น 3: ไม่เจอเลย → แจ้ง Admin พร้อมปุ่ม (ไม่เตะทันที!)
+    await _log_member_join(
+        context.bot, user.id, user.username,
+        user.full_name, group.title, "⚠️ ไม่มีสิทธิ์ — รอ Admin ตัดสินใจ"
+    )
     logger.info(
         "User %s (@%s) joined group %s — NOT authorized, notifying admin",
         user.id, user.username, slug,
@@ -269,10 +302,10 @@ def create_application() -> Application:
     builder = Application.builder().token(GUARDIAN_BOT_TOKEN)
     app = builder.post_init(post_init).post_shutdown(post_shutdown).build()
 
-    # --- Real-time chat member handler --- DISABLED
-    # app.add_handler(
-    #     ChatMemberHandler(handle_chat_member_update, ChatMemberHandler.CHAT_MEMBER)
-    # )
+    # --- Real-time chat member handler ---
+    app.add_handler(
+        ChatMemberHandler(handle_chat_member_update, ChatMemberHandler.CHAT_MEMBER)
+    )
 
     # --- Callback query handler for admin decisions ---
     app.add_handler(
@@ -282,13 +315,13 @@ def create_application() -> Application:
     # --- Scheduled jobs ---
     job_queue = app.job_queue
 
-    # DISABLED: kick expired members
-    # job_queue.run_repeating(
-    #     _job_kick_expired,
-    #     interval=timedelta(hours=6),
-    #     first=timedelta(minutes=5),
-    #     name="kick_expired_6h",
-    # )
+    # Kick expired members (เตะเฉพาะคนที่มี subscription หมดอายุใน DB)
+    job_queue.run_repeating(
+        _job_kick_expired,
+        interval=timedelta(hours=6),
+        first=timedelta(minutes=5),
+        name="kick_expired_6h",
+    )
 
     # Daily 09:00 TH: send expiring list
     job_queue.run_daily(

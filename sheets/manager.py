@@ -119,7 +119,7 @@ class SheetsManager:
                 title=sheet_name, rows=1000, cols=max(len(headers), 20)
             )
             if headers:
-                worksheet.update("A1", [headers])
+                worksheet.update([headers], "A1")
                 worksheet.format(
                     "A1:{}1".format(gspread.utils.rowcol_to_a1(1, len(headers))[:-1]),
                     {
@@ -168,7 +168,7 @@ class SheetsManager:
         str_row = [str(v) if v is not None else "" for v in row]
         end_col = gspread.utils.rowcol_to_a1(row_num, len(str_row))
         start_col = gspread.utils.rowcol_to_a1(row_num, 1)
-        worksheet.update(f"{start_col}:{end_col}", [str_row], value_input_option="USER_ENTERED")
+        worksheet.update([str_row], f"{start_col}:{end_col}", value_input_option="USER_ENTERED")
 
     @classmethod
     def reset_client(cls) -> None:

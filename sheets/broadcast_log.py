@@ -44,7 +44,7 @@ class BroadcastLogSheet:
             async with get_session() as session:
                 result = await session.execute(
                     select(BroadcastLogModel, User)
-                    .join(User, BroadcastLogModel.admin_id == User.id)
+                    .join(User, BroadcastLogModel.admin_id == User.telegram_id)
                     .where(BroadcastLogModel.id == broadcast_id)
                 )
                 row = result.first()
@@ -100,7 +100,7 @@ class BroadcastLogSheet:
         async with get_session() as session:
             result = await session.execute(
                 select(BroadcastLogModel, User)
-                .join(User, BroadcastLogModel.admin_id == User.id)
+                .join(User, BroadcastLogModel.admin_id == User.telegram_id)
                 .order_by(BroadcastLogModel.created_at.desc())
                 .limit(limit)
             )

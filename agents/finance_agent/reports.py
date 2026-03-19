@@ -131,7 +131,7 @@ async def _get_daily_expenses(date: datetime) -> dict[str, Any]:
 async def generate_daily_report() -> dict[str, Any]:
     """สร้างรายงานประจำวัน 23:00."""
     now = datetime.now(TH_TZ)
-    today_utc = now.astimezone(timezone.utc)
+    today_utc = datetime.utcnow()
 
     revenue = await _get_daily_revenue(today_utc)
     expenses = await _get_daily_expenses(today_utc)
@@ -301,9 +301,9 @@ async def _get_weekly_metrics(week_start: datetime) -> dict[str, Any]:
 async def generate_weekly_report() -> dict[str, Any]:
     """สร้างรายงานประจำสัปดาห์ (จันทร์ 07:00)."""
     now = datetime.now(TH_TZ)
-    week_start_utc = (now - timedelta(days=7)).replace(
+    week_start_utc = (datetime.utcnow() - timedelta(days=7)).replace(
         hour=0, minute=0, second=0, microsecond=0
-    ).astimezone(timezone.utc)
+    )
 
     metrics = await _get_weekly_metrics(week_start_utc)
 
@@ -393,7 +393,7 @@ def format_weekly_report_discord(report: dict[str, Any]) -> str:
 async def check_alerts() -> list[dict[str, Any]]:
     """ตรวจสอบ alert conditions อัตโนมัติ."""
     alerts: list[dict[str, Any]] = []
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     yesterday_start = today_start - timedelta(days=1)
 

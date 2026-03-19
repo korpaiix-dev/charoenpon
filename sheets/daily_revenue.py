@@ -39,8 +39,9 @@ class DailyRevenueSheet:
         day_start = date.replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day_start + timedelta(days=1)
 
-        day_start_utc = day_start.astimezone(timezone.utc)
-        day_end_utc = day_end.astimezone(timezone.utc)
+        # DB uses naive datetime (UTC), strip timezone info
+        day_start_utc = day_start.astimezone(timezone.utc).replace(tzinfo=None)
+        day_end_utc = day_end.astimezone(timezone.utc).replace(tzinfo=None)
 
         async with get_session() as session:
             # Revenue by payment method

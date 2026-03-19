@@ -247,6 +247,16 @@ async def daily_report_task() -> None:
     )
     await channel.send(embed=embed)
 
+    # ── Sync Google Sheets: รายได้รายวัน ──
+    try:
+        from sheets.daily_revenue import DailyRevenueSheet
+        await DailyRevenueSheet.update()
+        from sheets.daily_summary import DailySummarySheet
+        await DailySummarySheet.update()
+        logger.info("Daily revenue sheet synced")
+    except Exception as exc:
+        logger.warning("Daily revenue sheet sync failed: %s", exc)
+
     logger.info(
         "[%s] [DISCORD] [DAILY_REPORT] [SYSTEM] [revenue=%s active=%d]",
         now.isoformat(),
