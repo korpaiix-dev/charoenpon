@@ -628,7 +628,7 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
         old_caption = query.message.caption or ""
         new_caption = f"{old_caption}\n\n✅ <b>สถานะ: อนุมัติ ({price}บ.) โดย {safe_admin}</b>"
         post_keyboard = tg.InlineKeyboardMarkup([
-            [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", url=f"tg://user?id={target_user_id}")],
+            [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", callback_data=f"chat_user:{target_user_id}")],
         ])
         try:
             await query.edit_message_caption(caption=new_caption[:1024], parse_mode="HTML", reply_markup=post_keyboard)
@@ -709,7 +709,7 @@ async def reject_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await _notify_discord_alert(f"❌ ปฏิเสธสลิป", f"👤 TG ID {target_user_id}\n👮 โดย: {safe_admin}", color=0xE74C3C)
     import telegram as tg
     post_keyboard = tg.InlineKeyboardMarkup([
-        [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", url=f"tg://user?id={target_user_id}")],
+        [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", callback_data=f"chat_user:{target_user_id}")],
     ])
     try:
         await query.edit_message_caption(caption=new_caption[:1024], parse_mode="HTML", reply_markup=post_keyboard)
@@ -754,7 +754,7 @@ async def ban_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await _notify_discord_alert(f"🚫 แบนลูกค้า", f"👤 TG ID {target_user_id}\n👮 โดย: {safe_admin}", color=0x992D22)
     import telegram as tg
     post_keyboard = tg.InlineKeyboardMarkup([
-        [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", url=f"tg://user?id={target_user_id}")],
+        [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", callback_data=f"chat_user:{target_user_id}")],
     ])
     try:
         await query.edit_message_caption(caption=new_caption[:1024], parse_mode="HTML", reply_markup=post_keyboard)
@@ -868,13 +868,13 @@ async def sos_resend_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         if is_sent:
             new_text = f"{old_text}\n\n✅ <b>สถานะ: ส่งลิงก์สำรองสำเร็จ โดย {safe_admin}</b>"
             new_keyboard = tg.InlineKeyboardMarkup([
-                [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", url=f"tg://user?id={target_user_id}")],
+                [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", callback_data=f"chat_user:{target_user_id}")],
             ])
         else:
             new_text = f"{old_text}\n\n❌ <b>ส่งไม่สำเร็จ (ลูกค้าบล็อกบอท)</b>"
             new_keyboard = tg.InlineKeyboardMarkup([
                 [tg.InlineKeyboardButton("🔄 ส่งลิงก์ใหม่", callback_data=f"sos_resend_{target_user_id}")],
-                [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", url=f"tg://user?id={target_user_id}")],
+                [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", callback_data=f"chat_user:{target_user_id}")],
             ])
 
         try:
