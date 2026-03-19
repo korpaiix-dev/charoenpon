@@ -106,13 +106,22 @@ async def send_weekly_analysis() -> None:
         f"แบน: {stats['bans_week']}"
     )
 
+    # โหลด knowledge file
+    knowledge = ""
+    try:
+        with open("/app/data/manager_knowledge.md") as f:
+            knowledge = f.read()
+    except Exception:
+        pass
+
     ai_prompt = (
         "คุณเป็น Business Manager ของธุรกิจขายสมาชิก VIP Telegram 18+ ชื่อเจริญพร "
         "วิเคราะห์ข้อมูลนี้แล้วเสนอ 3 action items ที่ควรทำ, จุดที่ต้องระวัง, และโอกาสที่ควรคว้า "
         "ตอบเป็นภาษาไทย กระชับ\n\n"
         "ตอบในรูปแบบ JSON:\n"
         '{"actions": ["...", "...", "..."], "warnings": ["...", "..."], "opportunities": ["...", "..."]}\n\n'
-        f"ข้อมูล:\n{data_summary}"
+        f"ข้อมูลสัปดาห์นี้:\n{data_summary}\n\n"
+        f"ข้อมูลอ้างอิงกลยุทธ์:\n{knowledge[:2000]}"
     )
 
     try:

@@ -29,6 +29,8 @@ OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_API_KEY: str = os.environ.get("OPENROUTER_API_KEY", "")
 
 GOOGLE_SHEETS_WEBHOOK: str = os.environ.get("SHEETS_COST_WEBHOOK", "")
+GOOGLE_SHEETS_ID: str = os.environ.get("GOOGLE_SHEETS_ID", "")
+GOOGLE_SHEETS_CREDS: str = os.environ.get("GOOGLE_SHEETS_CREDENTIALS", "credentials/google_sheets_sa.json")
 
 # --- USD/THB rate cache ---
 _rate_cache: dict[str, Any] = {"rate": 35.0, "fetched_at": 0.0}
@@ -87,14 +89,67 @@ def calculate_cost(
 
 
 async def _log_to_sheets(row: dict[str, Any]) -> None:
-    """Send cost log row to Google Sheets via webhook (Apps Script)."""
+    """Log cost to Google Sheets 'ค่าใช้จ่าย' sheet via Sheets API directly."""
+    # Method 1: Direct Sheets API (preferred)
+    if GOOGLE_SHEETS_ID:
+        try:
+            import google.auth.transport.requests
+            from google.oauth2.service_account import Credentials as SACreds
+
+            creds_path = GOOGLE_SHEETS_CREDS
+            if not os.path.isabs(creds_path):
+                creds_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), creds_path)
+
+            sa_creds = SACreds.from_service_account_file(
+                creds_path,
+                scopes=["https://www.googleapis.com/auth/spreadsheets"],
+            )
+            sa_creds.refresh(google.auth.transport.requests.Request())
+
+            # Format: วันที่ | รายการ | หมวด | จำนวนเงิน (THB) | จำนวนเงิน (USD) | Agent | หมายเหตุ
+            from datetime import datetime, timezone, timedelta
+            bkk = timezone(timedelta(hours=7))
+            now_bkk = datetime.now(bkk).strftime("%Y-%m-%d %H:%M:%S")
+
+            tokens_info = f"{row.get('prompt_tokens', 0):,} in / {row.get('completion_tokens', 0):,} out"
+            values = [[
+                now_bkk,                                    # วันที่
+                f"API: {row.get('model', '')}",             # รายการ
+                "API Cost",                                  # หมวด
+                round(row.get("cost_thb", 0), 2),           # จำนวนเงิน (THB)
+                round(row.get("cost_usd", 0), 6),           # จำนวนเงิน (USD)
+                row.get("caller", ""),                       # Agent
+                tokens_info,                                 # หมายเหตุ
+            ]]
+
+            import urllib.request
+            url = (
+                f"https://sheets.googleapis.com/v4/spreadsheets/{GOOGLE_SHEETS_ID}"
+                f"/values/%E0%B8%84%E0%B9%88%E0%B8%B2%E0%B9%83%E0%B8%8A%E0%B9%89%E0%B8%88%E0%B9%88%E0%B8%B2%E0%B8%A2!A:G"
+                f":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS"
+            )
+            req = urllib.request.Request(
+                url,
+                data=json.dumps({"values": values}).encode(),
+                headers={
+                    "Authorization": f"Bearer {sa_creds.token}",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=10)
+            return
+        except Exception as exc:
+            logger.warning("Failed to log to Google Sheets API: %s", exc)
+
+    # Method 2: Webhook fallback (Apps Script)
     if not GOOGLE_SHEETS_WEBHOOK:
         return
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             await client.post(GOOGLE_SHEETS_WEBHOOK, json=row)
     except Exception as exc:
-        logger.warning("Failed to log to Google Sheets: %s", exc)
+        logger.warning("Failed to log to Google Sheets webhook: %s", exc)
 
 
 async def track(
@@ -144,7 +199,7 @@ async def track(
 
 async def call_openrouter(
     model: str,
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     caller: str | None = None,
     temperature: float = 0.7,
     max_tokens: int = 2048,

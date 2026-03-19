@@ -214,3 +214,18 @@ def _reset_nonsense(user_id: int) -> None:
     """Reset the nonsense counter for a user."""
     if user_id in _nonsense_tracker:
         _nonsense_tracker[user_id]["count"] = 0
+
+
+def cleanup_nonsense_tracker() -> int:
+    """Remove stale entries from nonsense tracker to prevent memory leak.
+    
+    Call periodically (e.g., every hour). Returns number of entries removed.
+    """
+    now = time.time()
+    stale_keys = [
+        uid for uid, data in _nonsense_tracker.items()
+        if now - data["last_time"] > NONSENSE_RESET_SECONDS * 6  # 1 hour
+    ]
+    for uid in stale_keys:
+        del _nonsense_tracker[uid]
+    return len(stale_keys)

@@ -184,9 +184,7 @@ async def _ai_read_slip(b64_image: str) -> str | None:
     Returns extracted text with amount, date, bank, ref number.
     Also checks for signs of forgery.
     """
-    api_key = os.environ.get("OPENROUTER_API_KEY", "")
-    if not api_key:
-        return None
+    from shared.api_cost_tracker import call_openrouter
 
     prompt = (
         "อ่านสลิปโอนเงินนี้ ตอบเป็น text สั้นๆ ภาษาไทย ข้อมูลต่อไปนี้:\n"
@@ -207,37 +205,29 @@ async def _ai_read_slip(b64_image: str) -> str | None:
     )
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "google/gemini-2.0-flash-lite-001",
-                    "messages": [
+        data = await call_openrouter(
+            model="google/gemini-2.0-flash-lite-001",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
                         {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:image/jpeg;base64,{b64_image}"
-                                    },
-                                },
-                            ],
-                        }
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{b64_image}"
+                            },
+                        },
                     ],
-                    "max_tokens": 500,
-                },
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                content = data["choices"][0]["message"]["content"]
-                logger.info("AI slip reader result: %s", content[:200])
-                return content
+                }
+            ],
+            caller="sales_bot/ai_read_slip",
+            max_tokens=500,
+            temperature=0.7,
+        )
+        content = data["choices"][0]["message"]["content"]
+        logger.info("AI slip reader result: %s", content[:200])
+        return content
     except Exception as exc:
         logger.error("AI slip reader API error: %s", exc)
 
@@ -249,9 +239,7 @@ async def _ai_screen_image(b64_image: str) -> str | None:
     
     Returns one of: SLIP, NOT_SLIP_QUESTION, NOT_SLIP_SUPPORT, SPAM, GAMBLING, PORN, INAPPROPRIATE
     """
-    api_key = os.environ.get("OPENROUTER_API_KEY", "")
-    if not api_key:
-        return None
+    from shared.api_cost_tracker import call_openrouter
 
     prompt = (
         "ดูรูปนี้แล้วตอบสั้นๆ 1 คำ:\n"
@@ -265,35 +253,27 @@ async def _ai_screen_image(b64_image: str) -> str | None:
     )
 
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "google/gemini-2.0-flash-lite-001",
-                    "messages": [
+        data = await call_openrouter(
+            model="google/gemini-2.0-flash-lite-001",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
                         {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {"url": f"data:image/jpeg;base64,{b64_image}"},
-                                },
-                            ],
-                        }
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{b64_image}"},
+                        },
                     ],
-                    "max_tokens": 20,
-                },
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                result = data["choices"][0]["message"]["content"].strip()
-                logger.info("AI screen result: %s", result)
-                return result
+                }
+            ],
+            caller="sales_bot/ai_screen_image",
+            max_tokens=20,
+            temperature=0.7,
+        )
+        result = data["choices"][0]["message"]["content"].strip()
+        logger.info("AI screen result: %s", result)
+        return result
     except Exception as exc:
         logger.error("AI screen API error: %s", exc)
 
@@ -394,6 +374,14 @@ async def _approve_payment(
         package = pkg_result.scalar_one()
         package_id = package.id
 
+        # Expire existing active subscriptions (prevent duplicates)
+        from sqlalchemy import update as sa_update_dup
+        await session.execute(
+            sa_update_dup(Subscription)
+            .where(Subscription.user_id == db_payment.user_id, Subscription.status == SubscriptionStatus.ACTIVE)
+            .values(status=SubscriptionStatus.EXPIRED)
+        )
+
         # Create subscription
         now = datetime.utcnow()
         sub = Subscription(
@@ -483,7 +471,7 @@ async def handle_photo_slip(
                         text=f"⚠️ <b>รูปไม่เหมาะสม</b> จาก <a href='tg://user?id={user.id}'>{user.first_name}</a> (ID: {user.id})\nAI: {screen_result[:200]}",
                         parse_mode="HTML",
                         reply_markup=tg.InlineKeyboardMarkup([
-                            [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", url=f"tg://user?id={user.id}")],
+                            [tg.InlineKeyboardButton(f"💬 @{user.username}" if user.username else f"💬 ID: {user.id}", callback_data=f"chat_{user.id}")],
                             [tg.InlineKeyboardButton("🚫 แบน", callback_data=f"ban_{user.id}")],
                         ]),
                     )
@@ -511,7 +499,7 @@ async def handle_photo_slip(
                         text=f"💬 <b>ลูกค้าส่งรูป (ไม่ใช่สลิป)</b>\n👤 <a href='tg://user?id={user.id}'>{safe_name}</a>\nAI: {screen_result[:200]}",
                         parse_mode="HTML",
                         reply_markup=tg.InlineKeyboardMarkup([
-                            [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", url=f"tg://user?id={user.id}")],
+                            [tg.InlineKeyboardButton(f"💬 @{user.username}" if user.username else f"💬 ID: {user.id}", callback_data=f"chat_{user.id}")],
                         ]),
                     )
                 except:
@@ -679,7 +667,7 @@ async def handle_photo_slip(
                 tg.InlineKeyboardButton("🚫 แบน", callback_data=f"ban_{user.id}"),
             ],
             [
-                tg.InlineKeyboardButton("💬 แชทกับลูกค้า", url=f"tg://user?id={user.id}"),
+                tg.InlineKeyboardButton(f"💬 @{user.username}" if user.username else f"💬 ID: {user.id}", callback_data=f"chat_{user.id}"),
             ],
         ])
 
@@ -706,6 +694,13 @@ async def handle_photo_slip(
         target_id=payment_id,
         details=f"user_tg={user.id} amount={expected_price} ai_info={ai_info}",
     )
+
+    # ── Log pending payment to Sheets ──
+    try:
+        from sheets.income_log import IncomeLogSheet
+        await IncomeLogSheet.log_payment(payment_id, approved_by="-")
+    except Exception as exc_s:
+        logger.warning("Sheets log failed for pending payment #%d: %s", payment_id, exc_s)
 
     await _notify_discord(
         "⏸ PAYMENT HOLD — รอตรวจสอบ",
@@ -846,7 +841,7 @@ async def handle_truemoney_link(
                     tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}"),
                 ],
                 [tg.InlineKeyboardButton("❌ ซองเสีย", callback_data=f"reject_{user.id}")],
-                [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", url=f"tg://user?id={user.id}")],
+                [tg.InlineKeyboardButton(f"💬 @{user.username}" if user.username else f"💬 ID: {user.id}", callback_data=f"chat_{user.id}")],
             ])
             await admin_bot.send_message(
                 chat_id=ADMIN_GROUP_ID,
@@ -918,7 +913,7 @@ async def handle_truemoney_link(
             admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
             links_count = len(invite_links_raw)
             admin_keyboard = tg.InlineKeyboardMarkup([
-                [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", url=f"tg://user?id={user.id}")],
+                [tg.InlineKeyboardButton(f"💬 @{user.username}" if user.username else f"💬 ID: {user.id}", callback_data=f"chat_{user.id}")],
             ])
             await admin_bot.send_message(
                 chat_id=ADMIN_GROUP_ID,
@@ -950,6 +945,20 @@ async def handle_truemoney_link(
             f"Package: {selected_tier} THB\n"
             f"Voucher: {tm_result.get('voucher_id', 'N/A')}",
         )
+
+        # ── Sync Google Sheets ──
+        try:
+            from sheets.daily_revenue import DailyRevenueSheet
+            from sheets.members import MembersSheet
+            from sheets.income_log import IncomeLogSheet
+            await DailyRevenueSheet.update()
+            from sheets.daily_summary import DailySummarySheet
+            await DailySummarySheet.update()
+            await IncomeLogSheet.log_payment(payment_id, approved_by="ระบบอัตโนมัติ")
+            await MembersSheet.update_member(db_user.id)
+            logger.info("Sheets synced for TrueMoney payment user_tg=%d", user.id)
+        except Exception as exc_s:
+            logger.warning("Sheets sync failed: %s", exc_s)
 
         context.user_data.pop("selected_tier", None)
         context.user_data.pop("selected_price", None)

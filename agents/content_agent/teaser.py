@@ -61,30 +61,37 @@ def _build_teaser_prompt(
     cta = random.choice(CTA_TEMPLATES)
 
     system_msg = (
-        "คุณคือ 'มิน' ผู้เชี่ยวชาญเขียน Teaser สำหรับ Telegram กลุ่มฟรี "
-        "ของบริษัทเจริญพร\n\n"
+        "คุณคือ 'มิน' ผู้เชี่ยวชาญเขียน caption teaser สำหรับโพสต์ใน Telegram "
+        "กลุ่มฟรีของบริษัทเจริญพร\n\n"
         "เป้าหมาย: ดึงคนจากกลุ่มฟรีมาสมัคร VIP\n\n"
+        "⚠️ สำคัญมาก — รูปแบบ:\n"
+        "- เขียน caption สำเร็จรูป 1 ชิ้นเท่านั้น พร้อมโพสต์ได้เลย\n"
+        "- ห้ามเขียนตัวเลือกหลายชิ้น ห้ามเขียน 'ตัวเลือกที่ 1/2/3'\n"
+        "- ห้ามอธิบายว่าตัวเองเป็นใคร หรือเขียนคำนำ/บทนำ\n"
+        "- ห้ามเขียนหัวข้อหรือ label (ไม่ต้องใส่ 'caption:' หรือ 'teaser:')\n"
+        "- เริ่มต้นด้วยเนื้อหาเลยทันที\n\n"
         "กฎเหล็ก Teaser:\n"
         "1. วับๆแวมๆ เร้าใจ แต่ห้ามโจ่งแจ้ง ห้ามเปิดเผยอะไรชัดเจน\n"
         "2. สร้าง FOMO ให้คนรู้สึกว่าพลาดอะไรดีๆ\n"
         "3. ใช้ความลึกลับ ทำให้อยากรู้อยากเห็น\n"
-        "4. ปิดท้ายด้วย CTA ชวนทักแอดมิน/สมัคร VIP\n"
+        "4. ปิดท้ายด้วย CTA ชวนทักแอดมิน/สมัคร VIP (ใช้ CTA ด้านล่าง)\n"
         "5. ห้ามใส่ URL/ลิงก์\n"
         "6. ห้ามใส่ราคาแพ็กเกจ\n"
         "7. ห้ามใช้คำหยาบคาย\n"
         "8. ห้ามพูดถึงเนื้อหา 18+ โดยตรง\n"
-        "9. ใช้อิโมจิพอเหมาะ ไม่เยอะเกิน\n"
-        "10. ความยาว 3-5 บรรทัด\n\n"
-        f"สไตล์ที่ต้องการ: {style}\n"
-        f"FOMO hook: {fomo_hook}\n"
-        f"CTA ปิดท้าย: {cta}\n\n"
-        "เขียนเป็นภาษาไทย น้ำเสียงเป็นกันเอง เซ็กซี่แต่ไม่หยาบ\n"
+        "9. ใช้อิโมจิพอเหมาะ 2-4 ตัว ไม่เยอะเกิน\n"
+        "10. ความยาว 3-5 บรรทัด กระชับ อ่านจบใน 5 วินาที\n"
+        "11. น้ำเสียงเหมือนเพื่อนกระซิบบอก ไม่ใช่โฆษณา\n\n"
+        f"สไตล์: {style}\n"
+        f"FOMO hook (ใช้เป็นแรงบันดาลใจ อย่า copy ตรงๆ): {fomo_hook}\n"
+        f"CTA ปิดท้าย (ใช้ตัวนี้หรือดัดแปลง): {cta}\n\n"
+        "ตอบเป็น caption พร้อมโพสต์เลย ไม่ต้องมีอะไรอื่น\n"
     )
 
-    user_msg = "เขียน teaser โพสต์ลงกลุ่มฟรี"
+    user_msg = "เขียน caption teaser 1 ชิ้น พร้อมโพสต์ได้เลย"
     if content_hint:
-        user_msg += f"\nHint จาก VIP content: {content_hint}"
-    user_msg += f"\nสำหรับโปรโมทกลุ่ม: {group_slug}"
+        user_msg += f"\nHint: {content_hint}"
+    user_msg += "\nตอบแค่ caption เท่านั้น ไม่ต้องมีคำอธิบายหรือตัวเลือก"
 
     return [
         {"role": "system", "content": system_msg},
@@ -110,6 +117,29 @@ async def generate_teaser(
     )
 
     teaser = response["choices"][0]["message"]["content"].strip()
+
+    # Post-processing: ตัดส่วนที่ไม่ต้องการ
+    # ตัด label/prefix เช่น "Caption:", "Teaser:", "ตัวเลือก"
+    import re
+    teaser = re.sub(r'^(?:caption|teaser|ตัวเลือก|แคปชั่น|โพสต์)[:\s]*\d*[:\s]*', '', teaser, flags=re.IGNORECASE | re.MULTILINE).strip()
+    # ตัดบรรทัดแรกถ้าเป็นคำอธิบาย (ขึ้นต้นด้วย "แนะนำ", "นี่คือ", "ด้านล่าง")
+    lines = teaser.split('\n')
+    skip_prefixes = ['แนะนำ', 'นี่คือ', 'ด้านล่าง', 'ตัวอย่าง', 'เขียน', 'สำหรับ', '---', '**ตัวเลือก']
+    while lines and any(lines[0].strip().startswith(p) for p in skip_prefixes):
+        lines.pop(0)
+    # ตัด **ตัวเลือกที่ X:** pattern
+    cleaned = []
+    skip_next = False
+    for line in lines:
+        if re.match(r'\*?\*?ตัวเลือก(?:ที่)?\s*\d+', line):
+            skip_next = False
+            continue
+        cleaned.append(line)
+    teaser = '\n'.join(cleaned).strip()
+
+    # ตัด ** (bold markers) ที่ไม่จำเป็น
+    teaser = teaser.replace('**', '')
+
     logger.info("Generated teaser for %s: %d chars", group_slug, len(teaser))
     return teaser
 

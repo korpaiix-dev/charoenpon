@@ -28,7 +28,7 @@ TH_TZ = timezone(timedelta(hours=7))
 
 async def get_daily_stats() -> dict[str, Any]:
     """ดึงข้อมูลภาพรวมประจำวัน."""
-    now_utc = datetime.now(timezone.utc)
+    now_utc = datetime.utcnow()
     today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
     today_end = today_start + timedelta(days=1)
     expiry_7d = today_start + timedelta(days=7)
@@ -176,7 +176,7 @@ async def get_daily_stats() -> dict[str, Any]:
 
 async def get_weekly_stats() -> dict[str, Any]:
     """ดึงข้อมูล 7 วันย้อนหลังสำหรับ weekly analysis."""
-    now_utc = datetime.now(timezone.utc)
+    now_utc = datetime.utcnow()
     week_end = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = week_end - timedelta(days=7)
 

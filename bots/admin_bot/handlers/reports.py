@@ -45,7 +45,7 @@ async def cmd_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.effective_message.reply_text("⛔ คุณไม่มีสิทธิ์ใช้งาน")
         return
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
@@ -100,7 +100,7 @@ async def cmd_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     logger.info(
         "[%s] [ADMIN_BOT] [REVENUE_REPORT] [%s] [today=%s month=%s]",
-        datetime.now(timezone.utc).isoformat(),
+        datetime.utcnow().isoformat(),
         update.effective_user.id,
         today_row.total,
         month_row.total,
@@ -113,7 +113,7 @@ async def cmd_members(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.effective_message.reply_text("⛔ คุณไม่มีสิทธิ์ใช้งาน")
         return
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
 
     async with get_session() as session:
         # Total users
@@ -170,7 +170,7 @@ async def cmd_members(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     logger.info(
         "[%s] [ADMIN_BOT] [MEMBERS_REPORT] [%s] [active=%d total=%d]",
-        datetime.now(timezone.utc).isoformat(),
+        datetime.utcnow().isoformat(),
         update.effective_user.id,
         active_subs,
         total_users,
@@ -206,7 +206,7 @@ async def cmd_costs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     logger.info(
         "[%s] [ADMIN_BOT] [COSTS_REPORT] [%s] [total_usd=%s calls=%d]",
-        datetime.now(timezone.utc).isoformat(),
+        datetime.utcnow().isoformat(),
         update.effective_user.id,
         summary["total_usd"],
         summary["total_calls"],
@@ -224,7 +224,7 @@ async def cmd_teaser(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     from sqlalchemy import text
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
 
     if mode == "week":
         since = now - timedelta(days=7)
@@ -312,7 +312,7 @@ async def cmd_teaser(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     logger.info(
         "[%s] [ADMIN_BOT] [TEASER_REPORT] [%s] [mode=%s total_clicks=%d]",
-        datetime.now(timezone.utc).isoformat(),
+        datetime.utcnow().isoformat(),
         update.effective_user.id,
         mode,
         total_clicks,
@@ -325,7 +325,7 @@ async def cmd_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.effective_message.reply_text("⛔ คุณไม่มีสิทธิ์ใช้งาน")
         return
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
@@ -400,7 +400,7 @@ async def cmd_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     logger.info(
         "[%s] [ADMIN_BOT] [SUMMARY_REPORT] [%s] [revenue_today=%s active=%d]",
-        datetime.now(timezone.utc).isoformat(),
+        datetime.utcnow().isoformat(),
         update.effective_user.id,
         rev_today.total,
         active_count,

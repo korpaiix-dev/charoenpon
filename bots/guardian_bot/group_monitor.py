@@ -44,28 +44,72 @@ CSV_PATH = Path(os.environ.get("CSV_WHITELIST_PATH", "/app/data/members2_latest.
 
 
 def load_csv_whitelist() -> set[int]:
-    """Load CSV whitelist once at startup.
+    """Load CSV whitelist — เฉพาะคนที่ยังไม่หมดอายุ.
 
-    ทุก status ห้ามเตะ ยกเว้น 'Expired'.
+    Permanent → whitelist เสมอ
+    Active + Expiry Date ยังไม่ถึง → whitelist
+    Expired หรือ Expiry Date ผ่านแล้ว → ไม่ whitelist
     """
     global _csv_whitelist, _csv_loaded
     if _csv_loaded:
         return _csv_whitelist
 
     whitelist: set[int] = set()
+    now = datetime.utcnow()
+
     try:
         with open(CSV_PATH, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                status = (row.get("Status") or "").strip()
-                if status.lower() == "expired":
-                    continue
+                status = (row.get("Status") or "").strip().lower()
+                expiry_str = (row.get("Expiry Date") or "").strip()
+                uid_str = (row.get("User ID") or "0").strip()
+
                 try:
-                    uid = int(row.get("User ID", "0"))
-                    if uid:
-                        whitelist.add(uid)
+                    uid = int(uid_str)
+                    if not uid:
+                        continue
                 except (ValueError, TypeError):
                     continue
+
+                # Expired status → ไม่ whitelist
+                if status == "expired":
+                    continue
+
+                # Permanent → whitelist เสมอ
+                if status == "permanent":
+                    whitelist.add(uid)
+                    continue
+
+                # เช็ค Expiry Date
+                if expiry_str:
+                    try:
+                        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+                            try:
+                                expiry_date = datetime.strptime(expiry_str.split(".")[0], fmt)
+                                break
+                            except ValueError:
+                                continue
+                        else:
+                            # parse ไม่ได้ → ให้ whitelist ไว้ก่อน (benefit of doubt)
+                            whitelist.add(uid)
+                            continue
+
+                        # 3000+ = Permanent
+                        if expiry_date.year >= 2999:
+                            whitelist.add(uid)
+                            continue
+
+                        # ยังไม่หมดอายุ → whitelist
+                        if expiry_date >= now:
+                            whitelist.add(uid)
+                        # หมดอายุแล้ว → ไม่ whitelist (จะถูกเตะ)
+                    except Exception:
+                        whitelist.add(uid)  # parse error → ให้ whitelist ไว้ก่อน
+                else:
+                    # ไม่มี Expiry Date → whitelist ไว้ก่อน
+                    whitelist.add(uid)
+
         logger.info("CSV whitelist loaded: %d users from %s", len(whitelist), CSV_PATH)
     except FileNotFoundError:
         logger.warning("CSV whitelist file not found: %s", CSV_PATH)
@@ -83,9 +127,88 @@ def is_in_csv_whitelist(user_id: int) -> bool:
     return user_id in _csv_whitelist
 
 
+# --- CSV Expired list (สำหรับเตะอัตโนมัติ) ---
+_csv_expired: set[int] = set()
+_csv_expired_loaded = False
+
+
+def load_csv_expired() -> set[int]:
+    """Load CSV users ที่หมดอายุแล้ว — ทั้ง status=Expired และ Expiry Date ผ่านแล้ว."""
+    global _csv_expired, _csv_expired_loaded
+    if _csv_expired_loaded:
+        return _csv_expired
+
+    expired: set[int] = set()
+    now = datetime.utcnow()
+
+    try:
+        with open(CSV_PATH, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                status = (row.get("Status") or "").strip().lower()
+                expiry_str = (row.get("Expiry Date") or "").strip()
+                uid_str = (row.get("User ID") or "0").strip()
+
+                try:
+                    uid = int(uid_str)
+                    if not uid:
+                        continue
+                except (ValueError, TypeError):
+                    continue
+
+                # Permanent → ไม่เตะเด็ดขาด
+                if status == "permanent":
+                    continue
+
+                # Status = Expired → เตะ
+                if status == "expired":
+                    expired.add(uid)
+                    continue
+
+                # เช็ค Expiry Date — ถ้าผ่านไปแล้ว = หมดอายุ
+                if expiry_str:
+                    try:
+                        # รองรับหลาย format
+                        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+                            try:
+                                expiry_date = datetime.strptime(expiry_str.split(".")[0], fmt)
+                                break
+                            except ValueError:
+                                continue
+                        else:
+                            continue
+
+                        # ถ้าวันหมด 3000 = Permanent (บอทเก่าใส่)
+                        if expiry_date.year >= 2999:
+                            continue
+
+                        # ถ้าหมดอายุแล้ว → เตะ
+                        if expiry_date < now:
+                            expired.add(uid)
+                    except Exception:
+                        continue
+
+        logger.info("CSV expired loaded: %d users (status=Expired + Expiry Date ผ่านแล้ว)", len(expired))
+    except FileNotFoundError:
+        logger.warning("CSV file not found: %s", CSV_PATH)
+    except Exception as exc:
+        logger.error("Error loading CSV expired: %s", exc)
+
+    _csv_expired = expired
+    _csv_expired_loaded = True
+    return _csv_expired
+
+
+def is_csv_expired(user_id: int) -> bool:
+    """Check if user_id is expired — ทั้ง status=Expired และ Expiry Date ผ่านแล้ว."""
+    load_csv_expired()
+    return user_id in _csv_expired
+
+
 # --- Pending admin decisions (for 20-min timeout) ---
 # key: f"{user_id}_{chat_id}", value: job name
 pending_guardian_decisions: dict[str, str] = {}
+_PENDING_MAX_SIZE = 500  # Prevent unbounded growth
 
 
 async def _send_discord(content: str) -> None:
@@ -110,6 +233,68 @@ async def _send_discord(content: str) -> None:
             )
     except Exception:
         pass
+
+
+GUARDIAN_LOG_GROUP = -1003668900287  # ห้อง log เตะ/เข้ากลุ่ม
+
+
+async def _log_kick_action(bot, content: str) -> None:
+    """แจ้งเตือนการเตะไป Discord #system-logs + Telegram Log Group."""
+    # Discord #system-logs
+    token = os.environ.get("DISCORD_BOT_TOKEN", "")
+    ch = os.environ.get("DISCORD_CH_SYSTEM_LOGS", "")
+    if token and ch:
+        try:
+            now_th = datetime.now(TH_TZ)
+            embed = {
+                "title": "🔒 Guardian — เตะสมาชิก",
+                "description": content,
+                "color": 0xFF6B00,
+                "footer": {"text": f"⊙ เจริญพร | {now_th.strftime('%d/%m/%Y %H:%M')}"},
+            }
+            async with httpx.AsyncClient(timeout=10) as client:
+                await client.post(
+                    f"https://discord.com/api/v10/channels/{ch}/messages",
+                    headers={"Authorization": f"Bot {token}", "Content-Type": "application/json"},
+                    json={"embeds": [embed]},
+                )
+        except Exception as exc:
+            logger.warning("Discord log failed: %s", exc)
+
+    # Telegram Log Group
+    if bot:
+        try:
+            await bot.send_message(
+                chat_id=GUARDIAN_LOG_GROUP,
+                text=f"🔒 <b>เตะสมาชิก</b>\n\n{content}",
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.warning("Telegram log failed: %s", exc)
+
+
+async def _log_member_join(bot, user_id: int, username: str, name: str, group_title: str, status: str) -> None:
+    """แจ้งเตือนคนเข้ากลุ่มไป Telegram Log Group."""
+    if not bot:
+        return
+    now_th = datetime.now(TH_TZ)
+    text = (
+        f"🟢 <b>สมาชิกเข้ากลุ่ม</b>\n\n"
+        f"👤 ชื่อ: {name}\n"
+        f"🆔 TG ID: <code>{user_id}</code>\n"
+        f"📛 Username: @{username or '-'}\n"
+        f"📍 กลุ่ม: {group_title}\n"
+        f"📋 สถานะ: {status}\n"
+        f"🕒 {now_th.strftime('%d/%m/%Y %H:%M')}"
+    )
+    try:
+        await bot.send_message(
+            chat_id=GUARDIAN_LOG_GROUP,
+            text=text,
+            parse_mode="HTML",
+        )
+    except Exception as exc:
+        logger.warning("Telegram join log failed: %s", exc)
 
 
 async def notify_admin_for_decision(
@@ -239,7 +424,7 @@ async def create_one_time_invite(bot: Bot, chat_id: int, user_id: int) -> str:
     Returns:
         invite_link URL string
     """
-    expire = datetime.now(timezone.utc) + timedelta(hours=24)
+    expire = datetime.utcnow() + timedelta(hours=24)
 
     link_obj = await bot.create_chat_invite_link(
         chat_id=chat_id,
@@ -328,6 +513,76 @@ async def generate_invite_links_for_user(
     return invite_links
 
 
+async def generate_invite_links_for_csv_user(
+    bot: Bot, user_id: int
+) -> dict[str, str]:
+    """สร้าง invite link เฉพาะกลุ่มที่ CSV user เป็นสมาชิกอยู่แล้ว.
+
+    ตรวจสอบ membership จริงในแต่ละกลุ่ม VIP ก่อนสร้าง invite
+    เพื่อไม่ให้ส่งลิงก์กลุ่มที่ลูกค้าไม่มีสิทธิ์เข้า
+
+    Args:
+        bot: Telegram Bot instance (Guardian Bot)
+        user_id: telegram_id ของลูกค้า
+
+    Returns:
+        dict ของ {group_slug: invite_link} เฉพาะกลุ่มที่เป็นสมาชิก
+    """
+    invite_links: dict[str, str] = {}
+
+    async with get_session() as session:
+        grps_result = await session.execute(
+            select(GroupRegistry).where(GroupRegistry.is_active == True)  # noqa: E712
+        )
+        groups = grps_result.scalars().all()
+
+    for group in groups:
+        slug = group.slug.value if hasattr(group.slug, "value") else str(group.slug)
+        try:
+            member = await bot.get_chat_member(chat_id=group.chat_id, user_id=user_id)
+            if member.status in ("member", "restricted", "administrator", "creator"):
+                # ลูกค้าเป็นสมาชิกกลุ่มนี้อยู่แล้ว → สร้าง invite link
+                link = await create_one_time_invite(bot, group.chat_id, user_id)
+                invite_links[slug] = link
+                logger.info(
+                    "CSV user %s is member of %s, created invite link", user_id, slug
+                )
+            else:
+                logger.info(
+                    "CSV user %s is NOT member of %s (status=%s), skipping",
+                    user_id, slug, member.status,
+                )
+        except BadRequest:
+            logger.debug("User %s not found in group %s", user_id, slug)
+        except Exception as exc:
+            logger.warning(
+                "Error checking CSV user %s membership in %s: %s", user_id, slug, exc
+            )
+
+    if not invite_links:
+        # ถ้าไม่พบว่าเป็นสมาชิกกลุ่มไหนเลย ส่งเฉพาะ G300 (minimum)
+        logger.warning(
+            "CSV user %s not found in any group, defaulting to G300", user_id
+        )
+        async with get_session() as session:
+            g300_result = await session.execute(
+                select(GroupRegistry).where(
+                    GroupRegistry.slug == "G300",
+                    GroupRegistry.is_active == True,  # noqa: E712
+                )
+            )
+            g300 = g300_result.scalar_one_or_none()
+        if g300:
+            try:
+                link = await create_one_time_invite(bot, g300.chat_id, user_id)
+                slug = g300.slug.value if hasattr(g300.slug, "value") else str(g300.slug)
+                invite_links[slug] = link
+            except Exception as exc:
+                logger.error("Failed to create default G300 invite for CSV user %s: %s", user_id, exc)
+
+    return invite_links
+
+
 async def _get_authorized_telegram_ids(group_slug: str) -> set[int]:
     """Get set of telegram_ids authorized to be in a specific group.
 
@@ -335,7 +590,7 @@ async def _get_authorized_telegram_ids(group_slug: str) -> set[int]:
     that includes this group slug. Lifetime subs (duration_days=NULL)
     are always authorized.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     authorized: set[int] = set()
 
     async with get_session() as session:
@@ -437,24 +692,28 @@ async def check_and_kick_unauthorized(bot: Bot, job_queue=None) -> dict[str, int
             )
             all_users = all_users_result.all()
 
+        # Filter candidates BEFORE calling Telegram API
+        candidates = []
         for tg_id, user_db_id, username in all_users:
-            # Skip admins and bot itself
             if tg_id in admin_ids or tg_id == bot_user_id:
                 continue
-
-            # ชั้น 1: Skip if authorized in DB
             if tg_id in authorized_ids:
                 continue
-
-            # ชั้น 2: Skip if in CSV whitelist
             if is_in_csv_whitelist(tg_id):
                 stats["csv_whitelisted"] += 1
                 continue
+            candidates.append((tg_id, user_db_id, username))
 
+        # Limit API calls per group per run (avoid rate limit)
+        import asyncio
+        MAX_CHECKS_PER_GROUP = 30
+
+        for tg_id, user_db_id, username in candidates[:MAX_CHECKS_PER_GROUP]:
             stats["members_checked"] += 1
 
             # Check if user is actually in the group
             try:
+                await asyncio.sleep(0.5)  # Rate limit: max 2 calls/sec
                 member = await bot.get_chat_member(
                     chat_id=group.chat_id, user_id=tg_id
                 )
@@ -465,6 +724,25 @@ async def check_and_kick_unauthorized(bot: Bot, job_queue=None) -> dict[str, int
                 continue
 
             if member.status in ("member", "restricted"):
+                # ── CSV Expired → เตะอัตโนมัติ ──
+                if is_csv_expired(tg_id):
+                    try:
+                        await bot.ban_chat_member(chat_id=group.chat_id, user_id=tg_id)
+                        await bot.unban_chat_member(chat_id=group.chat_id, user_id=tg_id, only_if_banned=True)
+                        stats["notified"] += 1
+                        log_msg = (
+                            f"👤 TG ID: <code>{tg_id}</code> (@{username or '-'})\n"
+                            f"📍 กลุ่ม: {group.title}\n"
+                            f"📋 สาเหตุ: CSV status = Expired\n"
+                            f"✅ เตะ + unban (สมัครใหม่ได้)"
+                        )
+                        await _log_kick_action(bot, log_msg)
+                        logger.info("Auto-kicked CSV expired user %s from %s", tg_id, slug)
+                    except Exception as exc:
+                        logger.error("Failed to kick CSV expired %s: %s", tg_id, exc)
+                        stats["errors"] += 1
+                    continue
+
                 # ชั้น 3: ไม่เจอเลย → แจ้ง Admin พร้อมปุ่ม (ไม่เตะทันที!)
                 decision_key = f"{tg_id}_{group.chat_id}"
                 if decision_key in pending_guardian_decisions:
@@ -497,14 +775,27 @@ async def check_and_kick_unauthorized(bot: Bot, job_queue=None) -> dict[str, int
         stats["errors"],
     )
 
-    if stats["notified"] > 0:
-        await _send_discord(
-            f"⚠️ **Guardian: Found Unauthorized Members**\n"
-            f"Groups checked: {stats['groups_checked']}\n"
-            f"Members checked: {stats['members_checked']}\n"
-            f"Notified admin: {stats['notified']}\n"
-            f"CSV whitelisted: {stats['csv_whitelisted']}\n"
-            f"Errors: {stats['errors']}"
-        )
+    # ส่ง summary ไปทั้ง Discord + Telegram log group
+    summary_msg = (
+        f"📋 <b>Guardian: ตรวจสมาชิกรอบ {datetime.now(TH_TZ).strftime('%H:%M')}</b>\n\n"
+        f"🔍 กลุ่มที่เช็ค: {stats['groups_checked']}\n"
+        f"👥 คนที่เช็ค: {stats['members_checked']}\n"
+        f"⚠️ แจ้ง Admin: {stats['notified']}\n"
+        f"✅ CSV whitelist: {stats['csv_whitelisted']}\n"
+        f"❌ Errors: {stats['errors']}"
+    )
+
+    if stats["notified"] > 0 or stats["members_checked"] > 0:
+        await _send_discord(summary_msg.replace('<b>','**').replace('</b>','**'))
+
+        # ส่ง Telegram log group
+        try:
+            await bot.send_message(
+                chat_id=GUARDIAN_LOG_GROUP,
+                text=summary_msg,
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.warning("Telegram summary log failed: %s", exc)
 
     return stats
