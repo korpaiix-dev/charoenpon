@@ -307,9 +307,11 @@ async def notify_admin_for_decision(
 ) -> None:
     """ชั้น 3: แจ้ง Admin group พร้อมปุ่ม ✅ ปล่อย / ❌ เตะ + timeout 20 นาที."""
     admin_group_id = int(os.environ.get("TG_GROUP_ADMIN", "0"))
-    admin_bot_token = os.environ.get("ADMIN_BOT_TOKEN", "")
+    # ใช้ Guardian Bot token เอง เพื่อให้ callback กลับเข้า Guardian Bot ได้
+    guardian_bot_token = os.environ.get("GUARDIAN_BOT_TOKEN", "")
+    admin_bot_token = guardian_bot_token or os.environ.get("ADMIN_BOT_TOKEN", "")
     if not admin_group_id or not admin_bot_token:
-        logger.error("TG_GROUP_ADMIN or ADMIN_BOT_TOKEN not set, cannot notify admin")
+        logger.error("TG_GROUP_ADMIN or GUARDIAN_BOT_TOKEN not set, cannot notify admin")
         return
 
     display_name = f"@{username}" if username else f"ID:{user_id}"
@@ -620,7 +622,12 @@ async def _get_authorized_telegram_ids(group_slug: str) -> set[int]:
         )
 
         for tg_id, groups_access, duration_days, end_date in subs_result.all():
-            group_list = [g.strip() for g in groups_access.split(",") if g.strip()]
+            # groups_access อาจเป็น JSON array '["G300","G500"]' หรือ comma-separated 'G300,G500'
+            import json as _json
+            try:
+                group_list = _json.loads(groups_access) if groups_access.startswith("[") else [g.strip() for g in groups_access.split(",") if g.strip()]
+            except Exception:
+                group_list = [g.strip().strip('"').strip("'") for g in groups_access.split(",") if g.strip()]
             if group_slug not in group_list:
                 continue
 
