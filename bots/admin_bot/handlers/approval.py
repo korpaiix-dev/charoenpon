@@ -962,3 +962,40 @@ async def _notify_discord_alert(title: str, details: str, color: int = 0x3498DB)
             )
     except Exception as exc:
         logger.warning("Discord notify failed: %s", exc)
+
+
+async def chat_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """เปิดแชทกับลูกค้า — ดึง username จาก DB แล้วส่งลิงก์ให้ admin."""
+    query = update.callback_query
+    await query.answer()
+
+    target_user_id = int(query.data.split(":")[1])
+
+    # ดึงข้อมูล user จาก DB
+    async with get_session() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == target_user_id)
+        )
+        user = result.scalar_one_or_none()
+
+    if user and user.username:
+        # มี username → ส่งลิงก์ตรงไปหา profile
+        await query.message.reply_text(
+            f"💬 <b>แชทกับลูกค้า</b>\n\n"
+            f"👤 @{user.username}\n"
+            f"👉 <a href=\"https://t.me/{user.username}\">กดที่นี่เพื่อเปิดแชท</a>",
+            parse_mode="HTML",
+        )
+    else:
+        # ไม่มี username → แจ้ง admin พร้อม user ID + mention link
+        name = (user.first_name if user else None) or f"User {target_user_id}"
+        await query.message.reply_text(
+            f"💬 <b>แชทกับลูกค้า</b>\n\n"
+            f"⚠️ ลูกค้าไม่มี username\n"
+            f"👤 ชื่อ: {name}\n"
+            f"🆔 Telegram ID: <code>{target_user_id}</code>\n\n"
+            f"👉 <a href=\"tg://user?id={target_user_id}\">กดที่นี่เพื่อเปิดแชท</a>\n"
+            f"(ใช้ได้เฉพาะบน Telegram app, ไม่รองรับ Desktop บางเวอร์ชัน)",
+            parse_mode="HTML",
+        )
+    logger.info("Admin %s requested chat link for user %s", query.from_user.id, target_user_id)
