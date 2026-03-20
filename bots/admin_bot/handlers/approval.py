@@ -632,8 +632,8 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
         ])
         try:
             await query.edit_message_caption(caption=new_caption[:1024], parse_mode="HTML", reply_markup=post_keyboard)
-        except:
-            pass
+        except Exception as e:
+            logger.error("Failed to edit approval caption: %s", e)
 
         # Notify Discord
         await _notify_discord_alert(
@@ -713,8 +713,8 @@ async def reject_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     ])
     try:
         await query.edit_message_caption(caption=new_caption[:1024], parse_mode="HTML", reply_markup=post_keyboard)
-    except:
-        pass
+    except Exception as e:
+        logger.error("Failed to edit rejection caption: %s", e)
 
 
 async def ban_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -758,8 +758,8 @@ async def ban_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     ])
     try:
         await query.edit_message_caption(caption=new_caption[:1024], parse_mode="HTML", reply_markup=post_keyboard)
-    except:
-        pass
+    except Exception as e:
+        logger.error("Failed to edit ban caption: %s", e)
 
 
 async def sos_resend_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -879,8 +879,8 @@ async def sos_resend_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         try:
             await query.edit_message_text(text=new_text[:4096], parse_mode="HTML", reply_markup=new_keyboard)
-        except:
-            pass
+        except Exception as e:
+            logger.error("Failed to edit SOS resend message: %s", e)
 
     except Exception as exc:
         logger.error("SOS resend error: %s", exc)

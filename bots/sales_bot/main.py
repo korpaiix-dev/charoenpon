@@ -173,6 +173,7 @@ def main() -> None:
     # Reduce noise from httpx
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("telegram").setLevel(logging.WARNING)
 
     app = create_application()
     logger.info("Starting Sales Bot (แพร)...")

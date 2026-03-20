@@ -222,6 +222,7 @@ def main() -> None:
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("telegram").setLevel(logging.WARNING)
 
     app = create_application()
     logger.info("Starting Announce Bot (ประกาศ)...")
