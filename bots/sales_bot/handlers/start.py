@@ -183,6 +183,22 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 except (ValueError, IndexError) as exc:
                     logger.warning("Failed to parse teaser source '%s': %s", source, exc)
 
+    # Handle referral deep link: /start ref_{CODE}
+    if source and source.startswith("ref_"):
+        ref_code = source.replace("ref_", "", 1)
+        from bots.sales_bot.handlers.referral import handle_referral_start
+        await handle_referral_start(update, context, ref_code)
+        # Always show packages menu for referred users
+        from bots.sales_bot.handlers.packages import view_packages_command
+        await view_packages_command(update, context)
+        return
+
+    # Handle invite deep link: /start invite
+    if source == "invite":
+        from bots.sales_bot.handlers.referral import invite_command
+        await invite_command(update, context)
+        return
+
     # Handle comeback deep link: /start comeback_{code}
     if source and source.startswith("comeback_"):
         promo_code = source.replace("comeback_", "", 1)
@@ -217,6 +233,17 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             )
     except Exception:
         pass  # ถ้าเช็คไม่ได้ ไม่แสดงปุ่ม
+
+    # เช็ค VIP Active สำหรับปุ่มชวนเพื่อน
+    try:
+        from bots.sales_bot.handlers.referral import _is_vip_active
+        is_vip = await _is_vip_active(tg_user.id)
+        if is_vip:
+            keyboard_rows.append(
+                [InlineKeyboardButton("🎁 ชวนเพื่อน", callback_data="get_invite_link")]
+            )
+    except Exception:
+        pass
 
     keyboard_rows.extend([
         [InlineKeyboardButton("📦 ดูแพ็กเกจ", callback_data="view_packages")],

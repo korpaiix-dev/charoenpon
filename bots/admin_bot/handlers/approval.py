@@ -243,6 +243,16 @@ async def approve_payment_callback(update: Update, context: ContextTypes.DEFAULT
         logger.warning("Sheets sync failed for payment #%d: %s", payment_id, exc)
         logger.warning("Sheets sync failed for payment #%d: %s", payment_id, exc)
 
+    # ── Process referral reward ──
+    if user:
+        try:
+            import telegram as tg
+            sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+            from bots.sales_bot.handlers.referral import process_referral_reward
+            await process_referral_reward(user.telegram_id, sales_bot)
+        except Exception as exc_ref:
+            logger.warning("Referral reward failed for payment #%d: %s", payment_id, exc_ref)
+
     logger.info(
         "[%s] [ADMIN_BOT] [APPROVE_PAYMENT] [%s] [payment_id=%d amount=%s]",
         datetime.now(timezone.utc).isoformat(),
@@ -709,6 +719,13 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
                     logger.info("Comeback promo %s marked purchased via admin approval", cb_log.promo_code)
         except Exception as exc_cb:
             logger.warning("Comeback promo mark failed (non-critical): %s", exc_cb)
+
+        # ── Process referral reward ──
+        try:
+            from bots.sales_bot.handlers.referral import process_referral_reward
+            await process_referral_reward(target_user_id, sales_bot)
+        except Exception as exc_ref:
+            logger.warning("Referral reward failed for user %d: %s", target_user_id, exc_ref)
 
     except Exception as exc:
         logger.error("approve_by_price error: %s", exc)
