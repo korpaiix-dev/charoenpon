@@ -53,8 +53,9 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         admin = data.admin;
         localStorage.setItem('token', token);
         localStorage.setItem('admin', JSON.stringify(admin));
-        showApp();
+        try { showApp(); } catch(e) { console.error('showApp error:', e); alert('Login สำเร็จแต่โหลดหน้าไม่ได้: ' + e.message); }
     } catch (err) {
+        console.error('Login error:', err);
         errEl.textContent = err.message || 'เข้าสู่ระบบไม่สำเร็จ';
     }
 });
