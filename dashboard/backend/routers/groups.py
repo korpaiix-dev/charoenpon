@@ -25,7 +25,7 @@ async def list_groups_categorized(admin=Depends(require_role("admin"))):
     vip = []
     free = []
     chat = []
-    vip_tiers = {"TIER_300", "TIER_500", "TIER_1299", "TIER_2499"}
+    vip_tiers = {"TIER_300", "TIER_500", "TIER_1299", "TIER_2499", "TIER_99"}
     chat_slugs = {"CHAT", "TALK", "DISCUSS", "พูดคุย"}
     for r in rows:
         d = dict(r)
@@ -34,6 +34,8 @@ async def list_groups_categorized(admin=Depends(require_role("admin"))):
         # Classify
         if any(cs in slug_upper for cs in chat_slugs) or tier == "FREE_CHAT":
             chat.append(d)
+        elif tier == "FREE":
+            free.append(d)
         elif tier in vip_tiers:
             vip.append(d)
         else:
@@ -63,6 +65,14 @@ async def update_group(group_id: int, request: Request, admin=Depends(require_ro
             updates.append(f"{field} = ${idx}")
             params.append(body[field])
             idx += 1
+    if "chat_id" in body:
+        updates.append(f"chat_id = ${idx}")
+        params.append(int(body["chat_id"]))
+        idx += 1
+    if "slug" in body:
+        updates.append(f"slug = ${idx}::groupslug")
+        params.append(body["slug"])
+        idx += 1
     if "min_tier" in body:
         updates.append(f"min_tier = ${idx}::packagetier")
         params.append(body["min_tier"])
@@ -78,7 +88,7 @@ async def update_group(group_id: int, request: Request, admin=Depends(require_ro
     return {"ok": True}
 
 @router.delete("/{group_id}")
-async def delete_group(group_id: int, request: Request, admin=Depends(require_role("owner"))):
+async def delete_group(group_id: int, request: Request, admin=Depends(require_role("admin"))):
     await pool.execute("DELETE FROM group_registry WHERE id = $1", group_id)
     ip = request.client.host if request.client else None
     await _log(admin["id"], "delete_group", "group", group_id, None, ip)

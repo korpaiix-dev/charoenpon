@@ -9,9 +9,9 @@ router = APIRouter(prefix="/api/marketing", tags=["marketing"])
 async def kpi(days: int = 30, admin=Depends(require_role("admin"))):
     row = await pool.fetchrow("""
         SELECT
-            COALESCE(SUM(CASE WHEN p.status = 'CONFIRMED' AND p.created_at >= CURRENT_DATE - $1::int THEN p.amount END), 0) as revenue,
-            (SELECT COUNT(*) FROM users WHERE created_at >= CURRENT_DATE - $1::int) as new_members,
-            (SELECT COUNT(*) FROM subscriptions WHERE status = 'EXPIRED' AND updated_at >= CURRENT_DATE - $1::int) as churned,
+            COALESCE(SUM(CASE WHEN p.status = 'CONFIRMED' AND p.created_at >= CURRENT_DATE - $1 * interval '1 day' THEN p.amount END), 0) as revenue,
+            (SELECT COUNT(*) FROM users WHERE created_at >= CURRENT_DATE - $1 * interval '1 day') as new_members,
+            (SELECT COUNT(*) FROM subscriptions WHERE status = 'EXPIRED' AND updated_at >= CURRENT_DATE - $1 * interval '1 day') as churned,
             (SELECT COUNT(*) FROM subscriptions WHERE status = 'ACTIVE') as active_members
         FROM payments p
     """, days)
@@ -43,14 +43,14 @@ async def funnel(days: int = 30, admin=Depends(require_role("admin"))):
     # Free group members → Teaser clicks → Trial purchases → VIP/GOD purchases
     free_members = await pool.fetchval("SELECT COUNT(*) FROM users")
     teaser_clicks = await pool.fetchval(
-        "SELECT COUNT(*) FROM teaser_clicks WHERE created_at >= CURRENT_DATE - $1::int", days)
+        "SELECT COUNT(*) FROM teaser_clicks WHERE created_at >= CURRENT_DATE - $1 * interval '1 day'", days)
     trial_purchases = await pool.fetchval("""
         SELECT COUNT(*) FROM payments p JOIN packages pk ON p.package_id = pk.id
-        WHERE p.status = 'CONFIRMED' AND pk.tier = 'TIER_99' AND p.created_at >= CURRENT_DATE - $1::int
+        WHERE p.status = 'CONFIRMED' AND pk.tier = 'TIER_99' AND p.created_at >= CURRENT_DATE - $1 * interval '1 day'
     """, days)
     vip_purchases = await pool.fetchval("""
         SELECT COUNT(*) FROM payments p JOIN packages pk ON p.package_id = pk.id
-        WHERE p.status = 'CONFIRMED' AND pk.tier != 'TIER_99' AND p.created_at >= CURRENT_DATE - $1::int
+        WHERE p.status = 'CONFIRMED' AND pk.tier != 'TIER_99' AND p.created_at >= CURRENT_DATE - $1 * interval '1 day'
     """, days)
     
     return {

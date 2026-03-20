@@ -39,7 +39,7 @@ async def revenue_chart(days: int = 30, admin=Depends(get_current_admin)):
     rows = await pool.fetch("""
         SELECT p.created_at::date as date, COALESCE(SUM(p.amount), 0) as revenue
         FROM payments p
-        WHERE p.status = 'CONFIRMED' AND p.created_at >= CURRENT_DATE - $1
+        WHERE p.status = 'CONFIRMED' AND p.created_at >= CURRENT_DATE - $1 * interval '1 day'
         GROUP BY p.created_at::date ORDER BY date
     """, days)
     return [{"date": str(r["date"]), "revenue": float(r["revenue"])} for r in rows]
@@ -77,12 +77,12 @@ async def flash_sale_status(admin=Depends(get_current_admin)):
 async def dm_stats(admin=Depends(require_role("admin"))):
     row = await pool.fetchrow("""
         SELECT
-            (SELECT COUNT(*) FROM comeback_dm_log WHERE created_at::date = CURRENT_DATE) as comeback_sent,
-            (SELECT COUNT(*) FROM comeback_dm_log WHERE created_at::date = CURRENT_DATE AND responded = TRUE) as comeback_respond,
-            (SELECT COUNT(*) FROM comeback_dm_log WHERE created_at::date = CURRENT_DATE AND converted = TRUE) as comeback_convert,
-            (SELECT COUNT(*) FROM trial_dm_log WHERE created_at::date = CURRENT_DATE) as trial_sent,
-            (SELECT COUNT(*) FROM trial_dm_log WHERE created_at::date = CURRENT_DATE AND clicked = TRUE) as trial_click,
-            (SELECT COUNT(*) FROM trial_dm_log WHERE created_at::date = CURRENT_DATE AND converted = TRUE) as trial_convert
+            (SELECT COUNT(*) FROM comeback_dm_log WHERE sent_at::date = CURRENT_DATE) as comeback_sent,
+            (SELECT COUNT(*) FROM comeback_dm_log WHERE sent_at::date = CURRENT_DATE AND responded = TRUE) as comeback_respond,
+            (SELECT COUNT(*) FROM comeback_dm_log WHERE sent_at::date = CURRENT_DATE AND purchased = TRUE) as comeback_convert,
+            (SELECT COUNT(*) FROM trial_dm_log WHERE sent_at::date = CURRENT_DATE) as trial_sent,
+            (SELECT COUNT(*) FROM trial_dm_log WHERE sent_at::date = CURRENT_DATE AND clicked = TRUE) as trial_click,
+            (SELECT COUNT(*) FROM trial_dm_log WHERE sent_at::date = CURRENT_DATE AND purchased = TRUE) as trial_convert
     """)
     return dict(row)
 

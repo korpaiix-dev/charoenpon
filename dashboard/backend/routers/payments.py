@@ -150,7 +150,7 @@ async def chart_by_package(days: int = 30, admin=Depends(require_role("admin")))
     rows = await pool.fetch("""
         SELECT pk.name, pk.tier, COALESCE(SUM(p.amount), 0) as total
         FROM payments p JOIN packages pk ON p.package_id = pk.id
-        WHERE p.status = 'CONFIRMED' AND p.created_at >= CURRENT_DATE - $1
+        WHERE p.status = 'CONFIRMED' AND p.created_at >= CURRENT_DATE - $1 * interval '1 day'
         GROUP BY pk.name, pk.tier ORDER BY total DESC
     """, days)
     return [dict(r) for r in rows]
@@ -160,7 +160,7 @@ async def chart_by_method(days: int = 30, admin=Depends(require_role("admin"))):
     rows = await pool.fetch("""
         SELECT method::text, COALESCE(SUM(amount), 0) as total, COUNT(*) as count
         FROM payments
-        WHERE status = 'CONFIRMED' AND created_at >= CURRENT_DATE - $1
+        WHERE status = 'CONFIRMED' AND created_at >= CURRENT_DATE - $1 * interval '1 day'
         GROUP BY method ORDER BY total DESC
     """, days)
     return [dict(r) for r in rows]

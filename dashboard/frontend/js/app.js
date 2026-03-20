@@ -23,12 +23,16 @@ const NAV_ITEMS = [
 ];
 
 // ========== API ==========
+let _loggingOut = false;
 async function api(path, options = {}) {
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
     
     const resp = await fetch(`/api${path}`, { ...options, headers: { ...headers, ...options.headers } });
-    if (resp.status === 401) { logout(); throw new Error('Session expired'); }
+    if (resp.status === 401) {
+        if (!_loggingOut) { _loggingOut = true; logout(); _loggingOut = false; }
+        throw new Error('Session expired');
+    }
     if (!resp.ok) {
         const err = await resp.json().catch(() => ({ detail: 'Error' }));
         throw new Error(err.detail || 'API Error');
@@ -66,10 +70,16 @@ function togglePassword() {
 }
 
 function logout() {
-    api('/auth/logout', { method: 'POST' }).catch(() => {});
+    if (token) {
+        fetch('/api/auth/logout', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        }).catch(() => {});
+    }
     token = null; admin = null;
     localStorage.removeItem('token');
     localStorage.removeItem('admin');
+    if (alertInterval) { clearInterval(alertInterval); alertInterval = null; }
     document.getElementById('app').classList.add('hidden');
     document.getElementById('login-page').classList.remove('hidden');
 }
@@ -908,9 +918,11 @@ async function renderGroups() {
     try {
         const data = await api('/groups/categorized');
         
-        function groupTable(groups, emoji, title) {
-            if (!groups.length) return `<div class="category-section"><div class="category-header">${emoji} ${title} <span class="category-count">0</span></div><div class="empty-state" style="padding:1rem;">ไม่มีกลุ่ม</div></div>`;
-            let html = `<div class="category-section"><div class="category-header">${emoji} ${title} <span class="category-count">${groups.length}</span></div>`;
+        function groupTable(groups, emoji, title, category) {
+            let html = `<div class="category-section"><div class="category-header">${emoji} ${title} <span class="category-count">${groups.length}</span>
+                <button class="btn btn-sm btn-primary" style="margin-left:auto;" onclick="showAddGroupForm('${category}')">+ เพิ่มกลุ่ม</button>
+            </div>`;
+            if (!groups.length) { html += '<div class="empty-state" style="padding:1rem;">ไม่มีกลุ่ม</div></div>'; return html; }
             html += '<div class="table-wrap"><table><thead><tr><th>Slug</th><th>ชื่อกลุ่ม</th><th>Chat ID</th><th>Tier</th><th>สถานะ</th><th></th></tr></thead><tbody>';
             groups.forEach(g => {
                 html += `<tr>
@@ -920,6 +932,8 @@ async function renderGroups() {
                     <td>${g.min_tier}</td>
                     <td>${g.is_active ? '<span style="color:var(--success)">Active</span>' : 'Off'}</td>
                     <td><div class="btn-group">
+                        <button class="btn btn-sm btn-outline" onclick="showEditGroupForm(${g.id},'${g.slug}','${g.title.replace(/'/g,"&#39;")}',${g.chat_id},'${g.min_tier}',${g.is_active})">✏️</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteGroup(${g.id})">🗑️</button>
                         <button class="btn btn-sm btn-outline" onclick="showGroupDetail(${g.id})">📋</button>
                         <button class="btn btn-sm btn-primary" onclick="genInviteLink(${g.id})">🔗</button>
                     </div></td></tr>`;
@@ -929,11 +943,85 @@ async function renderGroups() {
         }
         
         content.innerHTML = 
-            groupTable(data.vip, '👑', 'กลุ่ม VIP') +
-            groupTable(data.free, '🆓', 'กลุ่มฟรี') +
-            groupTable(data.chat, '💬', 'กลุ่มพูดคุย');
+            groupTable(data.vip, '👑', 'กลุ่ม VIP', 'vip') +
+            groupTable(data.free, '🆓', 'กลุ่มฟรี', 'free') +
+            groupTable(data.chat, '💬', 'กลุ่มพูดคุย', 'chat');
         
     } catch (e) { content.innerHTML = `<div class="empty-state">${e.message}</div>`; }
+}
+
+function showAddGroupForm(category) {
+    const defaultTier = category === 'vip' ? 'TIER_300' : category === 'free' ? 'FREE' : 'FREE';
+    openModal('+ เพิ่มกลุ่ม', `
+        <div class="form-group"><label>Slug</label><input id="grp-slug" placeholder="เช่น FREE12, G300"></div>
+        <div class="form-group"><label>ชื่อกลุ่ม</label><input id="grp-title" placeholder="ชื่อกลุ่ม"></div>
+        <div class="form-group"><label>Chat ID</label><input id="grp-chatid" type="number" placeholder="-100xxxxxxxxxx"></div>
+        <div class="form-group"><label>Tier</label>
+            <select id="grp-tier">
+                <option value="FREE" ${defaultTier==='FREE'?'selected':''}>FREE</option>
+                <option value="TIER_99" ${defaultTier==='TIER_99'?'selected':''}>TIER_99</option>
+                <option value="TIER_300" ${defaultTier==='TIER_300'?'selected':''}>TIER_300</option>
+                <option value="TIER_500" ${defaultTier==='TIER_500'?'selected':''}>TIER_500</option>
+                <option value="TIER_1299" ${defaultTier==='TIER_1299'?'selected':''}>TIER_1299</option>
+                <option value="TIER_2499" ${defaultTier==='TIER_2499'?'selected':''}>TIER_2499</option>
+            </select>
+        </div>
+        <button class="btn btn-primary btn-full" onclick="createGroup()">💾 เพิ่มกลุ่ม</button>
+    `);
+}
+
+async function createGroup() {
+    try {
+        await api('/groups', { method: 'POST', body: JSON.stringify({
+            slug: document.getElementById('grp-slug').value.toUpperCase(),
+            title: document.getElementById('grp-title').value,
+            chat_id: parseInt(document.getElementById('grp-chatid').value),
+            min_tier: document.getElementById('grp-tier').value,
+            is_active: true,
+        })});
+        toast('เพิ่มกลุ่มสำเร็จ', 'success'); closeModal(); renderGroups();
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+function showEditGroupForm(id, slug, title, chatId, tier, isActive) {
+    openModal('✏️ แก้ไขกลุ่ม: ' + slug, `
+        <div class="form-group"><label>ชื่อกลุ่ม</label><input id="egrp-title" value="${title}"></div>
+        <div class="form-group"><label>Chat ID</label><input id="egrp-chatid" type="number" value="${chatId}"></div>
+        <div class="form-group"><label>Tier</label>
+            <select id="egrp-tier">
+                <option value="FREE" ${tier==='FREE'?'selected':''}>FREE</option>
+                <option value="TIER_99" ${tier==='TIER_99'?'selected':''}>TIER_99</option>
+                <option value="TIER_300" ${tier==='TIER_300'?'selected':''}>TIER_300</option>
+                <option value="TIER_500" ${tier==='TIER_500'?'selected':''}>TIER_500</option>
+                <option value="TIER_1299" ${tier==='TIER_1299'?'selected':''}>TIER_1299</option>
+                <option value="TIER_2499" ${tier==='TIER_2499'?'selected':''}>TIER_2499</option>
+            </select>
+        </div>
+        <div class="form-group"><label>สถานะ</label>
+            <select id="egrp-active"><option value="true" ${isActive?'selected':''}>Active</option><option value="false" ${!isActive?'selected':''}>Inactive</option></select>
+        </div>
+        <button class="btn btn-primary btn-full" onclick="updateGroup(${id})">💾 บันทึก</button>
+    `);
+}
+
+async function updateGroup(id) {
+    try {
+        await api(`/groups/${id}`, { method: 'PUT', body: JSON.stringify({
+            title: document.getElementById('egrp-title').value,
+            chat_id: parseInt(document.getElementById('egrp-chatid').value),
+            min_tier: document.getElementById('egrp-tier').value,
+            is_active: document.getElementById('egrp-active').value === 'true',
+        })});
+        toast('อัพเดตกลุ่มสำเร็จ', 'success'); closeModal(); renderGroups();
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+async function deleteGroup(id) {
+    if (!confirm('ลบกลุ่มนี้?')) return;
+    try {
+        await api(`/groups/${id}`, { method: 'DELETE' });
+        toast('ลบกลุ่มแล้ว', 'success'); renderGroups();
+    } catch (e) { toast(e.message, 'error'); }
 }
 
 async function showGroupDetail(id) {
@@ -1330,7 +1418,7 @@ async function renderMarketing() {
         `;
 
         // Weekly chart
-        if (weekly.length) {
+        if (weekly.length >= 3) {
             charts.weekly = new Chart(document.getElementById('weekly-chart'), {
                 type: 'bar',
                 data: {
@@ -1352,6 +1440,9 @@ async function renderMarketing() {
                     plugins: { legend: { labels: { color: '#e0e6f0' } } },
                 }
             });
+        } else {
+            const weeklyEl = document.getElementById('weekly-chart');
+            if (weeklyEl) weeklyEl.parentElement.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.9rem;">📊 ยังมีข้อมูลน้อย รอสะสมอย่างน้อย 3 สัปดาห์</div>';
         }
     } catch (e) { content.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${e.message}</p></div>`; }
 }
