@@ -428,6 +428,22 @@ async def scheduled_teaser(context: ContextTypes.DEFAULT_TYPE) -> None:
     await _check_content_queue_alert()
 
 
+# --- Auto-fetch scheduled job ---
+
+async def _scheduled_auto_fetch(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Scheduled job: ดึงรูปใหม่จากแหล่งภายนอกทุก 6 ชั่วโมง."""
+    logger.info("🔄 Auto-fetch content triggered")
+    try:
+        from bots.content_bot.content_fetcher import fetch_new_content
+        count = await fetch_new_content()
+        logger.info("🔄 Auto-fetch done: %d new images added to content_queue", count)
+    except Exception as exc:
+        logger.error("Auto-fetch failed: %s", exc)
+        await _send_discord_content_log(
+            f"❌ **Content Auto-Fetch Failed**\nError: {exc}"
+        )
+
+
 # --- Entry point ---
 
 def main() -> None:
@@ -468,7 +484,17 @@ def main() -> None:
         name="teaser_late",
     )
 
-    logger.info("Content Bot (มิน) starting — 5 rounds/day to %d groups", len(FREE_GROUPS))
+    # Schedule auto-fetch content ทุก 6 ชั่วโมง (04:00, 10:00, 16:00, 22:00 เวลาไทย)
+    auto_fetch_times = [
+        dt_time(hour=4, minute=0, tzinfo=TH_TZ),
+        dt_time(hour=10, minute=0, tzinfo=TH_TZ),
+        dt_time(hour=16, minute=0, tzinfo=TH_TZ),
+        dt_time(hour=22, minute=0, tzinfo=TH_TZ),
+    ]
+    for i, t in enumerate(auto_fetch_times):
+        job_queue.run_daily(_scheduled_auto_fetch, time=t, name=f"auto_fetch_{i}")
+
+    logger.info("Content Bot (มิน) starting — 5 rounds/day to %d groups + auto-fetch every 6h", len(FREE_GROUPS))
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
