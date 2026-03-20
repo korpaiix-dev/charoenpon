@@ -77,6 +77,8 @@ async def on_ready() -> None:
         expiring_members_task.start()
     if not ad_performance_task.is_running():
         ad_performance_task.start()
+    if not marketing_daily_report_task.is_running():
+        marketing_daily_report_task.start()
 
     await bot.change_presence(
         activity=discord.Activity(
@@ -269,6 +271,50 @@ async def daily_report_task() -> None:
 async def daily_report_before() -> None:
     """Wait until bot is ready before starting daily report loop."""
     await bot.wait_until_ready()
+
+
+# ─── Marketing Daily Report (23:30 ไทย = 16:30 UTC) ─────────────────────────
+
+@tasks.loop(hours=24)
+async def marketing_daily_report_task() -> None:
+    """ส่งรายงาน Marketing Analytics ไปที่ #daily-report + Telegram admin group.
+
+    ทุกวัน 23:30 ไทย (16:30 UTC)
+    รวม: Flash Sale, COMEBACK DM, Trial DM, Upsell, Teaser, Subscriptions + AI วิเคราะห์
+    """
+    try:
+        from agents.marketing_analyzer.daily_report import run_daily_marketing_report
+        await run_daily_marketing_report()
+        logger.info("[%s] [DISCORD] [MARKETING_REPORT] [SYSTEM] completed",
+                     datetime.now(timezone.utc).isoformat())
+    except Exception as exc:
+        logger.error("Marketing daily report failed: %s", exc)
+        # ส่ง error ไป #daily-report
+        ch_id = get_channel_id("daily-report")
+        if ch_id:
+            channel = bot.get_channel(ch_id)
+            if channel:
+                await channel.send(f"❌ Marketing Daily Report ล้มเหลว: {exc}")
+
+
+@marketing_daily_report_task.before_loop
+async def marketing_daily_report_before() -> None:
+    """Wait until 16:30 UTC (23:30 ไทย) to start marketing report."""
+    await bot.wait_until_ready()
+
+    now = datetime.now(timezone.utc)
+    target = now.replace(hour=16, minute=30, second=0, microsecond=0)
+
+    # ถ้าเลยเวลาแล้ว → รอพรุ่งนี้
+    if now >= target:
+        target += timedelta(days=1)
+
+    wait_seconds = (target - now).total_seconds()
+    logger.info("Marketing report scheduled in %.0f seconds (at %s UTC)",
+                wait_seconds, target.strftime("%Y-%m-%d %H:%M"))
+
+    import asyncio
+    await asyncio.sleep(wait_seconds)
 
 
 @tasks.loop(hours=12)
