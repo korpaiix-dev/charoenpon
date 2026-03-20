@@ -92,13 +92,16 @@ async def generate_teaser_caption() -> str:
 
     prompt = (
         "เขียน caption ภาษาไทยสั้นๆ 1-2 บรรทัดสำหรับโพสต์ teaser 18+ "
-        "ให้คนอยากดูเต็มๆ แล้วสมัคร VIP\n\n"
+        "ให้คนอยากดูเต็มๆ แล้วสมัคร VIP เจริญพร\n\n"
         "กฎเหล็ก:\n"
-        "- ตอบแค่ caption 1 ชิ้นเท่านั้น ห้ามให้ตัวเลือก ห้ามมีข้อ 1. 2. 3.\n"
+        "- ตอบแค่ caption 1 อันเท่านั้น ห้ามให้ตัวเลือก ห้ามมีข้อ 1. 2. 3.\n"
         "- ห้ามขึ้นต้นด้วย 'นี่คือ' 'ตัวเลือก' 'แคปชั่น:' หรือคำนำใดๆ\n"
         "- ตอบแค่ข้อความ caption ตรงๆ เลย\n"
         "- ใช้อีโมจิ 1-2 ตัว\n"
         "- ห้ามใส่ลิงก์ ห้ามใส่ราคา\n"
+        "- ห้ามใช้คำว่า 'ชิ้น' ให้ใช้ 'คลิป' แทน\n"
+        "- ห้ามใช้คำว่า 'ซื้อ' หรือ 'สั่งซื้อ' ให้ใช้ 'สมัคร' แทน\n"
+        "- ห้ามใช้คำว่า 'ทดลองฟรี'\n"
         "- เร้าใจแต่ไม่หยาบคาย สร้างความอยากรู้"
     )
 
@@ -129,11 +132,11 @@ async def generate_teaser_caption() -> str:
 
     # Fallback captions
     fallbacks = [
-        "🔥 ของดีมาแล้ว ดูเต็มๆ ได้ใน VIP",
-        "😈 แอบดูนิดนึง... อยากดูต่อ ต้อง VIP",
-        "🔞 งานเด็ดวันนี้ ดูฟรีได้แค่นี้~",
-        "💦 น้องคนนี้ ของดีจริงๆ ดูเต็มใน VIP",
-        "🫣 แค่ตัวอย่าง... ของจริงอยู่ใน VIP",
+        "🔥 ของดีมาแล้ว สมัคร VIP ดูเต็มๆ",
+        "😈 แอบดูนิดนึง... อยากดูต่อ สมัคร VIP เจริญพร",
+        "🔞 คลิปเด็ดวันนี้ ดูฟรีได้แค่นี้~",
+        "💦 น้องคนนี้ ของดีจริงๆ ดูเต็มใน VIP เจริญพร",
+        "🫣 แค่ตัวอย่าง... ของจริงอยู่ใน VIP เจริญพร",
     ]
     return random.choice(fallbacks)
 
@@ -247,7 +250,7 @@ async def create_flash_sale_image(bot: Bot, file_id: str) -> io.BytesIO:
     font_vip = _load_font(max(w // 14, 30))         # VIP 30 วัน
     font_old_price = _load_font(max(w // 18, 24))   # ฿300 ขีดฆ่า
     font_new_price = _load_font(max(w // 9, 44))    # ฿199 ตัวใหญ่
-    font_detail = _load_font(max(w // 22, 20))      # จำกัด 30 คน | 21:00-23:59
+    font_detail = _load_font(max(w // 22, 20))      # จำกัด 30 คน | 14:00-00:00
 
 
     # 3) วาด overlay
@@ -310,8 +313,8 @@ async def create_flash_sale_image(bot: Bot, file_id: str) -> io.BytesIO:
     draw.text((new_x, cursor_y), new_price, font=font_new_price, fill=(255, 60, 100, 255))
     cursor_y += new_th + line_gap
 
-    # บรรทัด 3: "จำกัด 30 คน | 21:00-23:59"
-    line3 = "จำกัด 30 คน | 21:00-23:59"
+    # บรรทัด 3: "จำกัด 30 คน | 14:00-00:00"
+    line3 = "จำกัด 30 คน | 14:00-00:00"
     l3_bbox = draw.textbbox((0, 0), line3, font=font_detail)
     l3_tw = l3_bbox[2] - l3_bbox[0]
     draw.text(((w - l3_tw) // 2, cursor_y), line3, font=font_detail, fill=(255, 255, 255, 220))
@@ -520,11 +523,14 @@ def get_round_time() -> str:
 def build_caption(base_caption: str, round_time: str, group_index: int) -> str:
     """Build full caption with unique tracking deep link per group."""
     return (
-        f"🔥 <b>กลุ่ม VIP เจริญพร</b> 🔥\n"
-        f"━━━━━━━━━━━━━━━━━━\n\n"
+        f"🔥 <b>VIP เจริญพร</b> 🔥\n\n"
         f"{base_caption}\n\n"
+        f"✅ คลิปเต็มไม่เบลอ ทุกวัน\n"
+        f"✅ รวมกว่า 10,000 คลิป\n\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=t_{round_time}_g{group_index}">ดูเต็มๆ คลิกเลย</a>'
+        f'📩 <b>สมัครเลย 👇</b>\n'
+        f'👉 <a href="tg://resolve?domain=jarernAD1_bot&start=t_{round_time}_g{group_index}">⚡ สมัคร VIP เจริญพร ⚡</a>\n'
+        f"━━━━━━━━━━━━━━━━━━"
     )
 
 

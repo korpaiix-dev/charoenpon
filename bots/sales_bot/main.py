@@ -28,6 +28,7 @@ from bots.sales_bot.handlers.packages import get_package_handlers
 from bots.sales_bot.handlers.payment import get_payment_handlers
 from bots.sales_bot.handlers.start import get_start_handlers
 from bots.sales_bot.handlers.support import get_support_handlers
+from bots.sales_bot.comeback_dm import run_comeback_dm_job
 from bots.sales_bot.flash_sale_scheduler import start_flash_sale, end_flash_sale, remind_flash_sale
 from bots.sales_bot.spam_filter import spam_filter_middleware
 
@@ -193,6 +194,13 @@ def create_application() -> Application:
         time=dt_time(hour=0, minute=0, tzinfo=TH_TZ),
         days=(5,),  # Saturday
         name="flash_sale_end_saturday_0000",
+    )
+
+    # --- Scheduler: COMEBACK DM ทุกวัน 10:00 ไทย ---
+    app.job_queue.run_daily(
+        run_comeback_dm_job,
+        time=dt_time(hour=10, minute=0, tzinfo=TH_TZ),
+        name="comeback_dm_daily_1000",
     )
 
     return app
