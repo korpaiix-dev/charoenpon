@@ -190,10 +190,46 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         if handled:
             return
 
+    # Handle trial deep link: /start trial
+    if source == "trial":
+        from bots.sales_bot.handlers.trial import trial_command
+        await trial_command(update, context)
+        return
+
+    # Handle packages deep link: /start packages
+    if source == "packages":
+        from bots.sales_bot.handlers.packages import view_packages_command
+        await view_packages_command(update, context)
+        return
+
+    # Build dynamic keyboard — show trial button if eligible
+    keyboard_rows = [
+        [InlineKeyboardButton("⚡ Flash Sale", callback_data="view_flashsale")],
+    ]
+
+    # เช็คสิทธิ์ trial
+    try:
+        from bots.sales_bot.handlers.trial import _check_trial_eligible
+        trial_eligible = await _check_trial_eligible(tg_user.id)
+        if trial_eligible:
+            keyboard_rows.append(
+                [InlineKeyboardButton("🆕 ทดลอง VIP 24 ชม. ฿99", callback_data="view_trial")]
+            )
+    except Exception:
+        pass  # ถ้าเช็คไม่ได้ ไม่แสดงปุ่ม
+
+    keyboard_rows.extend([
+        [InlineKeyboardButton("📦 ดูแพ็กเกจ", callback_data="view_packages")],
+        [InlineKeyboardButton("🆓 ห้องฟรี", url="https://t.me/addlist/2xN-ag15W4U2MTNl")],
+        [InlineKeyboardButton("👩‍💼 ติดต่อแอดมิน", url="https://t.me/zeinju_bunker")],
+    ])
+
+    dynamic_keyboard = InlineKeyboardMarkup(keyboard_rows)
+
     await update.message.reply_text(
         WELCOME_TEXT,
         parse_mode="HTML",
-        reply_markup=MAIN_KEYBOARD,
+        reply_markup=dynamic_keyboard,
     )
 
 

@@ -62,6 +62,7 @@ logger = logging.getLogger(__name__)
 DISCORD_WEBHOOK_URL: str = os.environ.get("DISCORD_WEBHOOK_URL", "")
 
 TIER_PRICES: dict[str, Decimal] = {
+    "99": Decimal("99"),
     "300": Decimal("300"),
     "500": Decimal("500"),
     "1299": Decimal("1299"),
@@ -413,12 +414,17 @@ async def _approve_payment(
 
         # Create subscription
         now = datetime.utcnow()
+        # Trial 24 ชม.: ใช้ hours=24 แทน days=1 เพื่อให้แม่นยำ
+        if package.tier == PackageTier.TIER_99:
+            end_date = now + timedelta(hours=24)
+        else:
+            end_date = now + timedelta(days=package.duration_days)
         sub = Subscription(
             user_id=db_payment.user_id,
             package_id=package.id,
             status=SubscriptionStatus.ACTIVE,
             start_date=now,
-            end_date=now + timedelta(days=package.duration_days),
+            end_date=end_date,
             payment_id=db_payment.id,
         )
         session.add(sub)
@@ -701,6 +707,7 @@ async def handle_photo_slip(
 
         keyboard = tg.InlineKeyboardMarkup([
             [
+                tg.InlineKeyboardButton("🆕 99 (Trial)", callback_data=f"approve_99_{user.id}"),
                 tg.InlineKeyboardButton("⚡ 199 (Flash)", callback_data=f"approve_199_{user.id}"),
                 tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}"),
             ],
@@ -898,6 +905,7 @@ async def handle_truemoney_link(
             admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
             keyboard = tg.InlineKeyboardMarkup([
                 [
+                    tg.InlineKeyboardButton("🆕 99 (Trial)", callback_data=f"approve_99_{user.id}"),
                     tg.InlineKeyboardButton("⚡ 199 (Flash)", callback_data=f"approve_199_{user.id}"),
                     tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}"),
                 ],

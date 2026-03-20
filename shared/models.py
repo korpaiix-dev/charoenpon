@@ -30,6 +30,7 @@ class Base(DeclarativeBase):
 # ---------- Enums ----------
 
 class PackageTier(str, enum.Enum):
+    TIER_99 = "99"
     TIER_300 = "300"
     TIER_500 = "500"
     TIER_1299 = "1299"
