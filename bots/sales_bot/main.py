@@ -30,6 +30,7 @@ from bots.sales_bot.handlers.start import get_start_handlers
 from bots.sales_bot.handlers.support import get_support_handlers
 from bots.sales_bot.handlers.trial import get_trial_handlers
 from bots.sales_bot.comeback_dm import run_comeback_dm_job
+from bots.sales_bot.trial_promo_dm import run_trial_promo_dm_job
 from bots.sales_bot.flash_sale_scheduler import start_flash_sale, end_flash_sale, remind_flash_sale
 from bots.sales_bot.trial_upsell import check_trial_upsell
 from bots.sales_bot.spam_filter import spam_filter_middleware
@@ -199,6 +200,14 @@ def create_application() -> Application:
         time=dt_time(hour=0, minute=0, tzinfo=TH_TZ),
         days=(5,),  # Saturday
         name="flash_sale_end_saturday_0000",
+    )
+
+    # --- Scheduler: TRIAL PROMO DM ทุกวัน 00:30 ไทย (17:30 UTC) ---
+    # หลัง Flash Sale ปิด 30 นาที — ส่ง DM Trial ฿99 ให้ลูกค้าใหม่ที่ไม่เคยจ่าย
+    app.job_queue.run_daily(
+        run_trial_promo_dm_job,
+        time=dt_time(hour=0, minute=30, tzinfo=TH_TZ),
+        name="trial_promo_dm_daily_0030",
     )
 
     # --- Scheduler: COMEBACK DM ทุกวัน 10:00 ไทย ---

@@ -472,6 +472,19 @@ class ExpiryNotification(Base):
     )
 
 
+class TrialDmLog(Base):
+    """Log DM Trial ฿99 ที่ส่งไปหาลูกค้าใหม่ที่ยังไม่เคยจ่าย."""
+
+    __tablename__ = "trial_dm_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    sent_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    clicked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    purchased: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
 class ComebackDmLog(Base):
     """Log DM COMEBACK ที่ส่งไปหาลูกค้าเก่า."""
 
