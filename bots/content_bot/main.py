@@ -13,6 +13,7 @@ import io
 import logging
 import os
 import random
+import re
 from datetime import datetime, time as dt_time, timedelta, timezone
 
 import httpx
@@ -89,21 +90,40 @@ async def generate_teaser_caption() -> str:
     """AI สร้าง caption teaser เสียวๆ ล่อใจ."""
     from shared.api_cost_tracker import call_openrouter
 
-    prompts = [
-        "เขียน caption สั้นๆ 1-2 บรรทัด ภาษาไทย สำหรับโพสต์ teaser คอนเทนต์ 18+ ในกลุ่ม Telegram ให้น่าสนใจ อยากดูต่อ ล่อให้สมัคร VIP ห้ามใส่ลิงก์ ห้ามใส่ราคา แค่ caption เสียวๆ ล่อใจ สร้างสรรค์ ไม่ซ้ำกัน",
-        "เขียน caption teaser 18+ ภาษาไทย 1-2 บรรทัด ให้คนอยากดูเต็มๆ ใช้คำพูดเร้าใจแต่ไม่หยาบ สร้างความอยากรู้อยากเห็น",
-        "สร้าง caption สั้นๆ ภาษาไทย สำหรับ teaser วิดีโอ 18+ ให้คนกดดูต่อ ใช้อีโมจิ 1-2 ตัว ห้ามใส่ลิงก์",
-    ]
+    prompt = (
+        "เขียน caption ภาษาไทยสั้นๆ 1-2 บรรทัดสำหรับโพสต์ teaser 18+ "
+        "ให้คนอยากดูเต็มๆ แล้วสมัคร VIP\n\n"
+        "กฎเหล็ก:\n"
+        "- ตอบแค่ caption 1 ชิ้นเท่านั้น ห้ามให้ตัวเลือก ห้ามมีข้อ 1. 2. 3.\n"
+        "- ห้ามขึ้นต้นด้วย 'นี่คือ' 'ตัวเลือก' 'แคปชั่น:' หรือคำนำใดๆ\n"
+        "- ตอบแค่ข้อความ caption ตรงๆ เลย\n"
+        "- ใช้อีโมจิ 1-2 ตัว\n"
+        "- ห้ามใส่ลิงก์ ห้ามใส่ราคา\n"
+        "- เร้าใจแต่ไม่หยาบคาย สร้างความอยากรู้"
+    )
 
     try:
         data = await call_openrouter(
             model=AI_MODEL,
-            messages=[{"role": "user", "content": random.choice(prompts)}],
+            messages=[{"role": "user", "content": prompt}],
             caller="content_bot/teaser_caption",
             temperature=0.9,
             max_tokens=100,
         )
-        return data["choices"][0]["message"]["content"].strip().strip('"')
+        caption = data["choices"][0]["message"]["content"].strip().strip('"')
+
+        # Post-processing: ตัดคำนำ / ตัวเลือกที่ AI อาจใส่มา
+        caption = re.sub(
+            r'^(ตัวเลือก(ที่\s*)?\d+[:.]\s*|แคปชั่น[:.]\s*|caption[:.]\s*|นี่คือ\s*)',
+            '', caption, flags=re.IGNORECASE,
+        )
+        # ถ้ามีหลายบรรทัด เอาแค่บรรทัดแรกที่มีเนื้อหาจริง
+        lines = [
+            l.strip() for l in caption.split('\n')
+            if l.strip() and not l.strip().startswith(('1.', '2.', '3.', 'ตัวเลือก'))
+        ]
+        caption = lines[0] if lines else caption.split('\n')[0]
+        return caption.strip()
     except Exception as exc:
         logger.error("AI caption failed: %s", exc)
 
@@ -173,6 +193,29 @@ async def mark_content_used(content_id: int) -> None:
             )
     except Exception as exc:
         logger.error("mark_content_used failed: %s", exc)
+
+
+async def recycle_old_content() -> int:
+    """Recycle content ที่ใช้แล้ว > 7 วัน กลับมาใช้ซ้ำ (reset is_used=False).
+
+    Returns จำนวน content ที่ recycle ได้.
+    """
+    try:
+        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=7)
+        async with get_session() as session:
+            result = await session.execute(
+                update(ContentQueue)
+                .where(ContentQueue.is_used == True)
+                .where(ContentQueue.used_at < cutoff)
+                .values(is_used=False, used_at=None)
+            )
+            recycled = result.rowcount or 0
+            if recycled > 0:
+                logger.info("♻️ Recycled %d old content items (used > 7 days ago)", recycled)
+            return recycled
+    except Exception as exc:
+        logger.error("recycle_old_content failed: %s", exc)
+        return 0
 
 
 # --- Handler: รับรูปจาก authorized users ใน DM ---
@@ -368,11 +411,17 @@ async def scheduled_teaser(context: ContextTypes.DEFAULT_TYPE) -> None:
 
     content = await fetch_latest_vip_content()
 
+    # ถ้าไม่มี content ใหม่ → ลอง recycle content เก่า (ใช้แล้ว > 7 วัน)
+    if content is None:
+        recycled = await recycle_old_content()
+        if recycled > 0:
+            content = await fetch_latest_vip_content()
+
     if content:
         logger.info("Found content in queue: id=%d, file_id=%s", content["id"], content["file_id"][:20])
         await post_teaser_with_image(context, content["id"], content["file_id"])
     else:
-        logger.info("No content in queue, posting text-only teaser")
+        logger.info("No content in queue (even after recycle), posting text-only teaser")
         await post_teaser_to_free_groups(context)
 
     # เช็คและแจ้งเตือนหลังโพสต์ทุกรอบ
