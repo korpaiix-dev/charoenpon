@@ -814,16 +814,17 @@ def main() -> None:
     )
 
     # Schedule auto-fetch content ทุก 6 ชั่วโมง (04:00, 10:00, 16:00, 22:00 เวลาไทย)
-    auto_fetch_times = [
-        dt_time(hour=4, minute=0, tzinfo=TH_TZ),
-        dt_time(hour=10, minute=0, tzinfo=TH_TZ),
-        dt_time(hour=16, minute=0, tzinfo=TH_TZ),
-        dt_time(hour=22, minute=0, tzinfo=TH_TZ),
-    ]
-    for i, t in enumerate(auto_fetch_times):
-        job_queue.run_daily(_scheduled_auto_fetch, time=t, name=f"auto_fetch_{i}")
+    # auto_fetch ปิดชั่วคราว — Reddit/Nitter block จาก server
+    # auto_fetch_times = [
+    #     dt_time(hour=4, minute=0, tzinfo=TH_TZ),
+    #     dt_time(hour=10, minute=0, tzinfo=TH_TZ),
+    #     dt_time(hour=16, minute=0, tzinfo=TH_TZ),
+    #     dt_time(hour=22, minute=0, tzinfo=TH_TZ),
+    # ]
+    # for i, t in enumerate(auto_fetch_times):
+    #     job_queue.run_daily(_scheduled_auto_fetch, time=t, name=f"auto_fetch_{i}")
 
-    logger.info("Content Bot (มิน) starting — 5 rounds/day to %d groups + auto-fetch every 6h", len(FREE_GROUPS))
+    logger.info("Content Bot (มิน) starting — 5 rounds/day to %d groups", len(FREE_GROUPS))
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
