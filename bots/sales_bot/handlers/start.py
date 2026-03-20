@@ -212,6 +212,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await trial_command(update, context)
         return
 
+    # Handle upgrade deep link: /start upgrade
+    if source == "upgrade":
+        from bots.sales_bot.handlers.upsell import upgrade_command
+        await upgrade_command(update, context)
+        return
+
     # Handle packages deep link: /start packages
     if source == "packages":
         from bots.sales_bot.handlers.packages import view_packages_command
@@ -234,11 +240,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     except Exception:
         pass  # ถ้าเช็คไม่ได้ ไม่แสดงปุ่ม
 
-    # เช็ค VIP Active สำหรับปุ่มชวนเพื่อน
+    # เช็ค VIP Active สำหรับปุ่มชวนเพื่อน + อัพเกรด
     try:
         from bots.sales_bot.handlers.referral import _is_vip_active
         is_vip = await _is_vip_active(tg_user.id)
         if is_vip:
+            keyboard_rows.append(
+                [InlineKeyboardButton("🆙 อัพเกรด", callback_data="view_upgrade")]
+            )
             keyboard_rows.append(
                 [InlineKeyboardButton("🎁 ชวนเพื่อน", callback_data="get_invite_link")]
             )
@@ -320,6 +329,26 @@ async def contact_admin_callback(
     await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
 
 
+async def view_upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Callback: show GOD MODE upgrade info."""
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+
+    from bots.sales_bot.handlers.upsell import UPGRADE_TEXT
+
+    keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")]]
+    )
+    await query.edit_message_text(
+        UPGRADE_TEXT,
+        parse_mode="HTML",
+        reply_markup=keyboard,
+        disable_web_page_preview=True,
+    )
+
+
 def get_start_handlers() -> list:
     """Return all handlers for the start module."""
     return [
@@ -327,4 +356,5 @@ def get_start_handlers() -> list:
         CallbackQueryHandler(back_to_main_menu, pattern="^back_main$"),
         CallbackQueryHandler(free_room_callback, pattern="^free_room$"),
         CallbackQueryHandler(contact_admin_callback, pattern="^contact_admin$"),
+        CallbackQueryHandler(view_upgrade_callback, pattern="^view_upgrade$"),
     ]

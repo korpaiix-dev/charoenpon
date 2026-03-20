@@ -151,7 +151,7 @@ async def flashsale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     text = _build_flash_sale_text(flash, remaining)
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚡ ซื้อ Flash Sale ฿199", callback_data="buy_flash")],
+        [InlineKeyboardButton("⚡ สมัคร Flash Sale ฿199", callback_data="buy_flash")],
         [InlineKeyboardButton("📦 ดูแพ็กเกจอื่น", callback_data="view_packages")],
         [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
     ])
@@ -233,7 +233,7 @@ async def _show_flash_sale(message, flash: FlashSale) -> None:
 
     text = _build_flash_sale_text(flash, remaining)
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚡ ซื้อ Flash Sale ฿199", callback_data="buy_flash")],
+        [InlineKeyboardButton("⚡ สมัคร Flash Sale ฿199", callback_data="buy_flash")],
         [InlineKeyboardButton("📦 ดูแพ็กเกจอื่น", callback_data="view_packages")],
         [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
     ])

@@ -281,7 +281,7 @@ async def remind_flash_sale(context: ContextTypes.DEFAULT_TYPE) -> None:
         f"⏰ ปิด 23:59 คืนนี้!\n"
         f"\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f'📩 <b>กดซื้อเลย 👇</b>\n'
+        f'📩 <b>กดสมัครเลย 👇</b>\n'
         f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=flashsale">⚡ สมัคร VIP เจริญพร ฿199 ⚡</a>\n'
         f"━━━━━━━━━━━━━━━━━━\n"
         f"\n"

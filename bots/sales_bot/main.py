@@ -30,9 +30,11 @@ from bots.sales_bot.handlers.referral import get_referral_handlers
 from bots.sales_bot.handlers.start import get_start_handlers
 from bots.sales_bot.handlers.support import get_support_handlers
 from bots.sales_bot.handlers.trial import get_trial_handlers
+from bots.sales_bot.handlers.upsell import get_upsell_handlers, run_upsell_dm_job
 from bots.sales_bot.comeback_dm import run_comeback_dm_job
 from bots.sales_bot.trial_promo_dm import run_trial_promo_dm_job
 from bots.sales_bot.flash_sale_scheduler import start_flash_sale, end_flash_sale, remind_flash_sale
+from bots.sales_bot.promo_scheduler import broadcast_trial_promo, broadcast_referral_promo
 from bots.sales_bot.trial_upsell import check_trial_upsell
 from bots.sales_bot.spam_filter import spam_filter_middleware
 
@@ -160,6 +162,9 @@ def create_application() -> Application:
     for handler in get_referral_handlers():
         app.add_handler(handler, group=0)
 
+    for handler in get_upsell_handlers():
+        app.add_handler(handler, group=0)
+
     for handler in get_package_handlers():
         app.add_handler(handler, group=0)
 
@@ -228,6 +233,29 @@ def create_application() -> Application:
         interval=1800,  # 30 นาที
         first=60,  # เริ่มหลัง boot 1 นาที
         name="trial_upsell_check",
+    )
+
+    # --- Scheduler: GOD MODE Upsell DM ทุกวัน 15:00 ไทย ---
+    app.job_queue.run_daily(
+        run_upsell_dm_job,
+        time=dt_time(hour=15, minute=0, tzinfo=TH_TZ),
+        name="god_mode_upsell_dm_daily_1500",
+    )
+
+    # --- Scheduler: Trial Promo Broadcast เสาร์ 21 มี.ค. 14:00 ไทย ---
+    app.job_queue.run_daily(
+        broadcast_trial_promo,
+        time=dt_time(hour=14, minute=0, tzinfo=TH_TZ),
+        days=(5,),  # Saturday
+        name="trial_promo_broadcast_saturday_1400",
+    )
+
+    # --- Scheduler: Referral Promo Broadcast อาทิตย์ 14:00 ไทย ---
+    app.job_queue.run_daily(
+        broadcast_referral_promo,
+        time=dt_time(hour=14, minute=0, tzinfo=TH_TZ),
+        days=(6,),  # Sunday
+        name="referral_promo_broadcast_sunday_1400",
     )
 
     return app
