@@ -231,8 +231,8 @@ async def _send_discord(content: str) -> None:
                 headers={"Authorization": f"Bot {token}", "Content-Type": "application/json"},
                 json={"embeds": [embed]},
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error("Failed to send Discord guardian alert: %s", e)
 
 
 GUARDIAN_LOG_GROUP = -1003668900287  # ห้อง log เตะ/เข้ากลุ่ม
@@ -394,8 +394,8 @@ async def _guardian_timeout_kick(context) -> None:
                     "หากต้องการเข้าใหม่ สามารถสมัครแพ็กเกจได้ที่ @NamwarnJarern_bot ครับ"
                 ),
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("Failed to notify user %s about kick: %s", user_id, e)
     except Exception as exc:
         logger.error("Timeout kick failed for user %s: %s", user_id, exc)
 

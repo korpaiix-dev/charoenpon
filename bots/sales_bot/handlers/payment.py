@@ -475,8 +475,8 @@ async def handle_photo_slip(
                             [tg.InlineKeyboardButton("🚫 แบน", callback_data=f"ban_{user.id}")],
                         ]),
                     )
-                except:
-                    pass
+                except Exception as e:
+                    logger.error("Failed to forward inappropriate image to admin: %s", e)
                 return
 
             if "not_slip" in screen_lower or "question" in screen_lower or "support" in screen_lower:
@@ -502,8 +502,8 @@ async def handle_photo_slip(
                             [tg.InlineKeyboardButton(f"💬 @{user.username}" if user.username else f"💬 ID: {user.id}", callback_data=f"chat_{user.id}")],
                         ]),
                     )
-                except:
-                    pass
+                except Exception as e:
+                    logger.error("Failed to forward non-slip image to admin: %s", e)
                 return
     except Exception as exc:
         logger.warning("AI screen failed, proceeding with OCR: %s", exc)
@@ -575,6 +575,21 @@ async def handle_photo_slip(
         package = pkg_result.scalar_one_or_none()
         if not package:
             await update.message.reply_text("ไม่พบแพ็กเกจในระบบค่ะ ติดต่อแอดมิน (https://t.me/zeinju_bunker)นะคะ")
+            return
+
+        # Duplicate payment guard: same user + same amount within 60 seconds
+        dedup_cutoff = datetime.now(timezone.utc) - timedelta(seconds=60)
+        dup_check = await session.execute(
+            select(Payment).where(
+                Payment.user_id == db_user.id,
+                Payment.amount == expected_price,
+                Payment.method == PaymentMethod.SLIP,
+                Payment.created_at >= dedup_cutoff,
+            )
+        )
+        if dup_check.scalar_one_or_none():
+            logger.warning("Duplicate SLIP payment skipped: user_id=%s amount=%s", db_user.id, expected_price)
+            await update.message.reply_text("⚠️ คุณเพิ่งส่งสลิปยอดนี้ไปแล้วค่ะ กรุณารอแอดมินตรวจสอบ 🙏")
             return
 
         # Create payment record
@@ -794,6 +809,21 @@ async def handle_truemoney_link(
         package = pkg_result.scalar_one_or_none()
         if not package:
             await update.message.reply_text("ไม่พบแพ็กเกจในระบบค่ะ ติดต่อแอดมิน (https://t.me/zeinju_bunker)นะคะ")
+            return
+
+        # Duplicate payment guard: same user + same amount within 60 seconds
+        dedup_cutoff = datetime.now(timezone.utc) - timedelta(seconds=60)
+        dup_check = await session.execute(
+            select(Payment).where(
+                Payment.user_id == db_user.id,
+                Payment.amount == expected_price,
+                Payment.method == PaymentMethod.TRUEWALLET,
+                Payment.created_at >= dedup_cutoff,
+            )
+        )
+        if dup_check.scalar_one_or_none():
+            logger.warning("Duplicate TRUEWALLET payment skipped: user_id=%s amount=%s", db_user.id, expected_price)
+            await update.message.reply_text("⚠️ คุณเพิ่งส่งลิงก์ยอดนี้ไปแล้วค่ะ กรุณารอแอดมินตรวจสอบ 🙏")
             return
 
         payment = Payment(
