@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 
 TH_TZ = timezone(timedelta(hours=7))
 
+# Admin/test Telegram IDs — exclude from revenue calculations
+EXCLUDED_TELEGRAM_IDS = {8502597269, 8370054523}
+
 
 class DailyRevenueSheet:
     """Manages the 'รายได้รายวัน' worksheet."""
@@ -44,16 +47,18 @@ class DailyRevenueSheet:
         day_end_utc = day_end.astimezone(timezone.utc).replace(tzinfo=None)
 
         async with get_session() as session:
-            # Revenue by payment method
+            # Revenue by payment method (exclude admin/test users)
             method_q = await session.execute(
                 select(
                     Payment.method,
                     func.coalesce(func.sum(Payment.amount), 0).label("total"),
                 )
+                .join(User, Payment.user_id == User.id)
                 .where(
                     Payment.status == PaymentStatus.CONFIRMED,
                     Payment.created_at >= day_start_utc,
                     Payment.created_at < day_end_utc,
+                    User.telegram_id.notin_(EXCLUDED_TELEGRAM_IDS),
                 )
                 .group_by(Payment.method)
             )
@@ -64,28 +69,33 @@ class DailyRevenueSheet:
             crypto_total = method_totals.get(PaymentMethod.CRYPTO, 0.0)
             grand_total = promptpay_total + truewallet_total + crypto_total
 
-            # Revenue per package tier
+            # Revenue per package tier (exclude admin/test users)
             pkg_q = await session.execute(
                 select(
                     Package.tier,
                     func.coalesce(func.sum(Payment.amount), 0).label("total"),
                 )
                 .join(Package, Payment.package_id == Package.id)
+                .join(User, Payment.user_id == User.id)
                 .where(
                     Payment.status == PaymentStatus.CONFIRMED,
                     Payment.created_at >= day_start_utc,
                     Payment.created_at < day_end_utc,
+                    User.telegram_id.notin_(EXCLUDED_TELEGRAM_IDS),
                 )
                 .group_by(Package.tier)
             )
             tier_totals = {row.tier.value: float(row.total) for row in pkg_q.all()}
 
-            # Sales count
+            # Sales count (exclude admin/test users)
             sales_q = await session.execute(
-                select(func.count(Payment.id)).where(
+                select(func.count(Payment.id))
+                .join(User, Payment.user_id == User.id)
+                .where(
                     Payment.status == PaymentStatus.CONFIRMED,
                     Payment.created_at >= day_start_utc,
                     Payment.created_at < day_end_utc,
+                    User.telegram_id.notin_(EXCLUDED_TELEGRAM_IDS),
                 )
             )
             sales_count = sales_q.scalar() or 0

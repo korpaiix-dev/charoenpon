@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 TH_TZ = timezone(timedelta(hours=7))
 
+# Admin/test Telegram IDs — exclude from summary calculations
+EXCLUDED_TELEGRAM_IDS = {8502597269, 8370054523}
+
 
 class DailySummarySheet:
     """Manages the 'สรุปรายวัน' worksheet."""
@@ -39,15 +42,18 @@ class DailySummarySheet:
         day_str = day_start.strftime("%Y-%m-%d")
 
         async with get_session() as session:
-            # Revenue
+            # Revenue (exclude admin/test users)
             rev_q = await session.execute(
                 select(
                     func.count(Payment.id).label("orders"),
                     func.coalesce(func.sum(Payment.amount), 0).label("total"),
-                ).where(
+                )
+                .join(User, Payment.user_id == User.id)
+                .where(
                     Payment.status == PaymentStatus.CONFIRMED,
                     Payment.verified_at >= day_start_utc,
                     Payment.verified_at < day_end_utc,
+                    User.telegram_id.notin_(EXCLUDED_TELEGRAM_IDS),
                 )
             )
             rev = rev_q.one()

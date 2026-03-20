@@ -24,9 +24,10 @@ METHOD_MAP = {
 
 STATUS_MAP = {
     "CONFIRMED": "✅ อนุมัติ",
-    "PENDING": "⏳ รอตรวจ",
-    "REJECTED": "❌ ไม่ผ่าน",
 }
+
+# Admin/test Telegram IDs — never write to sheets
+EXCLUDED_TELEGRAM_IDS = {8502597269, 8370054523}
 
 
 class IncomeLogSheet:
@@ -40,7 +41,11 @@ class IncomeLogSheet:
         payment_id: int,
         approved_by: str = "-",
     ) -> None:
-        """Append or update a payment row in the 'รายรับ' sheet."""
+        """Append or update a CONFIRMED payment row in the 'รายรับ' sheet.
+
+        Only CONFIRMED payments are written. PENDING/REJECTED are skipped.
+        Admin/test users are also excluded.
+        """
         async with get_session() as session:
             result = await session.execute(
                 select(Payment, User, Package)
@@ -54,6 +59,22 @@ class IncomeLogSheet:
                 return
 
             payment, user, package = row
+
+        # Only write CONFIRMED payments to sheet
+        if payment.status.value != "CONFIRMED":
+            logger.info(
+                "Skipping payment #%d — status=%s (only CONFIRMED goes to sheet)",
+                payment_id, payment.status.value,
+            )
+            return
+
+        # Skip admin/test users
+        if user.telegram_id in EXCLUDED_TELEGRAM_IDS:
+            logger.info(
+                "Skipping payment #%d — telegram_id=%d is admin/test",
+                payment_id, user.telegram_id,
+            )
+            return
 
         created_th = payment.created_at.replace(tzinfo=timezone.utc).astimezone(TH_TZ)
         display_name = user.first_name or user.username or str(user.telegram_id)
