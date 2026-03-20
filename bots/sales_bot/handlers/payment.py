@@ -1056,6 +1056,13 @@ async def handle_truemoney_link(
             except Exception as exc_cb:
                 logger.warning("Failed to mark comeback promo: %s", exc_cb)
 
+        # Process referral reward if this user was referred
+        try:
+            from bots.sales_bot.handlers.referral import process_referral_reward
+            await process_referral_reward(user.id, context.bot)
+        except Exception as exc_ref:
+            logger.warning("Referral reward processing failed: %s", exc_ref)
+
         context.user_data.pop("selected_tier", None)
         context.user_data.pop("selected_price", None)
         context.user_data.pop("comeback_promo", None)

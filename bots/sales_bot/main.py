@@ -26,6 +26,7 @@ from shared.database import close_db, init_db
 from bots.sales_bot.handlers.flash_sale import get_flash_sale_handlers
 from bots.sales_bot.handlers.packages import get_package_handlers
 from bots.sales_bot.handlers.payment import get_payment_handlers
+from bots.sales_bot.handlers.referral import get_referral_handlers
 from bots.sales_bot.handlers.start import get_start_handlers
 from bots.sales_bot.handlers.support import get_support_handlers
 from bots.sales_bot.handlers.trial import get_trial_handlers
@@ -154,6 +155,9 @@ def create_application() -> Application:
         app.add_handler(handler, group=0)
 
     for handler in get_flash_sale_handlers():
+        app.add_handler(handler, group=0)
+
+    for handler in get_referral_handlers():
         app.add_handler(handler, group=0)
 
     for handler in get_package_handlers():
