@@ -140,12 +140,22 @@ async def _notify_discord_spam(user_id: int, username: str | None, text: str) ->
         logger.error("Failed to notify Discord about spam: %s", exc)
 
 
+IGNORED_CHAT_IDS: set[int] = {
+    -1003830920430,  # กลุ่ม Admin — ไม่ตอบข้อความในนี้
+}
+
+
 async def spam_filter_middleware(update: Update, context: CallbackContext) -> bool:
     """Middleware that filters messages before passing to handlers.
 
     Returns True if message should be BLOCKED (not passed to handlers).
     Returns False if message should CONTINUE to handlers.
     """
+    # --- Ignore messages from specific chats (e.g., admin group) ---
+    chat = update.effective_chat
+    if chat and chat.id in IGNORED_CHAT_IDS:
+        return True
+
     if not update.message or not update.message.text:
         # Non-text messages (photos, etc.) pass through — handlers decide
         return False

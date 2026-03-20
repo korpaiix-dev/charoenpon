@@ -56,19 +56,21 @@ def _get_pg_env() -> dict[str, str]:
 
 
 async def run_pg_dump(output_path: Path) -> bool:
-    """รัน pg_dump แล้ว gzip ผลลัพธ์."""
+    """รัน pg_dump ผ่าน docker exec ไปยัง postgres container."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # ใช้ docker exec รัน pg_dump ใน postgres container แล้ว redirect output ออกมา
+    container = "charoenpon-postgres"
     cmd = (
-        f"pg_dump -h {DB_HOST} -p {DB_PORT} -U {DB_USER} -d {DB_NAME} "
-        f"--format=custom --compress=6 -f {output_path}"
+        f"docker exec -e PGPASSWORD={DB_PASSWORD} {container} "
+        f"pg_dump -U {DB_USER} -d {DB_NAME} "
+        f"--format=custom --compress=6 > {output_path}"
     )
 
-    logger.info("Running pg_dump: %s", cmd)
+    logger.info("Running pg_dump via docker exec: %s", container)
 
     proc = await asyncio.create_subprocess_shell(
         cmd,
-        env=_get_pg_env(),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -76,10 +78,15 @@ async def run_pg_dump(output_path: Path) -> bool:
 
     if proc.returncode != 0:
         logger.error("pg_dump failed (exit %d): %s", proc.returncode, stderr.decode())
+        # ลบไฟล์ที่อาจเป็น empty/corrupt
+        if output_path.exists():
+            output_path.unlink()
         return False
 
-    if not output_path.exists():
-        logger.error("pg_dump output file not found: %s", output_path)
+    if not output_path.exists() or output_path.stat().st_size == 0:
+        logger.error("pg_dump output file not found or empty: %s", output_path)
+        if output_path.exists():
+            output_path.unlink()
         return False
 
     size_mb = output_path.stat().st_size / (1024 * 1024)
@@ -192,19 +199,33 @@ async def test_restore() -> dict[str, Any]:
     if not latest_backup:
         return {"success": False, "error": "No local backup found for restore test"}
 
-    env = _get_pg_env()
+    container = "charoenpon-postgres"
+    pg_env = f"-e PGPASSWORD={DB_PASSWORD}"
 
-    drop_cmd = f"dropdb -h {DB_HOST} -p {DB_PORT} -U {DB_USER} --if-exists {TEST_RESTORE_DB}"
+    # Copy backup file into container for restore
+    copy_cmd = f"docker cp {latest_backup} {container}:/tmp/restore_test.dump"
     proc = await asyncio.create_subprocess_shell(
-        drop_cmd, env=env,
+        copy_cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await proc.communicate()
+    if proc.returncode != 0:
+        return {"success": False, "error": "Failed to copy backup into container"}
+
+    # Drop test DB if exists
+    drop_cmd = f"docker exec {pg_env} {container} dropdb -U {DB_USER} --if-exists {TEST_RESTORE_DB}"
+    proc = await asyncio.create_subprocess_shell(
+        drop_cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
     await proc.communicate()
 
-    create_cmd = f"createdb -h {DB_HOST} -p {DB_PORT} -U {DB_USER} {TEST_RESTORE_DB}"
+    # Create test DB
+    create_cmd = f"docker exec {pg_env} {container} createdb -U {DB_USER} {TEST_RESTORE_DB}"
     proc = await asyncio.create_subprocess_shell(
-        create_cmd, env=env,
+        create_cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -212,12 +233,14 @@ async def test_restore() -> dict[str, Any]:
     if proc.returncode != 0:
         return {"success": False, "error": f"Failed to create test DB: {stderr.decode()}"}
 
+    # Restore
     restore_cmd = (
-        f"pg_restore -h {DB_HOST} -p {DB_PORT} -U {DB_USER} "
-        f"-d {TEST_RESTORE_DB} --no-owner --no-privileges {latest_backup}"
+        f"docker exec {pg_env} {container} "
+        f"pg_restore -U {DB_USER} -d {TEST_RESTORE_DB} "
+        f"--no-owner --no-privileges /tmp/restore_test.dump"
     )
     proc = await asyncio.create_subprocess_shell(
-        restore_cmd, env=env,
+        restore_cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -225,9 +248,18 @@ async def test_restore() -> dict[str, Any]:
 
     restore_success = proc.returncode == 0
 
-    drop_cmd = f"dropdb -h {DB_HOST} -p {DB_PORT} -U {DB_USER} --if-exists {TEST_RESTORE_DB}"
+    # Cleanup: drop test DB and temp file
+    drop_cmd = f"docker exec {pg_env} {container} dropdb -U {DB_USER} --if-exists {TEST_RESTORE_DB}"
     proc = await asyncio.create_subprocess_shell(
-        drop_cmd, env=env,
+        drop_cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await proc.communicate()
+
+    cleanup_cmd = f"docker exec {container} rm -f /tmp/restore_test.dump"
+    proc = await asyncio.create_subprocess_shell(
+        cleanup_cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
