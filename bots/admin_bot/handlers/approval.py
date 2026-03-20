@@ -210,6 +210,33 @@ async def approve_payment_callback(update: Update, context: ContextTypes.DEFAULT
                 parse_mode="HTML",
             )
             invite_text = "\n📩 ส่งลิงก์ให้ลูกค้าแล้ว"
+
+            # ส่ง DM ยินดีต้อนรับ + แนะนำชวนเพื่อน หลัง 3 วินาที
+            try:
+                import asyncio
+                await asyncio.sleep(3)
+                await sales_bot.send_message(
+                    chat_id=user.telegram_id,
+                    text=(
+                        '🎉 ยินดีต้อนรับสู่ VIP เจริญพร! 💕\n'
+                        '\n'
+                        '💡 รู้มั้ย? ชวนเพื่อนมาสมัคร = ได้ VIP ฟรีเพิ่ม!\n'
+                        '\n'
+                        '🎯 ชวน 1 คน = +7 วัน VIP ฟรี\n'
+                        '🎯 ชวน 5 คน = +30 วัน VIP ฟรี!\n'
+                        '\n'
+                        '━━━━━━━━━━━━━━━━━━\n'
+                        '📩 <b>รับลิงก์ชวนเพื่อนเลย 👇</b>\n'
+                        '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=invite">🎁 กดรับลิงก์ชวนเพื่อน</a>\n'
+                        '━━━━━━━━━━━━━━━━━━'
+                    ),
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                )
+                logger.info("Welcome referral DM sent to %s (admin approval)", user.telegram_id)
+            except Exception as exc_w:
+                logger.warning("Welcome referral DM failed: %s", exc_w)
+
         except Exception as exc:
             logger.error("Failed to send invite links: %s", exc)
             invite_text = "\n⚠️ ส่งลิงก์ไม่สำเร็จ"
@@ -726,6 +753,32 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
             await process_referral_reward(target_user_id, sales_bot)
         except Exception as exc_ref:
             logger.warning("Referral reward failed for user %d: %s", target_user_id, exc_ref)
+
+        # ── Welcome referral DM หลัง 3 วินาที ──
+        try:
+            import asyncio
+            await asyncio.sleep(3)
+            await sales_bot.send_message(
+                chat_id=target_user_id,
+                text=(
+                    '🎉 ยินดีต้อนรับสู่ VIP เจริญพร! 💕\n'
+                    '\n'
+                    '💡 รู้มั้ย? ชวนเพื่อนมาสมัคร = ได้ VIP ฟรีเพิ่ม!\n'
+                    '\n'
+                    '🎯 ชวน 1 คน = +7 วัน VIP ฟรี\n'
+                    '🎯 ชวน 5 คน = +30 วัน VIP ฟรี!\n'
+                    '\n'
+                    '━━━━━━━━━━━━━━━━━━\n'
+                    '📩 <b>รับลิงก์ชวนเพื่อนเลย 👇</b>\n'
+                    '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=invite">🎁 กดรับลิงก์ชวนเพื่อน</a>\n'
+                    '━━━━━━━━━━━━━━━━━━'
+                ),
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+            logger.info("Welcome referral DM sent to %d (approve_by_price)", target_user_id)
+        except Exception as exc_w:
+            logger.warning("Welcome referral DM failed for user %d: %s", target_user_id, exc_w)
 
     except Exception as exc:
         logger.error("approve_by_price error: %s", exc)

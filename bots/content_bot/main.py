@@ -99,7 +99,7 @@ async def generate_teaser_caption() -> str:
         "- ตอบแค่ข้อความ caption ตรงๆ เลย\n"
         "- ใช้อีโมจิ 1-2 ตัว\n"
         "- ห้ามใส่ลิงก์ ห้ามใส่ราคา\n"
-        "- ห้ามใช้คำว่า 'ชิ้น' ให้ใช้ 'คลิป' แทน\n"
+        "- ห้ามใช้คำว่า 'คลิป' ให้ใช้ 'คลิป' แทน\n"
         "- ห้ามใช้คำว่า 'ซื้อ' หรือ 'สั่งซื้อ' ให้ใช้ 'สมัคร' แทน\n"
         "- ห้ามใช้คำว่า 'ทดลองฟรี'\n"
         "- เร้าใจแต่ไม่หยาบคาย สร้างความอยากรู้"
@@ -397,7 +397,7 @@ async def fetch_latest_vip_content() -> dict | None:
 
 
 async def fetch_multiple_content(limit: int = 5) -> list[dict]:
-    """ดึง content ที่ยังไม่ได้ใช้ หลายชิ้น สำหรับส่งเป็น album.
+    """ดึง content ที่ยังไม่ได้ใช้ หลายคลิป สำหรับส่งเป็น album.
 
     Returns list of dicts with keys: id, file_id, file_type
     """
@@ -730,7 +730,7 @@ async def scheduled_teaser(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Scheduled job: โพสต์ teaser — ดึง 3-5 รูปส่งเป็น album, ถ้าน้อยกว่า 3 ส่งทีละรูป."""
     logger.info("scheduled_teaser triggered")
 
-    # ดึง content 3-5 ชิ้นจาก queue
+    # ดึง content 3-5 คลิปจาก queue
     contents = await fetch_multiple_content(limit=5)
 
     # ถ้าไม่มี content ใหม่เลย → ลอง recycle content เก่า (ใช้แล้ว > 7 วัน)
@@ -740,11 +740,11 @@ async def scheduled_teaser(context: ContextTypes.DEFAULT_TYPE) -> None:
             contents = await fetch_multiple_content(limit=5)
 
     if len(contents) >= 3:
-        # >= 3 ชิ้น → ส่งเป็น album
+        # >= 3 คลิป → ส่งเป็น album
         logger.info("Found %d content items → sending as album", len(contents))
         await post_teaser_album(context, contents)
     elif len(contents) >= 1:
-        # 1-2 ชิ้น → ส่งทีละรูปเหมือนเดิม (ใช้ชิ้นแรก)
+        # 1-2 คลิป → ส่งทีละรูปเหมือนเดิม (ใช้คลิปแรก)
         c = contents[0]
         logger.info("Found %d content items (< 3) → sending single image (id=%d)", len(contents), c["id"])
         await post_teaser_with_image(context, c["id"], c["file_id"])

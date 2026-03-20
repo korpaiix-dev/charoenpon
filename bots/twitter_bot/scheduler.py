@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 TH_TZ = timezone(timedelta(hours=7))
 
-# Telegram bot link (NamwarnJarern_bot ไม่ใช่ jarernAD1_bot!)
+# Telegram bot link (NamwarnJarern_bot)
 TELEGRAM_LINK = "https://t.me/NamwarnJarern_bot"
 
 # Hashtags

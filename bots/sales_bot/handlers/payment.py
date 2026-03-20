@@ -18,6 +18,7 @@ log admin_log ทุกครั้ง
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import logging
@@ -449,6 +450,35 @@ async def _approve_payment(
         invite_links.append(f"• {title}: {link}")
 
     return invite_links
+
+
+WELCOME_REFERRAL_DM = (
+    '🎉 ยินดีต้อนรับสู่ VIP เจริญพร! 💕\n'
+    '\n'
+    '💡 รู้มั้ย? ชวนเพื่อนมาสมัคร = ได้ VIP ฟรีเพิ่ม!\n'
+    '\n'
+    '🎯 ชวน 1 คน = +7 วัน VIP ฟรี\n'
+    '🎯 ชวน 5 คน = +30 วัน VIP ฟรี!\n'
+    '\n'
+    '━━━━━━━━━━━━━━━━━━\n'
+    '📩 <b>รับลิงก์ชวนเพื่อนเลย 👇</b>\n'
+    '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=invite">🎁 กดรับลิงก์ชวนเพื่อน</a>\n'
+    '━━━━━━━━━━━━━━━━━━'
+)
+
+
+async def _send_welcome_referral_dm(bot, telegram_id: int) -> None:
+    """ส่ง DM ยินดีต้อนรับ + แนะนำชวนเพื่อน หลังสมัครสำเร็จ."""
+    try:
+        await bot.send_message(
+            chat_id=telegram_id,
+            text=WELCOME_REFERRAL_DM,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
+        logger.info("Welcome referral DM sent to %s", telegram_id)
+    except Exception as exc:
+        logger.warning("Failed to send welcome referral DM to %s: %s", telegram_id, exc)
 
 
 async def handle_photo_slip(
@@ -1062,6 +1092,13 @@ async def handle_truemoney_link(
             await process_referral_reward(user.id, context.bot)
         except Exception as exc_ref:
             logger.warning("Referral reward processing failed: %s", exc_ref)
+
+        # ส่ง DM แนะนำชวนเพื่อน หลังจากส่งลิงก์เข้ากลุ่ม 3 วินาที
+        try:
+            await asyncio.sleep(3)
+            await _send_welcome_referral_dm(context.bot, user.id)
+        except Exception as exc_w:
+            logger.warning("Welcome referral DM failed (TrueMoney): %s", exc_w)
 
         context.user_data.pop("selected_tier", None)
         context.user_data.pop("selected_price", None)
