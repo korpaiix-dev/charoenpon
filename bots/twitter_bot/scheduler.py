@@ -6,7 +6,7 @@ Schedule (เวลาไทย):
 - 21:00 — โพสต์ 3 (teaser + ลิงก์)
 - 23:00 — โพสต์ 4 (teaser + ลิงก์)
 
-ดึงรูปจาก content_queue → เบลอ radius=4 (น้อยกว่ามิน) → โพสต์ Twitter
+ดึงรูปจาก content_queue → รูปเต็มไม่เบลอ + watermark → โพสต์ Twitter
 สร้าง caption AI สั้น ≤ 280 chars + hashtag + ลิงก์ Telegram
 """
 
@@ -129,11 +129,11 @@ def build_tweet_text(caption: str) -> str:
 
 
 # ──────────────────────────────────────────────
-# Image Blur (radius=4, น้อยกว่ามิน radius=12)
+# Image Processing (ไม่เบลอ + watermark เท่านั้น)
 # ──────────────────────────────────────────────
 
-async def blur_image_for_twitter(file_id: str) -> str | None:
-    """ดาวน์โหลดรูปจาก Telegram file_id → เบลอ radius=4 + watermark → save temp file.
+async def prepare_image_for_twitter(file_id: str) -> str | None:
+    """ดาวน์โหลดรูปจาก Telegram file_id → ไม่เบลอ — X อนุญาต 18+ + watermark → save temp file.
 
     Returns: local file path หรือ None ถ้าพัง
     """
@@ -152,8 +152,9 @@ async def blur_image_for_twitter(file_id: str) -> str | None:
         buf.seek(0)
 
         img = Image.open(buf)
-        # เบลอ radius=4 (น้อยกว่ามิน radius=12)
-        blurred = img.filter(ImageFilter.GaussianBlur(radius=4))
+        # ไม่เบลอ — X อนุญาต 18+ แค่ใส่ watermark
+        # ไม่เบลอ — X อนุญาต 18+
+        blurred = img
 
         # Watermark
         blurred = blurred.convert("RGBA")
@@ -213,7 +214,7 @@ async def blur_image_for_twitter(file_id: str) -> str | None:
         return str(filepath)
 
     except Exception as exc:
-        logger.error("Failed to blur image: %s", exc)
+        logger.error("Failed to prepare image: %s", exc)
         return None
 
 
@@ -289,7 +290,7 @@ async def scheduled_twitter_post(context=None) -> dict | None:
             content_id = row.id
             file_id = row.file_id
             logger.info("Found content_id=%d for Twitter post", content_id)
-            image_path = await blur_image_for_twitter(file_id)
+            image_path = await prepare_image_for_twitter(file_id)
     except Exception as exc:
         logger.error("Failed to get content from queue: %s", exc)
 
