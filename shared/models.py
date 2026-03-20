@@ -469,3 +469,19 @@ class ExpiryNotification(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "subscription_id", "notification_type", name="uq_expiry_notif"),
     )
+
+
+class ComebackDmLog(Base):
+    """Log DM COMEBACK ที่ส่งไปหาลูกค้าเก่า."""
+
+    __tablename__ = "comeback_dm_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    discount_pct: Mapped[int] = mapped_column(Integer, default=20, nullable=False)
+    promo_code: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    sent_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    responded: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    purchased: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    round: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
