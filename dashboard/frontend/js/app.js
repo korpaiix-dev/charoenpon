@@ -1265,10 +1265,10 @@ async function loadDMSettings() {
 }
 
 async function testDM(type) {
-    if (!confirm(\`ทดสอบส่ง \${type} DM ให้ 1 คน?\`)) return;
+    if (!confirm(`ทดสอบส่ง ${type} DM ให้ 1 คน?`)) return;
     try {
-        const result = await api(\`/marketing/test-dm?type=\${type}\`, { method: 'POST' });
-        toast(\`✅ ส่ง \${type} DM ทดสอบสำเร็จ: \${result.message || 'sent'}\`, 'success');
+        const result = await api(`/marketing/test-dm?type=${type}`, { method: 'POST' });
+        toast(`✅ ส่ง ${type} DM ทดสอบสำเร็จ: ${result.message || 'sent'}`, 'success');
     } catch (e) { toast(e.message, 'error'); }
 }
 
