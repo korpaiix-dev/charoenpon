@@ -17,7 +17,7 @@ import re
 from datetime import datetime, time as dt_time, timedelta, timezone
 
 import httpx
-from PIL import Image, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 from sqlalchemy import select, update
 from telegram import Bot, InputMediaPhoto, Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
@@ -139,7 +139,7 @@ async def generate_teaser_caption() -> str:
 
 
 async def blur_image(bot: Bot, file_id: str) -> io.BytesIO:
-    """ดาวน์โหลดรูปจาก Telegram แล้วเบลอ."""
+    """ดาวน์โหลดรูปจาก Telegram แล้วเบลอ + watermark."""
     file = await bot.get_file(file_id)
     buf = io.BytesIO()
     await file.download_to_memory(buf)
@@ -148,6 +148,64 @@ async def blur_image(bot: Bot, file_id: str) -> io.BytesIO:
     img = Image.open(buf)
     # Blur แบบหวาบหวิว — เห็นรูปร่างแต่ไม่ชัด
     blurred = img.filter(ImageFilter.GaussianBlur(radius=12))
+
+    # === Watermark "VIP เจริญพร" แนวทแยง tile pattern ===
+    blurred = blurred.convert("RGBA")
+    text = "VIP เจริญพร"
+
+    # โหลดฟอนต์ — ลองฟอนต์ไทยก่อน, fallback เป็น DejaVu
+    font_size = max(blurred.width // 12, 28)
+    font = None
+    font_paths = [
+        "/usr/share/fonts/truetype/thai-tlwg/Garuda-Bold.ttf",
+        "/usr/share/fonts/truetype/thai-tlwg/Sarabun-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ]
+    for fp in font_paths:
+        try:
+            font = ImageFont.truetype(fp, size=font_size)
+            break
+        except (OSError, IOError):
+            continue
+    if font is None:
+        font = ImageFont.load_default()
+        text = "VIP Charoenpon"  # fallback ภาษาอังกฤษถ้าไม่มีฟอนต์ไทย
+
+    # สร้าง single text stamp แล้วหมุน
+    tmp = Image.new("RGBA", (blurred.width * 2, blurred.height * 2), (0, 0, 0, 0))
+    tmp_draw = ImageDraw.Draw(tmp)
+
+    # วัดขนาดข้อความ
+    bbox = tmp_draw.textbbox((0, 0), text, font=font)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+
+    # Tile pattern — วาดข้อความซ้ำทั่วทั้ง canvas
+    spacing_x = tw + max(tw // 2, 60)
+    spacing_y = th + max(th * 3, 120)
+
+    for y_pos in range(-blurred.height, blurred.height * 2, spacing_y):
+        for x_pos in range(-blurred.width, blurred.width * 2, spacing_x):
+            tmp_draw.text(
+                (x_pos, y_pos), text, font=font,
+                fill=(255, 255, 255, 90),  # opacity ~35%
+            )
+
+    # หมุน -30 องศา แล้ว crop กลับขนาดเดิม
+    rotated = tmp.rotate(30, resample=Image.BICUBIC, expand=False)
+    # Crop center ให้ได้ขนาดเท่ารูปต้นฉบับ
+    cx = rotated.width // 2
+    cy = rotated.height // 2
+    half_w = blurred.width // 2
+    half_h = blurred.height // 2
+    watermark = rotated.crop((cx - half_w, cy - half_h, cx + half_w, cy + half_h))
+
+    # ปรับขนาดให้ตรง (กันพิกเซลคี่)
+    if watermark.size != blurred.size:
+        watermark = watermark.resize(blurred.size, Image.LANCZOS)
+
+    blurred = Image.alpha_composite(blurred, watermark)
+    blurred = blurred.convert("RGB")
 
     out = io.BytesIO()
     blurred.save(out, format="JPEG", quality=65)
