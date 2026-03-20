@@ -3,7 +3,16 @@ from fastapi import APIRouter, Depends, Request, HTTPException
 from ..auth.dependencies import get_current_admin, require_role
 from ..database import pool
 from ..models.schemas import PaymentReject
+from ..config import SALES_BOT_TOKEN, GUARDIAN_BOT_TOKEN, ADMIN_BOT_TOKEN
 import json
+import os
+import logging
+import httpx
+from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
+
+ADMIN_GROUP_CHAT_ID = os.getenv("ADMIN_GROUP_CHAT_ID", "-1003830920430")
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
 
@@ -89,30 +98,242 @@ async def pending_expired_payments(admin=Depends(get_current_admin)):
     """)
     return [dict(r) for r in rows]
 
+async def _telegram_api(token: str, method: str, payload: dict) -> dict:
+    """Call Telegram Bot API. Returns response JSON or raises."""
+    url = f"https://api.telegram.org/bot{token}/{method}"
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(url, json=payload)
+        data = resp.json()
+        if not data.get("ok"):
+            logger.warning("Telegram API %s failed: %s", method, data)
+        return data
+
+
+async def _generate_invite_links(package_id: int) -> dict[str, str]:
+    """Create one-time invite links for all groups the package grants access to.
+    
+    Uses Guardian Bot via Telegram API (createChatInviteLink).
+    Returns {group_slug: invite_link_url}.
+    """
+    # Get package's group_list
+    pkg = await pool.fetchrow("SELECT group_list FROM packages WHERE id = $1", package_id)
+    if not pkg or not pkg["group_list"]:
+        return {}
+
+    group_slugs = pkg["group_list"]  # array of group slugs
+
+    invite_links = {}
+    for slug in group_slugs:
+        # Get chat_id from group_registry
+        grp = await pool.fetchrow(
+            "SELECT chat_id, title FROM group_registry WHERE slug = $1", slug
+        )
+        if not grp or not grp["chat_id"]:
+            logger.warning("Group %s not found in registry, skipping invite link", slug)
+            continue
+
+        try:
+            result = await _telegram_api(GUARDIAN_BOT_TOKEN, "createChatInviteLink", {
+                "chat_id": grp["chat_id"],
+                "member_limit": 1,
+                "name": f"Dashboard approve",
+            })
+            if result.get("ok"):
+                invite_links[slug] = result["result"]["invite_link"]
+            else:
+                logger.warning("Failed to create invite link for %s: %s", slug, result)
+        except Exception as exc:
+            logger.warning("Invite link creation error for %s: %s", slug, exc)
+
+    return invite_links
+
+
 @router.post("/{payment_id}/approve")
 async def approve_payment(payment_id: int, request: Request, admin=Depends(get_current_admin)):
-    pay = await pool.fetchrow("SELECT * FROM payments WHERE id = $1", payment_id)
+    pay = await pool.fetchrow("""
+        SELECT p.*, u.telegram_id as customer_telegram_id, u.first_name as customer_name
+        FROM payments p
+        JOIN users u ON p.user_id = u.id
+        WHERE p.id = $1
+    """, payment_id)
     if not pay:
         raise HTTPException(404, "Payment not found")
     if pay["status"] != "PENDING":
         raise HTTPException(400, f"Payment is already {pay['status']}")
-    
+
+    telegram_errors = []
+
+    # ── 1. Update payment status = CONFIRMED ──
     await pool.execute(
         "UPDATE payments SET status = 'CONFIRMED', verified_by = $1, verified_at = NOW() WHERE id = $2",
         admin["telegram_id"], payment_id
     )
-    
-    # Create subscription
+
+    # ── 2. Create subscription (expire old active ones first) ──
     pkg = await pool.fetchrow("SELECT * FROM packages WHERE id = $1", pay["package_id"])
     if pkg:
+        # Expire existing active subscriptions
         await pool.execute("""
+            UPDATE subscriptions SET status = 'EXPIRED'
+            WHERE user_id = $1 AND status = 'ACTIVE'
+        """, pay["user_id"])
+
+        # Trial (tier 99) = 24 hours, others use duration_days
+        if pkg["tier"] == "99":
+            duration_expr = "NOW() + interval '24 hours'"
+        else:
+            duration_expr = f"NOW() + interval '{pkg['duration_days']} days'"
+
+        await pool.execute(f"""
             INSERT INTO subscriptions (user_id, package_id, status, start_date, end_date, auto_renew, payment_id)
-            VALUES ($1, $2, 'ACTIVE', NOW(), NOW() + ($3 || ' days')::interval, FALSE, $4)
-        """, pay["user_id"], pay["package_id"], str(pkg["duration_days"]), payment_id)
-    
+            VALUES ($1, $2, 'ACTIVE', NOW(), {duration_expr}, FALSE, $3)
+        """, pay["user_id"], pay["package_id"], payment_id)
+
+        # Update user total_spent
+        await pool.execute("""
+            UPDATE users SET total_spent = COALESCE(total_spent, 0) + $1 WHERE id = $2
+        """, pay["amount"], pay["user_id"])
+
+    # ── 3. Generate invite links via Guardian Bot ──
+    invite_links = {}
+    links_list = []
+    try:
+        if GUARDIAN_BOT_TOKEN and pkg:
+            invite_links = await _generate_invite_links(pay["package_id"])
+            for slug, link in invite_links.items():
+                grp = await pool.fetchrow(
+                    "SELECT title FROM group_registry WHERE slug = $1", slug
+                )
+                title = grp["title"] if grp else slug
+                links_list.append({"text": f"🚀 {title}", "url": link})
+    except Exception as exc:
+        logger.error("Failed to generate invite links: %s", exc)
+        telegram_errors.append(f"สร้าง invite link ไม่ได้: {exc}")
+
+    # ── 4. Send DM to customer via Sales Bot ──
+    try:
+        if SALES_BOT_TOKEN and pay["customer_telegram_id"] and pkg:
+            duration_days = pkg["duration_days"]
+            expire_date = (datetime.utcnow() + timedelta(
+                hours=24 if pkg["tier"] == "99" else duration_days * 24
+            )).strftime("%d/%m/%Y")
+
+            msg = (
+                f"✅ <b>อนุมัติยอด {int(pay['amount'])} บาท เรียบร้อยค่ะ</b>\n"
+                f"📦 แพ็กเกจ: {pkg['name']}\n"
+                f"📅 หมดอายุ: {expire_date}\n\n"
+                f"👇 <b>กดเข้ากลุ่มที่ปุ่มด้านล่างได้เลย</b>\n\n"
+                f"🆓 <b>ห้องฟรี:</b> https://t.me/addlist/2xN-ag15W4U2MTNl"
+            )
+
+            # Build inline keyboard (2 buttons per row)
+            keyboard_rows = []
+            for i in range(0, len(links_list), 2):
+                row = [{"text": b["text"], "url": b["url"]} for b in links_list[i:i+2]]
+                keyboard_rows.append(row)
+
+            payload = {
+                "chat_id": pay["customer_telegram_id"],
+                "text": msg,
+                "parse_mode": "HTML",
+            }
+            if keyboard_rows:
+                payload["reply_markup"] = {"inline_keyboard": keyboard_rows}
+
+            result = await _telegram_api(SALES_BOT_TOKEN, "sendMessage", payload)
+            if not result.get("ok"):
+                telegram_errors.append(f"ส่ง DM ลูกค้าไม่ได้: {result.get('description', 'unknown')}")
+    except Exception as exc:
+        logger.error("Failed to send DM to customer: %s", exc)
+        telegram_errors.append(f"ส่ง DM ลูกค้าไม่ได้: {exc}")
+
+    # ── 5. Edit admin group message ──
+    # Note: Payment model doesn't store admin_message_id, so we send a new
+    # confirmation message to admin group instead of editing the original
+    try:
+        if ADMIN_BOT_TOKEN and ADMIN_GROUP_CHAT_ID:
+            admin_name = admin.get("display_name") or admin.get("username") or "Dashboard Admin"
+            notify_msg = (
+                f"✅ <b>อนุมัติจาก Dashboard</b>\n"
+                f"💰 ยอด: {int(pay['amount'])} บาท\n"
+                f"📦 แพ็กเกจ: {pkg['name'] if pkg else 'N/A'}\n"
+                f"👤 ลูกค้า: {pay['customer_name'] or 'N/A'} (TG: {pay['customer_telegram_id']})\n"
+                f"👮 อนุมัติโดย: {admin_name}"
+            )
+            await _telegram_api(ADMIN_BOT_TOKEN, "sendMessage", {
+                "chat_id": ADMIN_GROUP_CHAT_ID,
+                "text": notify_msg,
+                "parse_mode": "HTML",
+            })
+    except Exception as exc:
+        logger.error("Failed to notify admin group: %s", exc)
+        telegram_errors.append(f"แจ้ง admin group ไม่ได้: {exc}")
+
+    # ── 6. Sync Google Sheets ──
+    try:
+        import sys
+        if "/root/charoenpon" not in sys.path:
+            sys.path.insert(0, "/root/charoenpon")
+        from sheets.income_log import IncomeLogSheet
+        from sheets.daily_revenue import DailyRevenueSheet
+        from sheets.daily_summary import DailySummarySheet
+        from sheets.members import MembersSheet
+        await DailyRevenueSheet.update()
+        await DailySummarySheet.update()
+        await IncomeLogSheet.log_payment(payment_id, approved_by=admin.get("display_name", "Dashboard"))
+        await MembersSheet.update_member(pay["user_id"])
+        logger.info("Sheets synced for dashboard approval payment %d", payment_id)
+    except Exception as exc:
+        logger.warning("Sheets sync failed (non-critical): %s", exc)
+        telegram_errors.append(f"Sync Sheets ไม่ได้: {exc}")
+
+    # ── 7. Check referral reward ──
+    try:
+        import sys
+        if "/root/charoenpon" not in sys.path:
+            sys.path.insert(0, "/root/charoenpon")
+        from bots.sales_bot.handlers.referral import process_referral_reward
+        import telegram as tg
+        sales_bot = tg.Bot(token=SALES_BOT_TOKEN)
+        await process_referral_reward(pay["customer_telegram_id"], sales_bot)
+    except Exception as exc:
+        logger.warning("Referral reward failed (non-critical): %s", exc)
+
+    # ── 8. Flash sale slot increment ──
+    try:
+        if pkg and pkg["tier"] == "300":
+            import sys
+            if "/root/charoenpon" not in sys.path:
+                sys.path.insert(0, "/root/charoenpon")
+            from bots.sales_bot.handlers.flash_sale import increment_sold_slot
+            success, sold, total = await increment_sold_slot(pay["package_id"])
+            if success:
+                logger.info("Flash sale slot incremented: %d/%d", sold, total)
+    except Exception as exc:
+        logger.warning("Flash sale slot increment failed (non-critical): %s", exc)
+
+    # ── Mark teaser clicks as converted ──
+    try:
+        await pool.execute("""
+            UPDATE teaser_clicks SET converted = TRUE
+            WHERE user_id = $1 AND converted = FALSE
+        """, pay["customer_telegram_id"])
+    except Exception:
+        pass
+
+    # ── Activity log ──
     ip = request.client.host if request.client else None
-    await _log(admin["id"], "approve_payment", "payment", payment_id, 
-               {"amount": float(pay["amount"]), "user_id": pay["user_id"]}, ip)
+    await _log(admin["id"], "approve_payment", "payment", payment_id,
+               {"amount": float(pay["amount"]), "user_id": pay["user_id"],
+                "telegram_sent": len(telegram_errors) == 0}, ip)
+
+    # Return result — DB is always approved, report telegram errors separately
+    if telegram_errors:
+        return {
+            "ok": True,
+            "warning": "อนุมัติแล้วแต่มีข้อผิดพลาดบางส่วน",
+            "errors": telegram_errors,
+        }
     return {"ok": True}
 
 @router.post("/{payment_id}/reject")
