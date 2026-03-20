@@ -18,4 +18,4 @@ ANNOUNCE_BOT_TOKEN = os.getenv("ANNOUNCE_BOT_TOKEN", "")
 ADMIN_TELEGRAM_IDS = [int(x) for x in os.getenv("ADMIN_TELEGRAM_IDS", "").split(",") if x.strip()]
 
 # Role levels
-ROLE_LEVELS = {"owner": 100, "admin": 50, "moderator": 10}
+ROLE_LEVELS = {"owner": 100, "super_admin": 75, "admin": 50, "moderator": 10}

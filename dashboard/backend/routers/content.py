@@ -1,8 +1,10 @@
 """Content management router."""
-from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi import APIRouter, Depends, Request, HTTPException, UploadFile, File
 from ..auth.dependencies import get_current_admin, require_role
 from ..database import pool
+from ..config import CONTENT_BOT_TOKEN
 import json
+import httpx
 
 router = APIRouter(prefix="/api/content", tags=["content"])
 
@@ -11,6 +13,59 @@ async def _log(admin_id, action, entity_type, entity_id, details, ip):
         "INSERT INTO dashboard_activity_log (admin_id, action, entity_type, entity_id, details, ip_address) VALUES ($1,$2,$3,$4,$5::jsonb,$6)",
         admin_id, action, entity_type, entity_id, json.dumps(details) if details else None, ip
     )
+
+@router.post("/upload")
+async def upload_content(request: Request, file: UploadFile = File(...), admin=Depends(require_role("admin"))):
+    """Upload image → send to Telegram via CONTENT_BOT → store file_id in content_queue."""
+    if not CONTENT_BOT_TOKEN:
+        raise HTTPException(500, "CONTENT_BOT_TOKEN not configured")
+    
+    # Validate file type
+    allowed = {"image/jpeg", "image/png", "image/gif", "image/webp", "video/mp4"}
+    if file.content_type not in allowed:
+        raise HTTPException(400, f"ไม่รองรับไฟล์ประเภท {file.content_type} (รองรับ: jpg, png, gif, webp, mp4)")
+    
+    file_bytes = await file.read()
+    if len(file_bytes) > 20 * 1024 * 1024:  # 20MB limit
+        raise HTTPException(400, "ไฟล์ใหญ่เกิน 20MB")
+    
+    # Send to Telegram to get file_id
+    # Use admin's own chat or a dedicated channel to store files
+    # We'll send to the bot's own chat (savedMessages) — use sendPhoto/sendVideo to a dump chat
+    is_video = file.content_type == "video/mp4"
+    method = "sendVideo" if is_video else "sendPhoto"
+    file_key = "video" if is_video else "photo"
+    file_type = "video" if is_video else "photo"
+    
+    url = f"https://api.telegram.org/bot{CONTENT_BOT_TOKEN}/{method}"
+    
+    # Send to the admin who uploaded (as a temp storage mechanism)
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(url, data={"chat_id": admin["telegram_id"]}, files={file_key: (file.filename, file_bytes, file.content_type)})
+        result = resp.json()
+    
+    if not result.get("ok"):
+        raise HTTPException(500, f"Telegram upload failed: {result.get('description', 'Unknown error')}")
+    
+    # Extract file_id
+    msg = result["result"]
+    if is_video:
+        file_id = msg["video"]["file_id"]
+    else:
+        # photo returns array of PhotoSize, take largest
+        file_id = msg["photo"][-1]["file_id"]
+    
+    # Store in content_queue
+    row = await pool.fetchrow("""
+        INSERT INTO content_queue (file_type, file_id, is_used, created_at)
+        VALUES ($1, $2, FALSE, NOW())
+        RETURNING id
+    """, file_type, file_id)
+    
+    ip = request.client.host if request.client else None
+    await _log(admin["id"], "upload_content", "content_queue", row["id"], {"file_type": file_type, "filename": file.filename}, ip)
+    
+    return {"ok": True, "id": row["id"], "file_id": file_id, "file_type": file_type}
 
 @router.get("/queue")
 async def list_queue(admin=Depends(get_current_admin)):

@@ -18,6 +18,28 @@ async def list_groups(admin=Depends(require_role("admin"))):
     rows = await pool.fetch("SELECT * FROM group_registry ORDER BY slug")
     return [dict(r) for r in rows]
 
+@router.get("/categorized")
+async def list_groups_categorized(admin=Depends(require_role("admin"))):
+    """Return groups split into VIP / Free / Chat categories."""
+    rows = await pool.fetch("SELECT * FROM group_registry ORDER BY slug")
+    vip = []
+    free = []
+    chat = []
+    vip_tiers = {"TIER_300", "TIER_500", "TIER_1299", "TIER_2499"}
+    chat_slugs = {"CHAT", "TALK", "DISCUSS", "พูดคุย"}
+    for r in rows:
+        d = dict(r)
+        slug_upper = (d.get("slug") or "").upper()
+        tier = d.get("min_tier") or ""
+        # Classify
+        if any(cs in slug_upper for cs in chat_slugs) or tier == "FREE_CHAT":
+            chat.append(d)
+        elif tier in vip_tiers:
+            vip.append(d)
+        else:
+            free.append(d)
+    return {"vip": vip, "free": free, "chat": chat}
+
 @router.post("")
 async def create_group(request: Request, admin=Depends(require_role("admin"))):
     body = await request.json()
