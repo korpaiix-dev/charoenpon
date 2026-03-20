@@ -322,7 +322,9 @@ async function renderDashboard() {
 let customerSearch = '', customerFilter = 'all', customerPage = 1;
 async function renderCustomers() {
     const content = document.getElementById('page-content');
+    const broadcastBtn = hasRole('admin') ? `<button class="btn btn-primary" onclick="showBroadcastModal()" style="margin-bottom:1rem;">📢 Broadcast</button>` : '';
     content.innerHTML = `
+        ${broadcastBtn}
         <div class="filters">
             <input class="search-input" id="cust-search" placeholder="🔍 ค้นหา ชื่อ / Telegram ID / Username" value="${customerSearch}" onkeyup="if(event.key==='Enter'){customerSearch=this.value;customerPage=1;loadCustomers()}">
             <button class="filter-btn ${customerFilter==='all'?'active':''}" onclick="customerFilter='all';customerPage=1;loadCustomers()">All</button>
@@ -334,6 +336,79 @@ async function renderCustomers() {
         <div id="customers-pagination"></div>
     `;
     loadCustomers();
+}
+
+// ========== BROADCAST ==========
+async function showBroadcastModal() {
+    openModal('📢 Broadcast ข้อความ', `
+        <div class="form-group">
+            <label>กลุ่มเป้าหมาย</label>
+            <select id="bc-target" onchange="updateBroadcastCount()">
+                <option value="all">📋 ทุกคน</option>
+                <option value="active">✅ VIP Active</option>
+                <option value="expired">⏰ Expired</option>
+                <option value="trial">🎯 Trial</option>
+            </select>
+        </div>
+        <div id="bc-count-info" style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;">กำลังนับจำนวน...</div>
+        <div class="form-group">
+            <label>ข้อความ (รองรับ HTML)</label>
+            <textarea id="bc-message" rows="6" placeholder="พิมพ์ข้อความที่จะส่ง...&#10;&#10;รองรับ HTML เช่น:&#10;<b>ตัวหนา</b>&#10;<i>ตัวเอียง</i>&#10;<a href='url'>ลิงก์</a>"></textarea>
+        </div>
+        <div id="bc-result" style="display:none;margin-bottom:1rem;"></div>
+        <button class="btn btn-primary btn-full" id="bc-send-btn" onclick="doBroadcast()">📩 ส่ง Broadcast</button>
+    `);
+    updateBroadcastCount();
+}
+
+async function updateBroadcastCount() {
+    const target = document.getElementById('bc-target')?.value || 'all';
+    const info = document.getElementById('bc-count-info');
+    if (!info) return;
+    info.textContent = 'กำลังนับจำนวน...';
+    try {
+        const data = await api(`/customers/broadcast/count?target=${target}`);
+        const labels = { all: 'ทุกคน', active: 'VIP Active', expired: 'Expired', trial: 'Trial' };
+        info.innerHTML = `📊 จะส่งถึง <b>${fmt(data.count)}</b> คน (${labels[target]})`;
+    } catch {
+        info.textContent = '❌ โหลดจำนวนไม่ได้';
+    }
+}
+
+async function doBroadcast() {
+    const target = document.getElementById('bc-target')?.value || 'all';
+    const message = document.getElementById('bc-message')?.value?.trim();
+    if (!message) { toast('กรุณาพิมพ์ข้อความ', 'error'); return; }
+    
+    const labels = { all: 'ทุกคน', active: 'VIP Active', expired: 'Expired', trial: 'Trial' };
+    if (!confirm(`📢 ยืนยันส่ง Broadcast ไปยัง "${labels[target]}"?\n\nข้อความ:\n${message.slice(0, 200)}`)) return;
+    
+    const btn = document.getElementById('bc-send-btn');
+    const result = document.getElementById('bc-result');
+    btn.disabled = true;
+    btn.textContent = '⏳ กำลังส่ง...';
+    result.style.display = 'none';
+    
+    try {
+        const data = await api('/customers/broadcast', {
+            method: 'POST',
+            body: JSON.stringify({ message, target, parse_mode: 'HTML' }),
+        });
+        result.style.display = 'block';
+        result.innerHTML = `<div class="alert-box">
+            <div class="alert-box-item" style="color:var(--success);">✅ ส่งสำเร็จ: ${data.sent} คน</div>
+            ${data.failed > 0 ? `<div class="alert-box-item" style="color:var(--error);">❌ ล้มเหลว: ${data.failed} คน</div>` : ''}
+            <div class="alert-box-item">📊 ทั้งหมด: ${data.total} คน</div>
+        </div>`;
+        btn.textContent = '✅ ส่งเสร็จแล้ว';
+        toast(`Broadcast สำเร็จ: ${data.sent}/${data.total}`, 'success');
+    } catch (e) {
+        result.style.display = 'block';
+        result.innerHTML = `<div class="alert-box"><div class="alert-box-item" style="color:var(--error);">❌ ${e.message}</div></div>`;
+        btn.disabled = false;
+        btn.textContent = '📩 ส่ง Broadcast';
+        toast(e.message, 'error');
+    }
 }
 
 async function loadCustomers(page) {

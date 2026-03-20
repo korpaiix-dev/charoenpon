@@ -4,7 +4,12 @@ from ..auth.dependencies import get_current_admin, require_role
 from ..database import pool
 from ..models.schemas import ExtendRequest, UpgradeRequest, KickRequest, BanRequest, DMRequest
 from ..services.telegram import send_dm as tg_send_dm, kick_member
+from ..config import SALES_BOT_TOKEN
 import json
+import asyncio
+import httpx
+from pydantic import BaseModel
+from typing import Optional
 
 router = APIRouter(prefix="/api/customers", tags=["customers"])
 
@@ -41,13 +46,19 @@ async def list_customers(
     total = await pool.fetchval(f"SELECT COUNT(*) FROM users u {where}", *params)
     
     rows = await pool.fetch(f"""
-        SELECT u.id, u.telegram_id, u.username, u.first_name, u.last_name, u.is_banned, u.total_spent, u.created_at,
+        SELECT u.id, u.telegram_id, u.username, u.first_name, u.last_name, u.is_banned,
+               GREATEST(COALESCE(u.total_spent, 0), COALESCE(pay.paid_total, 0)) AS total_spent,
+               u.created_at,
                s.status as sub_status, s.end_date, p.name as package_name, p.tier as package_tier
         FROM users u
         LEFT JOIN LATERAL (
             SELECT * FROM subscriptions WHERE user_id = u.id ORDER BY created_at DESC LIMIT 1
         ) s ON TRUE
         LEFT JOIN packages p ON s.package_id = p.id
+        LEFT JOIN LATERAL (
+            SELECT COALESCE(SUM(amount), 0) AS paid_total
+            FROM payments WHERE user_id = u.id AND status = 'CONFIRMED'
+        ) pay ON TRUE
         {where}
         ORDER BY u.created_at DESC
         LIMIT {per_page} OFFSET {offset}
@@ -61,6 +72,123 @@ async def list_customers(
         "pages": (total + per_page - 1) // per_page,
     }
 
+# ========== BROADCAST (must be before /{user_id} routes) ==========
+class BroadcastRequest(BaseModel):
+    message: str
+    target: str = "all"  # all | active | expired | trial
+    parse_mode: Optional[str] = "HTML"
+
+
+async def _get_broadcast_count(target: str) -> int:
+    if target == "active":
+        return await pool.fetchval(
+            "SELECT COUNT(DISTINCT u.id) FROM users u JOIN subscriptions s ON s.user_id = u.id "
+            "WHERE s.status = 'ACTIVE' AND u.telegram_id IS NOT NULL AND u.is_banned = FALSE"
+        )
+    elif target == "expired":
+        return await pool.fetchval(
+            "SELECT COUNT(*) FROM users u WHERE u.telegram_id IS NOT NULL AND u.is_banned = FALSE "
+            "AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id AND s.status = 'ACTIVE') "
+            "AND EXISTS (SELECT 1 FROM subscriptions s2 WHERE s2.user_id = u.id)"
+        )
+    elif target == "trial":
+        return await pool.fetchval(
+            "SELECT COUNT(DISTINCT u.id) FROM users u JOIN subscriptions s ON s.user_id = u.id "
+            "JOIN packages p ON s.package_id = p.id "
+            "WHERE s.status = 'ACTIVE' AND p.tier = 'TIER_99' AND u.telegram_id IS NOT NULL AND u.is_banned = FALSE"
+        )
+    else:  # all
+        return await pool.fetchval(
+            "SELECT COUNT(*) FROM users u WHERE u.telegram_id IS NOT NULL AND u.is_banned = FALSE"
+        )
+
+
+async def _get_broadcast_users(target: str):
+    if target == "active":
+        return await pool.fetch(
+            "SELECT DISTINCT u.telegram_id FROM users u JOIN subscriptions s ON s.user_id = u.id "
+            "WHERE s.status = 'ACTIVE' AND u.telegram_id IS NOT NULL AND u.is_banned = FALSE"
+        )
+    elif target == "expired":
+        return await pool.fetch(
+            "SELECT u.telegram_id FROM users u WHERE u.telegram_id IS NOT NULL AND u.is_banned = FALSE "
+            "AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id AND s.status = 'ACTIVE') "
+            "AND EXISTS (SELECT 1 FROM subscriptions s2 WHERE s2.user_id = u.id)"
+        )
+    elif target == "trial":
+        return await pool.fetch(
+            "SELECT DISTINCT u.telegram_id FROM users u JOIN subscriptions s ON s.user_id = u.id "
+            "JOIN packages p ON s.package_id = p.id "
+            "WHERE s.status = 'ACTIVE' AND p.tier = 'TIER_99' AND u.telegram_id IS NOT NULL AND u.is_banned = FALSE"
+        )
+    else:  # all
+        return await pool.fetch(
+            "SELECT telegram_id FROM users WHERE telegram_id IS NOT NULL AND is_banned = FALSE"
+        )
+
+
+@router.get("/broadcast/count")
+async def broadcast_count(target: str = "all", admin=Depends(require_role("admin"))):
+    """Get count of users that would receive the broadcast."""
+    count = await _get_broadcast_count(target)
+    return {"count": count}
+
+
+@router.post("/broadcast")
+async def broadcast_message(req: BroadcastRequest, request: Request, admin=Depends(require_role("admin"))):
+    """Broadcast message to target group via Sales Bot DM."""
+    if not SALES_BOT_TOKEN:
+        raise HTTPException(500, "SALES_BOT_TOKEN not configured")
+    if not req.message.strip():
+        raise HTTPException(400, "Message cannot be empty")
+
+    users = await _get_broadcast_users(req.target)
+    total = len(users)
+    if total == 0:
+        return {"sent": 0, "failed": 0, "total": 0}
+
+    sent = 0
+    failed = 0
+    batch_size = 30
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        for i in range(0, total, batch_size):
+            batch = users[i:i + batch_size]
+            for user in batch:
+                try:
+                    payload = {
+                        "chat_id": user["telegram_id"],
+                        "text": req.message,
+                    }
+                    if req.parse_mode:
+                        payload["parse_mode"] = req.parse_mode
+                    resp = await client.post(
+                        f"https://api.telegram.org/bot{SALES_BOT_TOKEN}/sendMessage",
+                        json=payload,
+                    )
+                    data = resp.json()
+                    if data.get("ok"):
+                        sent += 1
+                    else:
+                        failed += 1
+                except Exception:
+                    failed += 1
+
+            # Rate limit: wait 3 seconds between batches
+            if i + batch_size < total:
+                await asyncio.sleep(3)
+
+    ip = request.client.host if request.client else None
+    await _log(
+        admin["id"], "broadcast", "system", None,
+        {"target": req.target, "sent": sent, "failed": failed, "total": total, "message_preview": req.message[:100]},
+        ip,
+    )
+
+    return {"sent": sent, "failed": failed, "total": total}
+
+
+# ========== CUSTOMER DETAIL ==========
 @router.get("/{user_id}")
 async def get_customer(user_id: int, admin=Depends(get_current_admin)):
     row = await pool.fetchrow("SELECT * FROM users WHERE id = $1", user_id)
