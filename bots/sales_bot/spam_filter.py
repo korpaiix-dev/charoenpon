@@ -196,6 +196,17 @@ async def spam_filter_middleware(update: Update, context: CallbackContext) -> bo
         _reset_nonsense(user_id)
         return False
 
+    # --- SOS keywords bypass nonsense tracker ---
+    SOS_BYPASS = [
+        "SOS", "sos", "กลุ่มบิน", "กลุ่มหาย", "เข้าไม่ได้",
+        "เข้ากลุ่มไม่ได้", "กดไม่ได้", "ลิงก์หมด", "ลิ้งค์หมด",
+        "ขอลิ้ง", "ขอลิงก์",
+    ]
+    if any(w in text for w in SOS_BYPASS):
+        logger.info("SOS bypass for user %s: %s", user_id, text[:100])
+        _reset_nonsense(user_id)
+        return False  # ให้ผ่านไปถึง handler เสมอ
+
     # --- Nonsense / irrelevant message ---
     tracker = _nonsense_tracker[user_id]
     now = time.time()

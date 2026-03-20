@@ -53,18 +53,20 @@ FREE_GROUPS = [
 ]
 
 FLASH_SALE_PROMO = (
-    "⚡ FLASH FRIDAY ⚡\n"
+    "⚡ <b>VIP เจริญพร — FLASH FRIDAY</b> ⚡\n"
     "\n"
-    "VIP 30 วัน ลดเหลือ ฿199 (ปกติ ฿300)\n"
+    "สมาชิก VIP 30 วัน ลดเหลือ ฿199 (ปกติ ฿300)\n"
     "⏰ คืนนี้เท่านั้น 21:00 - 23:59\n"
     "🔥 จำกัด 30 คนเท่านั้น!\n"
     "\n"
-    "✅ Content เต็มไม่เบลอ ทุกวัน\n"
-    "✅ Exclusive set ก่อนใคร\n"
-    "✅ 3-5 ชิ้นใหม่ทุกวัน\n"
+    "✅ คลิปเต็มไม่เบลอ ทุกวัน\n"
+    "✅ คลิป Exclusive ก่อนใคร\n"
+    "✅ รวมกว่า 10,000 คลิป\n"
     "\n"
-    "📩 กดซื้อ → @jarernAD1_bot\n"
-    "⚡ พิมพ์ /flashsale\n"
+    "━━━━━━━━━━━━━━━━━━\n"
+    '📩 <b>สมัครเลย 👇</b>\n'
+    '👉 <a href="tg://resolve?domain=jarernAD1_bot&start=flashsale">⚡ สมัคร VIP เจริญพร ฿199 ⚡</a>\n'
+    "━━━━━━━━━━━━━━━━━━\n"
     "\n"
     "เมื่อหมดก็หมด ไม่มีรอบสอง!"
 )
@@ -136,11 +138,13 @@ async def start_flash_sale(context: ContextTypes.DEFAULT_TYPE) -> None:
                         chat_id=group_id,
                         photo=flash_image,
                         caption=FLASH_SALE_PROMO,
+                        parse_mode="HTML",
                     )
                 else:
                     await bot.send_message(
                         chat_id=group_id,
                         text=FLASH_SALE_PROMO,
+                        parse_mode="HTML",
                     )
                 success += 1
                 await asyncio.sleep(1)  # Rate limit: 1 msg/sec between groups
@@ -220,13 +224,15 @@ async def end_flash_sale(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 FLASH_SALE_REMIND = (
-    "⚡ FLASH FRIDAY ยังไม่หมด! ⚡\n"
+    "⚡ <b>VIP เจริญพร — FLASH FRIDAY ยังไม่หมด!</b> ⚡\n"
     "\n"
-    "VIP 30 วัน เหลือ ฿199 เท่านั้น!\n"
+    "สมาชิก VIP 30 วัน เหลือ ฿199 เท่านั้น!\n"
     "⏰ เหลือเวลาอีกไม่นาน ปิด 23:59!\n"
     "\n"
-    "📩 กดซื้อ → @jarernAD1_bot\n"
-    "⚡ พิมพ์ /flashsale\n"
+    "━━━━━━━━━━━━━━━━━━\n"
+    '📩 <b>สมัครเลย 👇</b>\n'
+    '👉 <a href="tg://resolve?domain=jarernAD1_bot&start=flashsale">⚡ สมัคร VIP เจริญพร ฿199 ⚡</a>\n'
+    "━━━━━━━━━━━━━━━━━━\n"
     "\n"
     "หมดแล้วหมดเลย! 🔥"
 )
@@ -274,8 +280,10 @@ async def remind_flash_sale(context: ContextTypes.DEFAULT_TYPE) -> None:
         f"🔥 เหลืออีก {remaining} slot!\n"
         f"⏰ ปิด 23:59 คืนนี้!\n"
         f"\n"
-        f"📩 กดซื้อ → @jarernAD1_bot\n"
-        f"⚡ พิมพ์ /flashsale\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f'📩 <b>กดซื้อเลย 👇</b>\n'
+        f'👉 <a href="tg://resolve?domain=jarernAD1_bot&start=flashsale">⚡ สมัคร VIP เจริญพร ฿199 ⚡</a>\n'
+        f"━━━━━━━━━━━━━━━━━━\n"
         f"\n"
         f"หมดแล้วหมดเลย! 🔥"
     )
@@ -289,11 +297,13 @@ async def remind_flash_sale(context: ContextTypes.DEFAULT_TYPE) -> None:
                     chat_id=group_id,
                     photo=flash_image,
                     caption=remind_text,
+                    parse_mode="HTML",
                 )
             else:
                 await bot.send_message(
                     chat_id=group_id,
                     text=remind_text,
+                    parse_mode="HTML",
                 )
             success += 1
             await asyncio.sleep(1)

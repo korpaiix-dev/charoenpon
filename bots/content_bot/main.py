@@ -213,6 +213,159 @@ async def blur_image(bot: Bot, file_id: str) -> io.BytesIO:
     return out
 
 
+async def create_flash_sale_image(bot: Bot, file_id: str) -> io.BytesIO:
+    """สร้างภาพ Flash Sale จากรูป VIP — เบลอ + overlay ราคา + watermark."""
+    # 1) ดาวน์โหลดรูปจาก Telegram
+    file = await bot.get_file(file_id)
+    buf = io.BytesIO()
+    await file.download_to_memory(buf)
+    buf.seek(0)
+
+    img = Image.open(buf).convert("RGBA")
+    w, h = img.size
+
+    # 2) เบลอ radius=6 (เห็นเค้าโครง)
+    blurred = img.filter(ImageFilter.GaussianBlur(radius=6))
+
+    # === โหลดฟอนต์ ===
+    font_paths = [
+        "/usr/share/fonts/truetype/thai-tlwg/Garuda-Bold.ttf",
+        "/usr/share/fonts/truetype/thai-tlwg/Sarabun-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ]
+
+    def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+        for fp in font_paths:
+            try:
+                return ImageFont.truetype(fp, size=size)
+            except (OSError, IOError):
+                continue
+        return ImageFont.load_default()
+
+    # ขนาดฟอนต์สัมพันธ์กับความกว้างรูป
+    font_title = _load_font(max(w // 8, 48))       # FLASH FRIDAY
+    font_vip = _load_font(max(w // 14, 30))         # VIP 30 วัน
+    font_old_price = _load_font(max(w // 18, 24))   # ฿300 ขีดฆ่า
+    font_new_price = _load_font(max(w // 9, 44))    # ฿199 ตัวใหญ่
+    font_detail = _load_font(max(w // 22, 20))      # จำกัด 30 คน | 21:00-23:59
+
+
+    # 3) วาด overlay
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    # แถบดำ semi-transparent บน (22%)
+    top_h = int(h * 0.22)
+    draw.rectangle([(0, 0), (w, top_h)], fill=(0, 0, 0, 170))
+
+    # แถบดำ semi-transparent ล่าง (30%)
+    bot_h = int(h * 0.30)
+    bot_y = h - bot_h
+    draw.rectangle([(0, bot_y), (w, h)], fill=(0, 0, 0, 180))
+
+    # --- บน: "FLASH FRIDAY" สีทอง กลาง ---
+    title_text = "FLASH FRIDAY"
+    title_bbox = draw.textbbox((0, 0), title_text, font=font_title)
+    title_tw = title_bbox[2] - title_bbox[0]
+    title_th = title_bbox[3] - title_bbox[1]
+    title_x = (w - title_tw) // 2
+    title_y = (top_h - title_th) // 2
+    draw.text((title_x, title_y), title_text, font=font_title, fill=(255, 215, 0, 255))
+
+    # --- ล่าง: หลายบรรทัด ---
+    # บรรทัด 1: "VIP 30 วัน" สีขาว
+    line1 = "VIP 30 วัน"
+    l1_bbox = draw.textbbox((0, 0), line1, font=font_vip)
+    l1_tw = l1_bbox[2] - l1_bbox[0]
+    line_gap = max(h // 80, 6)
+    cursor_y = bot_y + line_gap + 4
+
+    l1_x = (w - l1_tw) // 2
+    draw.text((l1_x, cursor_y), line1, font=font_vip, fill=(255, 255, 255, 255))
+    cursor_y += (l1_bbox[3] - l1_bbox[1]) + line_gap
+
+    # บรรทัด 2: "฿300" ขีดฆ่าสีเทา + "฿199" สีแดง/ชมพูตัวใหญ่
+    old_price = "฿300"
+    new_price = "฿199"
+    old_bbox = draw.textbbox((0, 0), old_price, font=font_old_price)
+    new_bbox = draw.textbbox((0, 0), new_price, font=font_new_price)
+    old_tw = old_bbox[2] - old_bbox[0]
+    old_th = old_bbox[3] - old_bbox[1]
+    new_tw = new_bbox[2] - new_bbox[0]
+    new_th = new_bbox[3] - new_bbox[1]
+
+    gap_between = max(w // 30, 12)
+    total_price_w = old_tw + gap_between + new_tw
+    price_x = (w - total_price_w) // 2
+
+    # วาง ฿300 (สีเทา) + ขีดฆ่า — จัดให้อยู่กลางแนวตั้งเทียบกับ ฿199
+    old_y = cursor_y + (new_th - old_th) // 2
+    draw.text((price_x, old_y), old_price, font=font_old_price, fill=(160, 160, 160, 255))
+    # เส้นขีดฆ่า
+    strike_y = old_y + old_th // 2
+    draw.line([(price_x, strike_y), (price_x + old_tw, strike_y)], fill=(160, 160, 160, 255), width=max(2, w // 250))
+
+    # วาง ฿199 สีแดง/ชมพู
+    new_x = price_x + old_tw + gap_between
+    draw.text((new_x, cursor_y), new_price, font=font_new_price, fill=(255, 60, 100, 255))
+    cursor_y += new_th + line_gap
+
+    # บรรทัด 3: "จำกัด 30 คน | 21:00-23:59"
+    line3 = "จำกัด 30 คน | 21:00-23:59"
+    l3_bbox = draw.textbbox((0, 0), line3, font=font_detail)
+    l3_tw = l3_bbox[2] - l3_bbox[0]
+    draw.text(((w - l3_tw) // 2, cursor_y), line3, font=font_detail, fill=(255, 255, 255, 220))
+    cursor_y += (l3_bbox[3] - l3_bbox[1]) + line_gap
+
+    # Composite overlay ลงบนรูปเบลอ
+    result = Image.alpha_composite(blurred, overlay)
+
+    # 4) Watermark "VIP เจริญพร" tile pattern หมุน 30° opacity 60
+    wm_text = "VIP เจริญพร"
+    wm_font_size = max(w // 12, 28)
+    wm_font = _load_font(wm_font_size)
+
+    # ถ้า fallback font ไม่รองรับไทย ใช้ภาษาอังกฤษ
+    if isinstance(wm_font, ImageFont.ImageFont):
+        wm_text = "VIP Charoenpon"
+
+    # สร้าง canvas ใหญ่สำหรับ tile
+    tmp = Image.new("RGBA", (w * 2, h * 2), (0, 0, 0, 0))
+    tmp_draw = ImageDraw.Draw(tmp)
+    wm_bbox = tmp_draw.textbbox((0, 0), wm_text, font=wm_font)
+    tw = wm_bbox[2] - wm_bbox[0]
+    th = wm_bbox[3] - wm_bbox[1]
+
+    spacing_x = tw + max(tw // 2, 60)
+    spacing_y = th + max(th * 3, 120)
+
+    for y_pos in range(-h, h * 2, spacing_y):
+        for x_pos in range(-w, w * 2, spacing_x):
+            tmp_draw.text(
+                (x_pos, y_pos), wm_text, font=wm_font,
+                fill=(255, 255, 255, 60),  # opacity 60
+            )
+
+    # หมุน 30° แล้ว crop กลับขนาดเดิม
+    rotated = tmp.rotate(30, resample=Image.BICUBIC, expand=False)
+    cx, cy = rotated.width // 2, rotated.height // 2
+    half_w, half_h = w // 2, h // 2
+    watermark = rotated.crop((cx - half_w, cy - half_h, cx + half_w, cy + half_h))
+
+    if watermark.size != result.size:
+        watermark = watermark.resize(result.size, Image.LANCZOS)
+
+    result = Image.alpha_composite(result, watermark)
+
+    # 5) Output JPEG quality=80
+    result = result.convert("RGB")
+    out = io.BytesIO()
+    out.name = "flash_sale.jpg"
+    result.save(out, format="JPEG", quality=80)
+    out.seek(0)
+    return out
+
+
 async def fetch_latest_vip_content() -> dict | None:
     """ดึงรูปล่าสุดจาก content_queue ที่ยังไม่ได้ใช้.
 

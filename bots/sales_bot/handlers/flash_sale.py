@@ -255,9 +255,9 @@ def _build_flash_sale_text(flash: FlashSale, remaining: int) -> str:
         f"🔥 ลดไป: <b>฿{flash.original_price - flash.flash_price:.0f}</b> ({((flash.original_price - flash.flash_price) / flash.original_price * 100):.0f}%)\n\n"
         f"📊 <b>เหลือ {remaining}/{total} slot</b>\n"
         f"{bar}\n\n"
-        "✅ Content เต็มไม่เบลอ ทุกวัน\n"
+        "✅ คลิปเต็มไม่เบลอ ทุกวัน\n"
         "✅ Exclusive set ก่อนใคร\n"
-        "✅ 3-5 ชิ้นใหม่ทุกวัน\n\n"
+        "✅ รวมกว่า 10,000 คลิป\n\n"
         f"⏰ เปิดขาย: <b>ศุกร์ 21:00 - 23:59</b>\n"
         "เมื่อหมดก็หมด ไม่มีรอบสอง! 🔥"
     )
