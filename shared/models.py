@@ -432,6 +432,26 @@ class ContentQueue(Base):
     )
 
 
+class FlashSale(Base):
+    """Flash Sale — ลดราคาช่วงเวลาจำกัด."""
+
+    __tablename__ = "flash_sales"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    package_id: Mapped[int] = mapped_column(ForeignKey("packages.id"), nullable=False)
+    flash_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    original_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    total_slots: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    sold_slots: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    starts_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+
+    package: Mapped[Package] = relationship(lazy="selectin")
+
+
 class ExpiryNotification(Base):
     __tablename__ = "expiry_notifications"
 

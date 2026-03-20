@@ -23,10 +23,12 @@ from telegram.ext import (
 
 from shared.database import close_db, init_db
 
+from bots.sales_bot.handlers.flash_sale import get_flash_sale_handlers
 from bots.sales_bot.handlers.packages import get_package_handlers
 from bots.sales_bot.handlers.payment import get_payment_handlers
 from bots.sales_bot.handlers.start import get_start_handlers
 from bots.sales_bot.handlers.support import get_support_handlers
+from bots.sales_bot.flash_sale_scheduler import start_flash_sale, end_flash_sale, remind_flash_sale
 from bots.sales_bot.spam_filter import spam_filter_middleware
 
 logger = logging.getLogger(__name__)
@@ -144,6 +146,9 @@ def create_application() -> Application:
     for handler in get_start_handlers():
         app.add_handler(handler, group=0)
 
+    for handler in get_flash_sale_handlers():
+        app.add_handler(handler, group=0)
+
     for handler in get_package_handlers():
         app.add_handler(handler, group=0)
 
@@ -159,6 +164,35 @@ def create_application() -> Application:
         _request_expiring_list,
         time=dt_time(hour=9, minute=0, tzinfo=TH_TZ),
         name="request_expiring_list_0900",
+    )
+
+    # --- Scheduler: Flash Sale Friday ---
+    # เปิด Flash Sale ทุกวันศุกร์ 21:00 ไทย (day_of_week=4 = Friday)
+    app.job_queue.run_daily(
+        start_flash_sale,
+        time=dt_time(hour=21, minute=0, tzinfo=TH_TZ),
+        days=(4,),  # Friday
+        name="flash_sale_start_friday_2100",
+    )
+    # Remind Flash Sale ทุกวันศุกร์ 22:00 และ 23:00 ไทย
+    app.job_queue.run_daily(
+        remind_flash_sale,
+        time=dt_time(hour=22, minute=0, tzinfo=TH_TZ),
+        days=(4,),  # Friday
+        name="flash_sale_remind_friday_2200",
+    )
+    app.job_queue.run_daily(
+        remind_flash_sale,
+        time=dt_time(hour=23, minute=0, tzinfo=TH_TZ),
+        days=(4,),  # Friday
+        name="flash_sale_remind_friday_2300",
+    )
+    # ปิด Flash Sale ทุกวันเสาร์ 00:00 ไทย (day_of_week=5 = Saturday)
+    app.job_queue.run_daily(
+        end_flash_sale,
+        time=dt_time(hour=0, minute=0, tzinfo=TH_TZ),
+        days=(5,),  # Saturday
+        name="flash_sale_end_saturday_0000",
     )
 
     return app
