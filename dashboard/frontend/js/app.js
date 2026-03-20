@@ -355,10 +355,39 @@ async function showBroadcastModal() {
             <label>ข้อความ (รองรับ HTML)</label>
             <textarea id="bc-message" rows="6" placeholder="พิมพ์ข้อความที่จะส่ง...&#10;&#10;รองรับ HTML เช่น:&#10;<b>ตัวหนา</b>&#10;<i>ตัวเอียง</i>&#10;<a href='url'>ลิงก์</a>"></textarea>
         </div>
+        <div class="form-group">
+            <label>📎 แนบรูป/วิดีโอ (ไม่บังคับ, สูงสุด 20MB)</label>
+            <input type="file" id="bc-media" accept="image/jpeg,image/png,image/gif,video/mp4" onchange="previewBroadcastMedia(this)" style="margin-bottom:0.5rem;">
+            <div id="bc-media-preview" style="display:none;margin-bottom:0.5rem;text-align:center;"></div>
+        </div>
         <div id="bc-result" style="display:none;margin-bottom:1rem;"></div>
         <button class="btn btn-primary btn-full" id="bc-send-btn" onclick="doBroadcast()">📩 ส่ง Broadcast</button>
     `);
     updateBroadcastCount();
+}
+
+function previewBroadcastMedia(input) {
+    const preview = document.getElementById('bc-media-preview');
+    if (!preview) return;
+    preview.style.display = 'none';
+    preview.innerHTML = '';
+    if (!input.files || !input.files[0]) return;
+    const file = input.files[0];
+    if (file.size > 20 * 1024 * 1024) {
+        preview.style.display = 'block';
+        preview.innerHTML = '<div style="color:var(--error);font-size:0.85rem;">❌ ไฟล์ใหญ่เกิน 20MB</div>';
+        input.value = '';
+        return;
+    }
+    const url = URL.createObjectURL(file);
+    preview.style.display = 'block';
+    if (file.type.startsWith('image/')) {
+        preview.innerHTML = `<img src="${url}" style="max-width:100%;max-height:200px;border-radius:8px;">`;
+    } else if (file.type.startsWith('video/')) {
+        preview.innerHTML = `<video src="${url}" controls style="max-width:100%;max-height:200px;border-radius:8px;"></video>`;
+    } else {
+        preview.innerHTML = `<div style="color:var(--text-muted);font-size:0.85rem;">📎 ${file.name}</div>`;
+    }
 }
 
 async function updateBroadcastCount() {
@@ -380,8 +409,13 @@ async function doBroadcast() {
     const message = document.getElementById('bc-message')?.value?.trim();
     if (!message) { toast('กรุณาพิมพ์ข้อความ', 'error'); return; }
     
+    const fileInput = document.getElementById('bc-media');
+    const mediaFile = fileInput?.files?.[0] || null;
+    if (mediaFile && mediaFile.size > 20 * 1024 * 1024) { toast('ไฟล์ใหญ่เกิน 20MB', 'error'); return; }
+    
     const labels = { all: 'ทุกคน', active: 'VIP Active', expired: 'Expired', trial: 'Trial' };
-    if (!confirm(`📢 ยืนยันส่ง Broadcast ไปยัง "${labels[target]}"?\n\nข้อความ:\n${message.slice(0, 200)}`)) return;
+    const mediaLabel = mediaFile ? `\n📎 แนบไฟล์: ${mediaFile.name}` : '';
+    if (!confirm(`📢 ยืนยันส่ง Broadcast ไปยัง "${labels[target]}"?${mediaLabel}\n\nข้อความ:\n${message.slice(0, 200)}`)) return;
     
     const btn = document.getElementById('bc-send-btn');
     const result = document.getElementById('bc-result');
@@ -390,10 +424,24 @@ async function doBroadcast() {
     result.style.display = 'none';
     
     try {
-        const data = await api('/customers/broadcast', {
+        const fd = new FormData();
+        fd.append('message', message);
+        fd.append('target', target);
+        fd.append('parse_mode', 'HTML');
+        if (mediaFile) fd.append('media', mediaFile);
+        
+        const resp = await fetch('/api/customers/broadcast', {
             method: 'POST',
-            body: JSON.stringify({ message, target, parse_mode: 'HTML' }),
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: fd,
         });
+        if (resp.status === 401) { logout(); throw new Error('Session expired'); }
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({ detail: 'Error' }));
+            throw new Error(err.detail || 'API Error');
+        }
+        const data = await resp.json();
+        
         result.style.display = 'block';
         result.innerHTML = `<div class="alert-box">
             <div class="alert-box-item" style="color:var(--success);">✅ ส่งสำเร็จ: ${data.sent} คน</div>
