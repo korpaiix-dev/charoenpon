@@ -28,8 +28,10 @@ from bots.sales_bot.handlers.packages import get_package_handlers
 from bots.sales_bot.handlers.payment import get_payment_handlers
 from bots.sales_bot.handlers.start import get_start_handlers
 from bots.sales_bot.handlers.support import get_support_handlers
+from bots.sales_bot.handlers.trial import get_trial_handlers
 from bots.sales_bot.comeback_dm import run_comeback_dm_job
 from bots.sales_bot.flash_sale_scheduler import start_flash_sale, end_flash_sale, remind_flash_sale
+from bots.sales_bot.trial_upsell import check_trial_upsell
 from bots.sales_bot.spam_filter import spam_filter_middleware
 
 logger = logging.getLogger(__name__)
@@ -147,6 +149,9 @@ def create_application() -> Application:
     for handler in get_start_handlers():
         app.add_handler(handler, group=0)
 
+    for handler in get_trial_handlers():
+        app.add_handler(handler, group=0)
+
     for handler in get_flash_sale_handlers():
         app.add_handler(handler, group=0)
 
@@ -201,6 +206,15 @@ def create_application() -> Application:
         run_comeback_dm_job,
         time=dt_time(hour=10, minute=0, tzinfo=TH_TZ),
         name="comeback_dm_daily_1000",
+    )
+
+    # --- Scheduler: Trial Upsell DM ทุก 30 นาที ---
+    # เช็ค trial ที่หมดอายุแล้ว 1 ชม. แล้วส่ง DM upsell VIP
+    app.job_queue.run_repeating(
+        check_trial_upsell,
+        interval=1800,  # 30 นาที
+        first=60,  # เริ่มหลัง boot 1 นาที
+        name="trial_upsell_check",
     )
 
     return app

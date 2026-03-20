@@ -517,7 +517,7 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
         # Find package by price
         async with get_session() as session:
             from shared.models import Package, PackageTier
-            tier_map = {"199": "300", "300": "300", "500": "500", "1299": "1299", "2499": "2499"}
+            tier_map = {"99": "99", "199": "300", "300": "300", "500": "500", "1299": "1299", "2499": "2499"}
             tier = tier_map.get(price)
             if not tier:
                 await query.answer(f"❌ ราคา {price} ไม่ถูกต้อง", show_alert=True)
@@ -566,12 +566,17 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
 
             # Create subscription
             now = datetime.utcnow()
+            # Trial 24 ชม.: ใช้ hours=24 แทน days=1
+            if package.tier == PackageTier.TIER_99:
+                end_date = now + timedelta(hours=24)
+            else:
+                end_date = now + timedelta(days=package.duration_days)
             subscription = Subscription(
                 user_id=db_user.id,
                 package_id=package.id,
                 status=SubscriptionStatus.ACTIVE,
                 start_date=now,
-                end_date=now + timedelta(days=package.duration_days),
+                end_date=end_date,
             )
             session.add(subscription)
             db_user.total_spent = (db_user.total_spent or Decimal("0")) + package.price

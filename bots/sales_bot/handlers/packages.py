@@ -265,6 +265,6 @@ def get_package_handlers() -> list:
     return [
         CommandHandler("packages", view_packages_command),
         CallbackQueryHandler(view_packages_callback, pattern="^view_packages$"),
-        CallbackQueryHandler(package_detail_callback, pattern=r"^pkg_(300|500|1299|2499)$"),
-        CallbackQueryHandler(buy_package_callback, pattern=r"^buy_(300|500|1299|2499)$"),
+        CallbackQueryHandler(package_detail_callback, pattern=r"^pkg_(99|300|500|1299|2499)$"),
+        CallbackQueryHandler(buy_package_callback, pattern=r"^buy_(99|300|500|1299|2499)$"),
     ]
