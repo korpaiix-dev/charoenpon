@@ -1,5 +1,5 @@
 """Customer management router."""
-from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi import APIRouter, Depends, Request, HTTPException, UploadFile, File, Form
 from ..auth.dependencies import get_current_admin, require_role
 from ..database import pool
 from ..models.schemas import ExtendRequest, UpgradeRequest, KickRequest, BanRequest, DMRequest
@@ -8,6 +8,7 @@ from ..config import SALES_BOT_TOKEN
 import json
 import asyncio
 import httpx
+import io
 from pydantic import BaseModel
 from typing import Optional
 
@@ -134,15 +135,50 @@ async def broadcast_count(target: str = "all", admin=Depends(require_role("admin
     return {"count": count}
 
 
+async def _telegram_api_file(token, method, chat_id, file_bytes, caption, file_type):
+    """Send photo/video via Telegram Bot API with file upload."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        files = {file_type: ("media", io.BytesIO(file_bytes))}
+        data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
+        resp = await client.post(
+            f"https://api.telegram.org/bot{token}/{method}",
+            data=data,
+            files=files,
+        )
+        return resp.json()
+
+
 @router.post("/broadcast")
-async def broadcast_message(req: BroadcastRequest, request: Request, admin=Depends(require_role("admin"))):
-    """Broadcast message to target group via Sales Bot DM."""
+async def broadcast_message(
+    request: Request,
+    message: str = Form(...),
+    target: str = Form("all"),
+    parse_mode: str = Form("HTML"),
+    media: UploadFile | None = File(None),
+    admin=Depends(require_role("admin")),
+):
+    """Broadcast message (with optional photo/video) to target group via Sales Bot DM."""
     if not SALES_BOT_TOKEN:
         raise HTTPException(500, "SALES_BOT_TOKEN not configured")
-    if not req.message.strip():
+    if not message.strip():
         raise HTTPException(400, "Message cannot be empty")
 
-    users = await _get_broadcast_users(req.target)
+    # Read media if provided
+    media_bytes = None
+    media_type = None  # "photo" or "video"
+    if media and media.size and media.size > 0:
+        if media.size > 20 * 1024 * 1024:
+            raise HTTPException(400, "ไฟล์ใหญ่เกิน 20MB")
+        media_bytes = await media.read()
+        ct = media.content_type or ""
+        if ct.startswith("image/"):
+            media_type = "photo"
+        elif ct.startswith("video/"):
+            media_type = "video"
+        else:
+            raise HTTPException(400, f"ไม่รองรับไฟล์ประเภท {ct} (รองรับ image/*, video/*)")
+
+    users = await _get_broadcast_users(target)
     total = len(users)
     if total == 0:
         return {"sent": 0, "failed": 0, "total": 0}
@@ -156,18 +192,30 @@ async def broadcast_message(req: BroadcastRequest, request: Request, admin=Depen
             batch = users[i:i + batch_size]
             for user in batch:
                 try:
-                    payload = {
-                        "chat_id": user["telegram_id"],
-                        "text": req.message,
-                    }
-                    if req.parse_mode:
-                        payload["parse_mode"] = req.parse_mode
-                    resp = await client.post(
-                        f"https://api.telegram.org/bot{SALES_BOT_TOKEN}/sendMessage",
-                        json=payload,
-                    )
-                    data = resp.json()
-                    if data.get("ok"):
+                    if media_type == "photo":
+                        result = await _telegram_api_file(
+                            SALES_BOT_TOKEN, "sendPhoto",
+                            user["telegram_id"], media_bytes, message, "photo",
+                        )
+                    elif media_type == "video":
+                        result = await _telegram_api_file(
+                            SALES_BOT_TOKEN, "sendVideo",
+                            user["telegram_id"], media_bytes, message, "video",
+                        )
+                    else:
+                        payload = {
+                            "chat_id": user["telegram_id"],
+                            "text": message,
+                        }
+                        if parse_mode:
+                            payload["parse_mode"] = parse_mode
+                        resp = await client.post(
+                            f"https://api.telegram.org/bot{SALES_BOT_TOKEN}/sendMessage",
+                            json=payload,
+                        )
+                        result = resp.json()
+
+                    if result.get("ok"):
                         sent += 1
                     else:
                         failed += 1
@@ -181,7 +229,11 @@ async def broadcast_message(req: BroadcastRequest, request: Request, admin=Depen
     ip = request.client.host if request.client else None
     await _log(
         admin["id"], "broadcast", "system", None,
-        {"target": req.target, "sent": sent, "failed": failed, "total": total, "message_preview": req.message[:100]},
+        {
+            "target": target, "sent": sent, "failed": failed, "total": total,
+            "message_preview": message[:100],
+            "media_type": media_type,
+        },
         ip,
     )
 
