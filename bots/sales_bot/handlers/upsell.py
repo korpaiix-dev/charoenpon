@@ -39,21 +39,31 @@ UPGRADE_TEXT = (
     '\n'
     '━━━━━━━━━━━━━━━━━━\n'
     '📩 <b>อัพเกรดเลย 👇</b>\n'
-    '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=upgrade">⚡ อัพเกรด GOD MODE ⚡</a>\n'
+    '👉 กดปุ่มด้านล่างเพื่อเลือกแพ็กเกจ GOD MODE\n'
     '━━━━━━━━━━━━━━━━━━'
 )
 
 
 async def upgrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/upgrade — แสดงแพ็กเกจ GOD MODE."""
-    if not update.effective_user or not update.message:
-        return
-
-    await update.message.reply_text(
-        UPGRADE_TEXT,
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-    )
+    """/upgrade — แสดงแพ็กเกจ GOD MODE พร้อมปุ่มเลือก."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💎 GOD MODE 90 วัน ฿1,299", callback_data="buy_1299")],
+        [InlineKeyboardButton("👑 GOD MODE ถาวร ฿2,499", callback_data="buy_2499")],
+    ])
+    
+    msg = update.message or (update.callback_query.message if update.callback_query else None)
+    if update.callback_query:
+        await update.callback_query.answer()
+    
+    if msg:
+        await msg.reply_text(
+            UPGRADE_TEXT,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=keyboard,
+        )
 
 
 async def run_upsell_dm_job(context: ContextTypes.DEFAULT_TYPE) -> None:
