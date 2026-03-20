@@ -160,24 +160,57 @@ function closeModal(e) {
     document.getElementById('modal-overlay').classList.add('hidden');
 }
 
-// ========== ALERT POLLING ==========
+// ========== ALERT POLLING + CHROME NOTIFICATION ==========
 let alertInterval;
+let lastAlertCount = { pending: -1, sos: -1 };
+
 function startAlertPolling() {
+    // Request notification permission on login
+    if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+    }
     checkAlerts();
     alertInterval = setInterval(checkAlerts, 30000);
 }
+
 async function checkAlerts() {
     try {
         const data = await api('/dashboard/alerts');
-        const count = data.pending_slips || 0;
+        const pendingCount = data.pending_slips || 0;
+        const sosCount = data.sos_count || 0;
+        const totalBadge = pendingCount + sosCount;
+
+        // Update badge
         const badge = document.getElementById('alert-badge');
         const countEl = document.getElementById('alert-count');
-        if (count > 0) {
+        if (totalBadge > 0) {
             badge.classList.remove('hidden');
-            countEl.textContent = count;
+            countEl.textContent = totalBadge;
         } else {
             badge.classList.add('hidden');
         }
+
+        // Chrome Push Notification (skip first load when counts are -1)
+        if (lastAlertCount.pending >= 0 && Notification.permission === 'granted') {
+            // สลิปรอ approve
+            if ((data.pending_payments || 0) > lastAlertCount.pending) {
+                new Notification('💰 สลิปรอ Approve', {
+                    body: `มีสลิปใหม่ ${data.pending_payments} รายการ`,
+                    icon: '/favicon.ico',
+                    tag: 'pending-payment'
+                });
+            }
+            // SOS
+            if (sosCount > lastAlertCount.sos) {
+                new Notification('🆘 SOS แจ้งปัญหา', {
+                    body: `ลูกค้าแจ้งปัญหา ${sosCount} ราย`,
+                    icon: '/favicon.ico',
+                    tag: 'sos-alert'
+                });
+            }
+        }
+
+        lastAlertCount = { pending: data.pending_payments || 0, sos: sosCount };
     } catch {}
 }
 
@@ -265,6 +298,7 @@ async function renderDashboard() {
         let alertItems = '';
         if (alerts.pending_slips > 0) alertItems += `<div class="alert-box-item">⏳ ${alerts.pending_slips} สลิปรอ approve</div>`;
         if (alerts.expiring_today > 0) alertItems += `<div class="alert-box-item">🔔 ${alerts.expiring_today} สมาชิกหมดอายุวันนี้</div>`;
+        if ((alerts.sos_count || 0) > 0) alertItems += `<div class="alert-box-item">🆘 ${alerts.sos_count} SOS แจ้งปัญหา</div>`;
         if (!alertItems) alertItems = '<div class="alert-box-item" style="color:var(--success);">✅ ไม่มี alert</div>';
 
         content.innerHTML = `
@@ -285,7 +319,11 @@ async function renderDashboard() {
             </div>
             <div class="section-title" style="margin-top:1.5rem;">🚨 Alerts</div>
             <div class="alert-box">${alertItems}</div>
+            <div id="sos-section"></div>
         `;
+        
+        // Load SOS alerts
+        loadSOSAlerts();
         
         // Revenue chart
         const chartData = await api('/dashboard/revenue-chart?days=30');
@@ -315,6 +353,61 @@ async function renderDashboard() {
         }
     } catch (err) {
         content.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${err.message}</p></div>`;
+    }
+}
+
+// ========== SOS ALERTS ==========
+async function loadSOSAlerts() {
+    const section = document.getElementById('sos-section');
+    if (!section) return;
+    try {
+        const data = await api('/dashboard/sos-alerts');
+        if (!data.length) {
+            section.innerHTML = '';
+            return;
+        }
+        let html = `<div class="section-title" style="margin-top:1.5rem;">🆘 SOS แจ้งปัญหา (${data.length})</div>`;
+        data.forEach(s => {
+            const name = s.username ? '@' + s.username : s.first_name || 'ลูกค้า';
+            html += `<div class="pending-card">
+                <div class="pending-info">
+                    <span>👤 ${name}</span>
+                    <span style="font-family:var(--font-mono);font-size:0.8rem;color:var(--text-muted);">ID: ${s.telegram_id}</span>
+                    <span style="font-size:0.85rem;">💬 ${(s.message || '').slice(0, 100)}</span>
+                    <span style="color:var(--text-muted);font-size:0.8rem;">🕒 ${fmtDateTime(s.created_at)}</span>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-primary" id="sos-btn-${s.telegram_id}" onclick="resendSOSLinks(${s.telegram_id}, this)">🔗 ส่งลิงก์ใหม่</button>
+                </div>
+            </div>`;
+        });
+        section.innerHTML = html;
+    } catch (e) {
+        section.innerHTML = '';
+    }
+}
+
+async function resendSOSLinks(telegramId, btn) {
+    if (!confirm(`ส่งลิงก์เข้ากลุ่มใหม่ให้ลูกค้า ID: ${telegramId}?`)) return;
+    btn.disabled = true;
+    btn.textContent = '⏳ กำลังส่ง...';
+    try {
+        const result = await api(`/dashboard/sos/${telegramId}/resend-links`, { method: 'POST' });
+        if (result.dm_sent) {
+            btn.textContent = '✅ ส่งสำเร็จ';
+            btn.className = 'btn btn-sm btn-success';
+            toast(`ส่งลิงก์ใหม่สำเร็จ (${result.links_count} กลุ่ม)`, 'success');
+        } else {
+            btn.textContent = '⚠️ ส่ง DM ไม่ได้';
+            btn.className = 'btn btn-sm btn-warning';
+            toast('สร้างลิงก์สำเร็จแต่ส่ง DM ไม่ได้ (ลูกค้าอาจบล็อกบอท)', 'warning');
+        }
+        // Refresh SOS list after a short delay
+        setTimeout(() => { loadSOSAlerts(); checkAlerts(); }, 2000);
+    } catch (e) {
+        btn.disabled = false;
+        btn.textContent = '🔗 ส่งลิงก์ใหม่';
+        toast(e.message, 'error');
     }
 }
 

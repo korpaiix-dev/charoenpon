@@ -57,6 +57,20 @@ async def handle_support_text(
             "📩 รับทราบค่า แพรส่งเรื่องให้แอดมินดูแล้วนะ\n"
             "รอสักครู่นะคะ ถ้านานไป ทักแอดมินได้เลย → https://t.me/zeinju_bunker"
         )
+        # Save SOS to database for dashboard
+        try:
+            import asyncpg, os as _os2
+            db_url = _os2.environ.get("DATABASE_URL", "").replace("postgresql+asyncpg://", "postgresql://")
+            if db_url:
+                _conn = await asyncpg.connect(db_url)
+                await _conn.execute(
+                    "INSERT INTO sos_alerts (telegram_id, first_name, username, message) VALUES ($1, $2, $3, $4)",
+                    user.id, user.first_name, user.username, user_text[:500]
+                )
+                await _conn.close()
+        except Exception as db_exc:
+            logger.error("SOS DB insert failed: %s", db_exc)
+
         # Send SOS to admin group
         try:
             import os, html as _html
