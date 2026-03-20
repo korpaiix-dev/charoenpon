@@ -70,7 +70,16 @@ TIER_PRICES: dict[str, Decimal] = {
 
 
 async def _get_effective_price(tier: str, context_user_data: dict) -> Decimal:
-    """Get effective price — flash sale price if active, otherwise normal."""
+    """Get effective price — comeback promo > flash sale > normal."""
+    # Check comeback promo first
+    comeback_promo = context_user_data.get("comeback_promo")
+    if comeback_promo and tier == "300":
+        from bots.sales_bot.comeback_dm import validate_promo_code
+        promo = await validate_promo_code(comeback_promo)
+        if promo:
+            return Decimal(str(promo["discounted_price"]))
+
+    # Check flash sale
     flash_sale_id = context_user_data.get("flash_sale_id")
     if flash_sale_id and tier == "300":
         from bots.sales_bot.handlers.flash_sale import get_flash_sale_price
@@ -752,9 +761,11 @@ async def handle_photo_slip(
         ] + ([{"name": "⚠️ เหตุผลที่ hold", "value": ai_suspicious or "รอแอดมินตรวจสอบ", "inline": False}]),
     )
 
-    # Clear selection
+    # Clear selection (including comeback promo data)
     context.user_data.pop("selected_tier", None)
     context.user_data.pop("selected_price", None)
+    context.user_data.pop("comeback_promo", None)
+    context.user_data.pop("comeback_discount", None)
 
 
 async def handle_truemoney_link(
@@ -1027,8 +1038,20 @@ async def handle_truemoney_link(
         except Exception as exc_s:
             logger.warning("Sheets sync failed: %s", exc_s)
 
+        # Mark comeback promo as purchased if applicable
+        comeback_promo = context.user_data.get("comeback_promo")
+        if comeback_promo:
+            try:
+                from bots.sales_bot.comeback_dm import mark_promo_purchased
+                await mark_promo_purchased(comeback_promo)
+                logger.info("Comeback promo %s marked as purchased", comeback_promo)
+            except Exception as exc_cb:
+                logger.warning("Failed to mark comeback promo: %s", exc_cb)
+
         context.user_data.pop("selected_tier", None)
         context.user_data.pop("selected_price", None)
+        context.user_data.pop("comeback_promo", None)
+        context.user_data.pop("comeback_discount", None)
 
     elif tm_result["valid"] and tm_result["amount"] is None:
         # HOLD — valid link but can't read amount

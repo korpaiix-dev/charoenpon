@@ -43,6 +43,71 @@ def _extract_source(args: list[str]) -> str | None:
     return None
 
 
+async def _handle_comeback_start(update: Update, context: ContextTypes.DEFAULT_TYPE, promo_code: str) -> bool:
+    """Handle /start comeback_{code} deep link. Returns True if handled."""
+    from bots.sales_bot.comeback_dm import validate_promo_code, mark_promo_responded, _calculate_discounted_price
+
+    promo = await validate_promo_code(promo_code)
+    if not promo:
+        await update.message.reply_text(
+            "❌ โปรโมชั่นนี้หมดอายุหรือไม่ถูกต้องแล้วค่ะ\n\n"
+            "กดดูแพ็กเกจราคาปกติได้เลยนะคะ 👇",
+            parse_mode="HTML",
+            reply_markup=MAIN_KEYBOARD,
+        )
+        return True
+
+    # Mark as responded
+    await mark_promo_responded(promo_code)
+
+    discount_pct = promo["discount_pct"]
+    discounted_price = promo["discounted_price"]
+
+    # Store promo in user context for payment
+    context.user_data["selected_tier"] = "300"
+    context.user_data["selected_price"] = str(discounted_price)
+    context.user_data["comeback_promo"] = promo_code
+    context.user_data["comeback_discount"] = discount_pct
+
+    text = (
+        f"🔥 <b>ยินดีต้อนรับกลับค่ะ!</b>\n\n"
+        f"คุณได้รับส่วนลด <b>{discount_pct}%</b> สำหรับแพ็กเกจ VIP 30 วัน\n\n"
+        f"💰 ราคาพิเศษ: <b>฿{discounted_price}</b> (จาก ฿300)\n"
+        f"⏰ ใช้ได้อีก 48 ชม. เท่านั้น\n\n"
+        f"📌 <b>วิธีชำระเงิน:</b>\n"
+        f"1️⃣ สแกน QR PromptPay ด้านล่าง หรือโอนเงิน <b>฿{discounted_price}</b>\n"
+        f"2️⃣ ส่งสลิปโอนเงิน หรือ ลิงก์ซอง TrueMoney\n"
+        f"3️⃣ รอแอดมินตรวจสอบ\n\n"
+        f"💳 <b>ช่องทางชำระ:</b>\n"
+        f"• PromptPay / โอนธนาคาร → ส่งรูปสลิป\n"
+        f"• TrueMoney Wallet → ส่งลิงก์ gift.truemoney.com\n\n"
+        f"⚠️ <b>หมายเหตุ:</b> กรุณาโอน <b>฿{discounted_price}</b> บาทเท่านั้นค่ะ"
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("📦 ดูแพ็กเกจอื่น", callback_data="view_packages")],
+            [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
+        ]
+    )
+
+    await update.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
+
+    # Send QR code
+    QR_URL = "https://img2.pic.in.th/-2026-03-15-143743.png"
+    try:
+        await context.bot.send_photo(
+            chat_id=update.message.chat_id,
+            photo=QR_URL,
+            caption=f"📱 สแกน QR PromptPay เพื่อโอน <b>฿{discounted_price}</b>\nแล้วส่งสลิปมาที่แชทนี้เลยค่ะ 🙏",
+            parse_mode="HTML",
+        )
+    except Exception as exc:
+        logger.warning("Failed to send QR for comeback: %s", exc)
+
+    return True
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/start command — register user and show main menu."""
     if not update.effective_user or not update.message:
@@ -117,6 +182,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                     )
                 except (ValueError, IndexError) as exc:
                     logger.warning("Failed to parse teaser source '%s': %s", source, exc)
+
+    # Handle comeback deep link: /start comeback_{code}
+    if source and source.startswith("comeback_"):
+        promo_code = source.replace("comeback_", "", 1)
+        handled = await _handle_comeback_start(update, context, promo_code)
+        if handled:
+            return
 
     await update.message.reply_text(
         WELCOME_TEXT,

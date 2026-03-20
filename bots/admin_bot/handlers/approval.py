@@ -686,6 +686,25 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
         except Exception as exc_s:
             logger.warning("Sheets sync failed: %s", exc_s)
 
+        # ── Mark comeback promo as purchased (if this user had one) ──
+        try:
+            from bots.sales_bot.comeback_dm import mark_promo_purchased
+            from shared.models import ComebackDmLog
+            async with get_session() as session:
+                cb_result = await session.execute(
+                    select(ComebackDmLog).where(
+                        ComebackDmLog.user_id == db_user.id,
+                        ComebackDmLog.purchased == False,  # noqa: E712
+                    ).order_by(ComebackDmLog.sent_at.desc()).limit(1)
+                )
+                cb_log = cb_result.scalar_one_or_none()
+                if cb_log:
+                    cb_log.purchased = True
+                    cb_log.responded = True
+                    logger.info("Comeback promo %s marked purchased via admin approval", cb_log.promo_code)
+        except Exception as exc_cb:
+            logger.warning("Comeback promo mark failed (non-critical): %s", exc_cb)
+
     except Exception as exc:
         logger.error("approve_by_price error: %s", exc)
         await query.answer(f"❌ Error: {str(exc)[:100]}", show_alert=True)
