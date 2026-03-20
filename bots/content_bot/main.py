@@ -19,7 +19,7 @@ from datetime import datetime, time as dt_time, timedelta, timezone
 import httpx
 from PIL import Image, ImageFilter
 from sqlalchemy import select, update
-from telegram import Bot, Update
+from telegram import Bot, InputMediaPhoto, Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from shared.database import get_session, init_db
@@ -180,6 +180,29 @@ async def fetch_latest_vip_content() -> dict | None:
     except Exception as exc:
         logger.error("fetch_latest_vip_content failed: %s", exc)
         return None
+
+
+async def fetch_multiple_content(limit: int = 5) -> list[dict]:
+    """ดึง content ที่ยังไม่ได้ใช้ หลายชิ้น สำหรับส่งเป็น album.
+
+    Returns list of dicts with keys: id, file_id, file_type
+    """
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(ContentQueue)
+                .where(ContentQueue.is_used == False)
+                .order_by(ContentQueue.created_at.asc())
+                .limit(limit)
+            )
+            rows = result.scalars().all()
+            return [
+                {"id": row.id, "file_id": row.file_id, "file_type": row.file_type}
+                for row in rows
+            ]
+    except Exception as exc:
+        logger.error("fetch_multiple_content failed: %s", exc)
+        return []
 
 
 async def mark_content_used(content_id: int) -> None:
@@ -374,6 +397,87 @@ async def post_teaser_with_image(context: ContextTypes.DEFAULT_TYPE, content_id:
     )
 
 
+async def post_teaser_album(context: ContextTypes.DEFAULT_TYPE, contents: list[dict]) -> None:
+    """โพสต์ teaser เป็น album (media group) ไปทุกกลุ่มฟรี แล้ว mark ทุก content ว่าใช้แล้ว."""
+    bot = context.bot
+    round_time = get_round_time()
+    content_ids = [c["id"] for c in contents]
+    logger.info(
+        "Starting album teaser post (round=%s, %d images, content_ids=%s)...",
+        round_time, len(contents), content_ids,
+    )
+
+    base_caption = await generate_teaser_caption()
+
+    # เบลอรูปทั้งหมดล่วงหน้า
+    blurred_items: list[tuple[int, io.BytesIO]] = []
+    for c in contents:
+        try:
+            blurred_buf = await blur_image(bot, c["file_id"])
+            blurred_items.append((c["id"], blurred_buf))
+        except Exception as exc:
+            logger.error("Failed to blur image content_id=%d: %s", c["id"], exc)
+
+    if len(blurred_items) < 2:
+        # ถ้าเบลอได้น้อยกว่า 2 รูป → fallback เป็นทีละรูป
+        if blurred_items:
+            c = contents[0]
+            await post_teaser_with_image(context, c["id"], c["file_id"])
+        else:
+            await post_teaser_to_free_groups(context)
+        return
+
+    success = 0
+    for group_index, group_id in enumerate(FREE_GROUPS):
+        full_caption = build_caption(base_caption, round_time, group_index)
+
+        # สร้าง media group ใหม่ทุกกลุ่ม (ต้อง seek(0) ทุกรอบ)
+        media_group = []
+        for i, (content_id, blurred_buf) in enumerate(blurred_items):
+            blurred_buf.seek(0)
+            caption = full_caption if i == 0 else None
+            media_group.append(InputMediaPhoto(
+                media=blurred_buf,
+                caption=caption,
+                parse_mode="HTML" if caption else None,
+            ))
+
+        try:
+            await bot.send_media_group(chat_id=group_id, media=media_group)
+            success += 1
+            await asyncio.sleep(1.5)  # ช้าลงนิดเพราะ album ใช้ bandwidth มากกว่า
+        except Exception as exc:
+            logger.error("Failed to post album to group %d: %s", group_id, exc)
+            # Fallback: ลองส่งทีละรูปสำหรับกลุ่มนี้
+            try:
+                blurred_items[0][1].seek(0)
+                await bot.send_photo(
+                    chat_id=group_id,
+                    photo=blurred_items[0][1],
+                    caption=full_caption,
+                    parse_mode="HTML",
+                )
+                success += 1
+                logger.info("Fallback single photo sent to group %d", group_id)
+            except Exception as exc2:
+                logger.error("Fallback single photo also failed for group %d: %s", group_id, exc2)
+
+    failed_count = len(FREE_GROUPS) - success
+    logger.info("Album teaser round done: %d/%d groups", success, len(FREE_GROUPS))
+
+    # Mark ทุก content ที่ใช้แล้วเป็น is_used=True
+    if success > 0:
+        for content_id, _ in blurred_items:
+            await mark_content_used(content_id)
+        logger.info("Marked %d content items as used", len(blurred_items))
+
+    await _send_discord_content_log(
+        f"🖼️ **Content Bot: Album Teaser Round Complete** [round={round_time}]\n"
+        f"📸 Album: {len(blurred_items)} images\n"
+        f"✅ Success: {success} / ❌ Failed: {failed_count} / Total: {len(FREE_GROUPS)} groups"
+    )
+
+
 async def _check_content_queue_alert() -> None:
     """แจ้งเตือนกลุ่ม Admin เมื่อรูปในคิวเหลือน้อยกว่า 5."""
     import os
@@ -406,21 +510,29 @@ async def _check_content_queue_alert() -> None:
 
 
 async def scheduled_teaser(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Scheduled job: โพสต์ teaser — ใช้รูปจาก DB ถ้ามี, ไม่งั้นโพสต์แค่ข้อความ."""
+    """Scheduled job: โพสต์ teaser — ดึง 3-5 รูปส่งเป็น album, ถ้าน้อยกว่า 3 ส่งทีละรูป."""
     logger.info("scheduled_teaser triggered")
 
-    content = await fetch_latest_vip_content()
+    # ดึง content 3-5 ชิ้นจาก queue
+    contents = await fetch_multiple_content(limit=5)
 
-    # ถ้าไม่มี content ใหม่ → ลอง recycle content เก่า (ใช้แล้ว > 7 วัน)
-    if content is None:
+    # ถ้าไม่มี content ใหม่เลย → ลอง recycle content เก่า (ใช้แล้ว > 7 วัน)
+    if not contents:
         recycled = await recycle_old_content()
         if recycled > 0:
-            content = await fetch_latest_vip_content()
+            contents = await fetch_multiple_content(limit=5)
 
-    if content:
-        logger.info("Found content in queue: id=%d, file_id=%s", content["id"], content["file_id"][:20])
-        await post_teaser_with_image(context, content["id"], content["file_id"])
+    if len(contents) >= 3:
+        # >= 3 ชิ้น → ส่งเป็น album
+        logger.info("Found %d content items → sending as album", len(contents))
+        await post_teaser_album(context, contents)
+    elif len(contents) >= 1:
+        # 1-2 ชิ้น → ส่งทีละรูปเหมือนเดิม (ใช้ชิ้นแรก)
+        c = contents[0]
+        logger.info("Found %d content items (< 3) → sending single image (id=%d)", len(contents), c["id"])
+        await post_teaser_with_image(context, c["id"], c["file_id"])
     else:
+        # ไม่มีเลย → text-only
         logger.info("No content in queue (even after recycle), posting text-only teaser")
         await post_teaser_to_free_groups(context)
 
