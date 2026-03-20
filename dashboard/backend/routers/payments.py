@@ -64,13 +64,28 @@ async def list_payments(
 
 @router.get("/pending")
 async def pending_payments(admin=Depends(get_current_admin)):
+    """Get pending payments from last 24 hours only."""
     rows = await pool.fetch("""
         SELECT p.*, u.username, u.first_name, u.telegram_id, pk.name as package_name
         FROM payments p
         JOIN users u ON p.user_id = u.id
         JOIN packages pk ON p.package_id = pk.id
-        WHERE p.status = 'PENDING'
+        WHERE p.status = 'PENDING' AND p.created_at >= NOW() - interval '24 hours'
         ORDER BY p.created_at ASC
+    """)
+    return [dict(r) for r in rows]
+
+@router.get("/pending-expired")
+async def pending_expired_payments(admin=Depends(get_current_admin)):
+    """Get PENDING payments older than 24 hours (expired/stale)."""
+    rows = await pool.fetch("""
+        SELECT p.*, u.username, u.first_name, u.telegram_id, pk.name as package_name
+        FROM payments p
+        JOIN users u ON p.user_id = u.id
+        JOIN packages pk ON p.package_id = pk.id
+        WHERE p.status = 'PENDING' AND p.created_at < NOW() - interval '24 hours'
+        ORDER BY p.created_at DESC
+        LIMIT 100
     """)
     return [dict(r) for r in rows]
 

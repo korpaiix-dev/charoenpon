@@ -301,7 +301,44 @@ tr:nth-child(even):hover td { background: rgba(0, 212, 255, 0.05); }
 @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
 /* ========== CHART ========== */
-.chart-container { position: relative; height: 300px; margin: 1rem 0; }
+.chart-container { position: relative; height: 250px; max-height: 250px; margin: 1rem 0; }
+
+/* ========== UPLOAD DROP ZONE ========== */
+.upload-zone {
+    border: 2px dashed var(--border); border-radius: var(--radius);
+    padding: 2rem; text-align: center; color: var(--text-muted);
+    transition: all 0.3s; cursor: pointer; margin-bottom: 1rem;
+    background: var(--surface-2);
+}
+.upload-zone:hover, .upload-zone.dragover {
+    border-color: var(--primary); color: var(--primary);
+    background: rgba(0, 212, 255, 0.05);
+}
+.upload-zone .icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
+.upload-zone p { font-size: 0.9rem; }
+.upload-zone .hint { font-size: 0.75rem; color: var(--text-dim); margin-top: 0.5rem; }
+
+/* ========== GROUP CATEGORY TABS ========== */
+.category-section { margin-bottom: 2rem; }
+.category-header {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);
+}
+.category-count {
+    background: var(--surface-2); padding: 0.15rem 0.5rem;
+    border-radius: 10px; font-size: 0.75rem; color: var(--text-muted);
+}
+
+/* ========== DM DESCRIPTION ========== */
+.dm-description {
+    font-size: 0.8rem; color: var(--text-muted);
+    margin-top: 0.25rem; font-style: italic;
+}
+.dm-stats-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem; margin: 1rem 0;
+}
 
 /* ========== SECTION ========== */
 .section-title {

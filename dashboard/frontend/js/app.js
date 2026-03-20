@@ -8,7 +8,7 @@ let admin = JSON.parse(localStorage.getItem('admin') || 'null');
 let currentPage = 'dashboard';
 let charts = {};
 
-const ROLE_LEVELS = { owner: 100, admin: 50, moderator: 10 };
+const ROLE_LEVELS = { owner: 100, super_admin: 75, admin: 50, moderator: 10 };
 
 const NAV_ITEMS = [
     { id: 'dashboard', icon: '📊', label: 'ภาพรวม', minRole: 'moderator' },
@@ -92,8 +92,8 @@ function renderSidebar() {
         </div>`).join('');
     
     document.getElementById('sidebar-user-name').textContent = admin.display_name;
-    document.getElementById('sidebar-user-role').textContent = 
-        admin.role === 'owner' ? '👑 Owner' : admin.role === 'admin' ? '🛡️ Admin' : '📋 Moderator';
+    const roleLabels = { owner: '👑 Owner', super_admin: '⚡ Super Admin', admin: '🛡️ Admin', moderator: '📋 Moderator' };
+    document.getElementById('sidebar-user-role').textContent = roleLabels[admin.role] || admin.role;
 }
 
 function toggleSidebar() {
@@ -485,6 +485,7 @@ async function renderFinance() {
     
     content.innerHTML = `${summaryHtml}
         <div id="pending-slips"></div>
+        <div id="expired-pending"></div>
         <div class="filters">
             <button class="filter-btn ${financeFilter==='all'?'active':''}" onclick="financeFilter='all';financePage=1;loadPayments()">All</button>
             <button class="filter-btn ${financeFilter==='PENDING'?'active':''}" onclick="financeFilter='PENDING';financePage=1;loadPayments()">Pending</button>
@@ -497,6 +498,7 @@ async function renderFinance() {
     `;
     
     loadPendingSlips();
+    loadExpiredPending();
     loadPayments();
     if (hasRole('admin')) loadFinanceCharts();
 }
@@ -521,6 +523,31 @@ async function loadPendingSlips() {
             </div>`;
         });
         document.getElementById('pending-slips').innerHTML = html;
+    } catch {}
+}
+
+async function loadExpiredPending() {
+    try {
+        const expired = await api('/payments/pending-expired');
+        const el = document.getElementById('expired-pending');
+        if (!expired.length) { el.innerHTML = ''; return; }
+        let html = `<details style="margin-bottom:1rem;"><summary style="cursor:pointer;color:var(--text-muted);font-size:0.9rem;">⏰ PENDING หมดอายุ (${expired.length} รายการ เก่ากว่า 24 ชม.)</summary>`;
+        html += '<div style="margin-top:0.5rem;">';
+        expired.forEach(p => {
+            html += `<div class="pending-card" style="border-color:var(--text-dim);opacity:0.7;">
+                <div class="pending-info">
+                    <span>👤 ${p.username ? '@'+p.username : p.first_name || p.telegram_id}</span>
+                    <span style="font-weight:600;">${fmtBaht(p.amount)}</span>
+                    <span style="color:var(--text-dim);font-size:0.8rem;">${fmtDateTime(p.created_at)}</span>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-success" onclick="approvePayment(${p.id})">✅</button>
+                    <button class="btn btn-sm btn-danger" onclick="rejectPayment(${p.id})">❌</button>
+                </div>
+            </div>`;
+        });
+        html += '</div></details>';
+        el.innerHTML = html;
     } catch {}
 }
 
@@ -781,8 +808,22 @@ async function renderContent() {
 async function loadContentQueue() {
     try {
         const data = await api('/content/queue');
-        let html = `<div class="section-title">📦 Content Queue (${data.length} รูปรอโพสต์)</div>`;
-        if (!data.length) { document.getElementById('content-area').innerHTML = html + '<div class="empty-state"><div class="icon">📸</div><p>Queue ว่าง</p></div>'; return; }
+        let html = '';
+        
+        // Upload zone (admin+)
+        if (hasRole('admin')) {
+            html += `
+            <div class="upload-zone" id="upload-zone" onclick="document.getElementById('upload-input').click()">
+                <div class="icon">📸</div>
+                <p>คลิกเพื่ออัพโหลดรูป หรือลากไฟล์มาวางที่นี่</p>
+                <div class="hint">รองรับ: JPG, PNG, GIF, WEBP, MP4 (สูงสุด 20MB)</div>
+                <input type="file" id="upload-input" accept="image/*,video/mp4" multiple style="display:none" onchange="handleContentUpload(this.files)">
+            </div>
+            <div id="upload-progress" style="margin-bottom:1rem;"></div>`;
+        }
+        
+        html += `<div class="section-title">📦 Content Queue (${data.length} รูปรอโพสต์)</div>`;
+        if (!data.length) { document.getElementById('content-area').innerHTML = html + '<div class="empty-state"><div class="icon">📸</div><p>Queue ว่าง</p></div>'; setupDropZone(); return; }
         html += '<div class="table-wrap"><table><thead><tr><th>#</th><th>Type</th><th>File ID</th><th>วันที่</th><th></th></tr></thead><tbody>';
         data.forEach((c, i) => {
             html += `<tr><td>${i+1}</td><td>${c.file_type}</td><td style="font-family:var(--font-mono);font-size:0.75rem;">${(c.file_id || '').slice(0,30)}...</td><td>${fmtDateTime(c.created_at)}</td>
@@ -790,7 +831,43 @@ async function loadContentQueue() {
         });
         html += '</tbody></table></div>';
         document.getElementById('content-area').innerHTML = html;
+        setupDropZone();
     } catch (e) { toast(e.message, 'error'); }
+}
+
+function setupDropZone() {
+    const zone = document.getElementById('upload-zone');
+    if (!zone) return;
+    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+    zone.addEventListener('drop', (e) => {
+        e.preventDefault(); zone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) handleContentUpload(e.dataTransfer.files);
+    });
+}
+
+async function handleContentUpload(files) {
+    const progress = document.getElementById('upload-progress');
+    if (!progress) return;
+    let successCount = 0;
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        progress.innerHTML = `<div style="color:var(--primary);font-size:0.85rem;">⏳ กำลังอัพโหลด ${file.name} (${i+1}/${files.length})...</div>`;
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const headers = {};
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+            const resp = await fetch('/api/content/upload', { method: 'POST', headers, body: formData });
+            if (!resp.ok) { const err = await resp.json().catch(() => ({})); throw new Error(err.detail || 'Upload failed'); }
+            successCount++;
+        } catch (e) { toast(`❌ ${file.name}: ${e.message}`, 'error'); }
+    }
+    progress.innerHTML = '';
+    if (successCount > 0) {
+        toast(`✅ อัพโหลดสำเร็จ ${successCount} ไฟล์`, 'success');
+        loadContentQueue();
+    }
 }
 
 async function deleteQueueItem(id) {
@@ -828,22 +905,33 @@ async function loadContentStats() {
 async function renderGroups() {
     const content = document.getElementById('page-content');
     try {
-        const data = await api('/groups');
-        let html = '<div class="table-wrap"><table><thead><tr><th>Slug</th><th>ชื่อกลุ่ม</th><th>Chat ID</th><th>Tier</th><th>สถานะ</th><th></th></tr></thead><tbody>';
-        data.forEach(g => {
-            html += `<tr>
-                <td style="font-family:var(--font-mono);color:var(--primary);">${g.slug}</td>
-                <td>${g.title}</td>
-                <td style="font-family:var(--font-mono);font-size:0.8rem;">${g.chat_id}</td>
-                <td>${g.min_tier}</td>
-                <td>${g.is_active ? '<span style="color:var(--success)">Active</span>' : 'Off'}</td>
-                <td><div class="btn-group">
-                    <button class="btn btn-sm btn-outline" onclick="showGroupDetail(${g.id})">📋</button>
-                    <button class="btn btn-sm btn-primary" onclick="genInviteLink(${g.id})">🔗</button>
-                </div></td></tr>`;
-        });
-        html += '</tbody></table></div>';
-        content.innerHTML = data.length ? html : '<div class="empty-state"><div class="icon">📱</div><p>ไม่มีกลุ่ม</p></div>';
+        const data = await api('/groups/categorized');
+        
+        function groupTable(groups, emoji, title) {
+            if (!groups.length) return `<div class="category-section"><div class="category-header">${emoji} ${title} <span class="category-count">0</span></div><div class="empty-state" style="padding:1rem;">ไม่มีกลุ่ม</div></div>`;
+            let html = `<div class="category-section"><div class="category-header">${emoji} ${title} <span class="category-count">${groups.length}</span></div>`;
+            html += '<div class="table-wrap"><table><thead><tr><th>Slug</th><th>ชื่อกลุ่ม</th><th>Chat ID</th><th>Tier</th><th>สถานะ</th><th></th></tr></thead><tbody>';
+            groups.forEach(g => {
+                html += `<tr>
+                    <td style="font-family:var(--font-mono);color:var(--primary);">${g.slug}</td>
+                    <td>${g.title}</td>
+                    <td style="font-family:var(--font-mono);font-size:0.8rem;">${g.chat_id}</td>
+                    <td>${g.min_tier}</td>
+                    <td>${g.is_active ? '<span style="color:var(--success)">Active</span>' : 'Off'}</td>
+                    <td><div class="btn-group">
+                        <button class="btn btn-sm btn-outline" onclick="showGroupDetail(${g.id})">📋</button>
+                        <button class="btn btn-sm btn-primary" onclick="genInviteLink(${g.id})">🔗</button>
+                    </div></td></tr>`;
+            });
+            html += '</tbody></table></div></div>';
+            return html;
+        }
+        
+        content.innerHTML = 
+            groupTable(data.vip, '👑', 'กลุ่ม VIP') +
+            groupTable(data.free, '🆓', 'กลุ่มฟรี') +
+            groupTable(data.chat, '💬', 'กลุ่มพูดคุย');
+        
     } catch (e) { content.innerHTML = `<div class="empty-state">${e.message}</div>`; }
 }
 
@@ -875,17 +963,30 @@ async function renderTeam() {
     try {
         const data = await api('/team');
         let html = '';
-        if (hasRole('owner')) html += `<button class="btn btn-primary" onclick="showAddTeamForm()" style="margin-bottom:1rem;">+ เพิ่มทีมงาน</button>`;
+        if (hasRole('owner') || hasRole('super_admin')) html += `<button class="btn btn-primary" onclick="showAddTeamForm()" style="margin-bottom:1rem;">+ เพิ่มทีมงาน</button>`;
+        
+        // Role hierarchy info
+        html += `<div class="alert-box" style="margin-bottom:1rem;font-size:0.8rem;">
+            <div class="alert-box-item">👑 <b>Owner (100)</b> — ทำได้ทุกอย่าง</div>
+            <div class="alert-box-item">⚡ <b>Super Admin (75)</b> — ทุกอย่างยกเว้น จัดการ Owner + แก้ bot tokens</div>
+            <div class="alert-box-item">🛡️ <b>Admin (50)</b> — อนุมัติ + จัดการลูกค้า + โปรโมชั่น</div>
+            <div class="alert-box-item">📋 <b>Moderator (10)</b> — ดู + อนุมัติสลิป</div>
+        </div>`;
+        
         html += '<div class="table-wrap"><table><thead><tr><th>ชื่อ</th><th>Telegram ID</th><th>ยศ</th><th>สถานะ</th><th>Login ล่าสุด</th><th></th></tr></thead><tbody>';
         data.forEach(m => {
-            const roleIcon = m.role === 'owner' ? '👑' : m.role === 'admin' ? '🛡️' : '📋';
+            const roleIcons = { owner: '👑', super_admin: '⚡', admin: '🛡️', moderator: '📋' };
+            const roleIcon = roleIcons[m.role] || '📋';
+            const myLevel = ROLE_LEVELS[admin.role] || 0;
+            const theirLevel = ROLE_LEVELS[m.role] || 0;
+            const canEdit = myLevel > theirLevel && m.role !== 'owner';
             html += `<tr>
                 <td>${m.display_name}</td>
                 <td style="font-family:var(--font-mono);">${m.telegram_id}</td>
                 <td>${roleIcon} ${m.role}</td>
                 <td>${m.is_active ? '<span style="color:var(--success)">🟢</span>' : '<span style="color:var(--error)">🔴</span>'}</td>
                 <td>${fmtDateTime(m.last_login_at)}</td>
-                <td>${hasRole('owner') && m.role !== 'owner' ? `<div class="btn-group"><button class="btn btn-sm btn-outline" onclick="showEditTeam(${m.id},'${m.display_name}','${m.role}',${m.is_active})">✏️</button><button class="btn btn-sm btn-outline" onclick="showTeamActivity(${m.id})">📋</button></div>` : (m.role !== 'owner' ? `<button class="btn btn-sm btn-outline" onclick="showTeamActivity(${m.id})">📋</button>` : '')}</td>
+                <td>${canEdit ? `<div class="btn-group"><button class="btn btn-sm btn-outline" onclick="showEditTeam(${m.id},'${m.display_name}','${m.role}',${m.is_active})">✏️</button><button class="btn btn-sm btn-outline" onclick="showTeamActivity(${m.id})">📋</button></div>` : (m.role !== 'owner' ? `<button class="btn btn-sm btn-outline" onclick="showTeamActivity(${m.id})">📋</button>` : '')}</td>
             </tr>`;
         });
         html += '</tbody></table></div>';
@@ -894,11 +995,14 @@ async function renderTeam() {
 }
 
 function showAddTeamForm() {
+    const roleOptions = hasRole('owner') 
+        ? '<option value="moderator">📋 Moderator</option><option value="admin">🛡️ Admin</option><option value="super_admin">⚡ Super Admin</option><option value="owner">👑 Owner</option>'
+        : '<option value="moderator">📋 Moderator</option><option value="admin">🛡️ Admin</option>';
     openModal('+ เพิ่มทีมงาน', `
         <div class="form-group"><label>Telegram ID</label><input id="tm-tid" type="number"></div>
         <div class="form-group"><label>ชื่อ</label><input id="tm-name"></div>
         <div class="form-group"><label>รหัสผ่าน</label><input id="tm-pwd" type="password"></div>
-        <div class="form-group"><label>ยศ</label><select id="tm-role"><option value="moderator">Moderator</option><option value="admin">Admin</option><option value="owner">Owner</option></select></div>
+        <div class="form-group"><label>ยศ</label><select id="tm-role">${roleOptions}</select></div>
         <button class="btn btn-primary btn-full" onclick="addTeamMember()">💾 เพิ่ม</button>
     `);
 }
@@ -916,8 +1020,10 @@ async function addTeamMember() {
 }
 
 function showEditTeam(id, name, role, isActive) {
+    let roleOpts = `<option value="moderator" ${role==='moderator'?'selected':''}>📋 Moderator</option><option value="admin" ${role==='admin'?'selected':''}>🛡️ Admin</option>`;
+    if (hasRole('owner')) roleOpts += `<option value="super_admin" ${role==='super_admin'?'selected':''}>⚡ Super Admin</option>`;
     openModal('✏️ แก้ไข ' + name, `
-        <div class="form-group"><label>ยศ</label><select id="et-role"><option value="moderator" ${role==='moderator'?'selected':''}>Moderator</option><option value="admin" ${role==='admin'?'selected':''}>Admin</option></select></div>
+        <div class="form-group"><label>ยศ</label><select id="et-role">${roleOpts}</select></div>
         <div class="form-group"><label>สถานะ</label><select id="et-active"><option value="true" ${isActive?'selected':''}>Active</option><option value="false" ${!isActive?'selected':''}>Inactive</option></select></div>
         <div class="btn-group">
             <button class="btn btn-primary" onclick="updateTeam(${id})">💾 บันทึก</button>
@@ -975,6 +1081,7 @@ async function renderSettings() {
         <div class="tabs">
             <div class="tab ${settingsTab==='packages'?'active':''}" onclick="settingsTab='packages';renderSettings()">📦 แพ็กเกจ</div>
             ${hasRole('owner') ? `<div class="tab ${settingsTab==='bots'?'active':''}" onclick="settingsTab='bots';renderSettings()">🤖 Bots</div>` : ''}
+            ${hasRole('super_admin') && !hasRole('owner') ? `<div class="tab ${settingsTab==='bots'?'active':''}" onclick="settingsTab='bots';renderSettings()">🤖 Bots (ดูอย่างเดียว)</div>` : ''}
             <div class="tab ${settingsTab==='dm'?'active':''}" onclick="settingsTab='dm';renderSettings()">📩 DM</div>
         </div>
         <div id="settings-area"><div class="loading"><div class="spinner"></div></div></div>
@@ -1049,25 +1156,118 @@ async function updatePkg(id) {
 async function loadBotSettings() {
     try {
         const data = await api('/settings/bots');
+        const botNames = { sales: '🛒 Sales Bot', guardian: '🛡️ Guardian Bot', admin: '⚙️ Admin Bot', content: '📸 Content Bot', announce: '📢 Announce Bot' };
         let html = '<div class="section-title">🤖 Bot Tokens</div>';
-        Object.entries(data).forEach(([name, token]) => {
-            html += `<div class="detail-row"><span class="detail-label">${name}</span><span class="detail-value" style="font-family:var(--font-mono);">${token}</span></div>`;
+        Object.entries(data).forEach(([name, maskedToken]) => {
+            html += `<div class="detail-row" id="bot-row-${name}">
+                <span class="detail-label">${botNames[name] || name}</span>
+                <span class="detail-value" style="display:flex;align-items:center;gap:0.5rem;">
+                    <span id="bot-display-${name}" style="font-family:var(--font-mono);">${maskedToken}</span>
+                    <input type="text" id="bot-input-${name}" placeholder="ใส่ token ใหม่..." style="display:none;width:320px;padding:0.4rem 0.6rem;font-size:0.8rem;">
+                    <button class="btn btn-sm btn-outline" id="bot-edit-${name}" onclick="startEditToken('${name}')">✏️ แก้ไข</button>
+                    <button class="btn btn-sm btn-success" id="bot-save-${name}" style="display:none;" onclick="saveToken('${name}')">💾 บันทึก</button>
+                    <button class="btn btn-sm btn-outline" id="bot-cancel-${name}" style="display:none;" onclick="cancelEditToken('${name}')">✕</button>
+                </span>
+            </div>`;
         });
+        html += '<div style="margin-top:1rem;font-size:0.8rem;color:var(--text-dim);">⚠️ หลังแก้ token ต้อง restart bot container เพื่อให้มีผล</div>';
         document.getElementById('settings-area').innerHTML = `<div class="detail-panel">${html}</div>`;
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+function startEditToken(name) {
+    document.getElementById(`bot-display-${name}`).style.display = 'none';
+    document.getElementById(`bot-edit-${name}`).style.display = 'none';
+    document.getElementById(`bot-input-${name}`).style.display = '';
+    document.getElementById(`bot-save-${name}`).style.display = '';
+    document.getElementById(`bot-cancel-${name}`).style.display = '';
+    document.getElementById(`bot-input-${name}`).focus();
+}
+
+function cancelEditToken(name) {
+    document.getElementById(`bot-display-${name}`).style.display = '';
+    document.getElementById(`bot-edit-${name}`).style.display = '';
+    document.getElementById(`bot-input-${name}`).style.display = 'none';
+    document.getElementById(`bot-save-${name}`).style.display = 'none';
+    document.getElementById(`bot-cancel-${name}`).style.display = 'none';
+    document.getElementById(`bot-input-${name}`).value = '';
+}
+
+async function saveToken(name) {
+    const newToken = document.getElementById(`bot-input-${name}`).value.trim();
+    if (!newToken || !newToken.includes(':')) { toast('Token ไม่ถูกต้อง (ต้องมี :)', 'error'); return; }
+    try {
+        await api('/settings/bot-token', { method: 'PUT', body: JSON.stringify({ name, token: newToken }) });
+        toast(`✅ อัพเดต ${name} token สำเร็จ`, 'success');
+        loadBotSettings();
     } catch (e) { toast(e.message, 'error'); }
 }
 
 async function loadDMSettings() {
     try {
         const data = await api('/settings/dm');
+        
+        // Try to get DM stats
+        let dmStats = { comeback_sent: 0, comeback_respond: 0, comeback_convert: 0, trial_sent: 0, trial_click: 0, trial_convert: 0 };
+        try { dmStats = await api('/dashboard/dm-stats'); } catch {}
+        
         document.getElementById('settings-area').innerHTML = `
-            <div class="detail-panel">
+            <div class="section-title">📊 สถิติ DM วันนี้</div>
+            <div class="dm-stats-grid">
+                <div class="mini-card"><div class="mini-card-label">Comeback ส่ง</div><div class="mini-card-value" style="color:var(--primary);">${dmStats.comeback_sent || 0}</div></div>
+                <div class="mini-card"><div class="mini-card-label">Comeback ตอบ</div><div class="mini-card-value" style="color:var(--success);">${dmStats.comeback_respond || 0}</div></div>
+                <div class="mini-card"><div class="mini-card-label">Comeback สมัคร</div><div class="mini-card-value" style="color:var(--warning);">${dmStats.comeback_convert || 0}</div></div>
+                <div class="mini-card"><div class="mini-card-label">Trial ส่ง</div><div class="mini-card-value" style="color:var(--primary);">${dmStats.trial_sent || 0}</div></div>
+                <div class="mini-card"><div class="mini-card-label">Trial คลิก</div><div class="mini-card-value" style="color:var(--success);">${dmStats.trial_click || 0}</div></div>
+                <div class="mini-card"><div class="mini-card-label">Trial สมัคร</div><div class="mini-card-value" style="color:var(--warning);">${dmStats.trial_convert || 0}</div></div>
+            </div>
+            
+            <div class="detail-panel" style="margin-top:1rem;">
                 <div class="section-title">📩 DM Settings</div>
-                <div class="detail-row"><span class="detail-label">COMEBACK DM / วัน</span><span class="detail-value">${data.comeback_per_day}</span></div>
-                <div class="detail-row"><span class="detail-label">Delay (วินาที)</span><span class="detail-value">${data.comeback_delay}</span></div>
-                <div class="detail-row"><span class="detail-label">Trial DM / วัน</span><span class="detail-value">${data.trial_per_day}</span></div>
-                <div class="detail-row"><span class="detail-label">Delay (วินาที)</span><span class="detail-value">${data.trial_delay}</span></div>
-            </div>`;
+                
+                <div class="detail-row">
+                    <div>
+                        <span class="detail-label">COMEBACK DM / วัน</span>
+                        <div class="dm-description">ส่ง DM ให้ลูกค้าที่หมดอายุ > 3 วัน พร้อมส่วนลดชวนกลับมา</div>
+                    </div>
+                    <span class="detail-value">${data.comeback_per_day}</span>
+                </div>
+                <div class="detail-row">
+                    <div>
+                        <span class="detail-label">Comeback Delay (วินาที)</span>
+                        <div class="dm-description">หน่วงเวลาระหว่างแต่ละ DM (วินาที) กัน Telegram ban</div>
+                    </div>
+                    <span class="detail-value">${data.comeback_delay}s</span>
+                </div>
+                <div class="detail-row">
+                    <div>
+                        <span class="detail-label">Trial DM / วัน</span>
+                        <div class="dm-description">ส่ง DM ให้คนที่ไม่เคยจ่ายเงิน ชวนทดลอง Trial ฿99/24ชม.</div>
+                    </div>
+                    <span class="detail-value">${data.trial_per_day}</span>
+                </div>
+                <div class="detail-row">
+                    <div>
+                        <span class="detail-label">Trial Delay (วินาที)</span>
+                        <div class="dm-description">หน่วงเวลาระหว่างแต่ละ DM (วินาที) กัน Telegram ban</div>
+                    </div>
+                    <span class="detail-value">${data.trial_delay}s</span>
+                </div>
+            </div>
+            
+            <div class="btn-group" style="margin-top:1rem;">
+                <button class="btn btn-primary" onclick="testDM('comeback')">▶️ ทดสอบส่ง Comeback 1 คน</button>
+                <button class="btn btn-primary" onclick="testDM('trial')">▶️ ทดสอบส่ง Trial 1 คน</button>
+            </div>
+        `;
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+async function testDM(type) {
+    if (!confirm(\`ทดสอบส่ง \${type} DM ให้ 1 คน?\`)) return;
+    try {
+        const result = await api(\`/marketing/test-dm?type=\${type}\`, { method: 'POST' });
+        toast(\`✅ ส่ง \${type} DM ทดสอบสำเร็จ: \${result.message || 'sent'}\`, 'success');
     } catch (e) { toast(e.message, 'error'); }
 }
 

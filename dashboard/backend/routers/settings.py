@@ -4,6 +4,7 @@ from ..auth.dependencies import require_role
 from ..database import pool
 from ..models.schemas import PackageCreate, PackageUpdate
 import json
+import os
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -76,6 +77,59 @@ async def get_bots(admin=Depends(require_role("owner"))):
         else:
             masked[name] = "not set"
     return masked
+
+@router.put("/bot-token")
+async def update_bot_token(request: Request, admin=Depends(require_role("owner"))):
+    """Update a bot token in .env file. Owner only."""
+    body = await request.json()
+    bot_name = body.get("name", "")
+    new_token = body.get("token", "").strip()
+    
+    valid_names = {
+        "sales": "SALES_BOT_TOKEN",
+        "guardian": "GUARDIAN_BOT_TOKEN",
+        "admin": "ADMIN_BOT_TOKEN",
+        "content": "CONTENT_BOT_TOKEN",
+        "announce": "ANNOUNCE_BOT_TOKEN",
+    }
+    
+    if bot_name not in valid_names:
+        raise HTTPException(400, f"Invalid bot name: {bot_name}")
+    if not new_token or ":" not in new_token:
+        raise HTTPException(400, "Invalid token format")
+    
+    env_key = valid_names[bot_name]
+    
+    # Update .env file
+    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), ".env")
+    if not os.path.isfile(env_path):
+        raise HTTPException(500, ".env file not found")
+    
+    with open(env_path, "r") as f:
+        lines = f.readlines()
+    
+    found = False
+    new_lines = []
+    for line in lines:
+        if line.strip().startswith(f"{env_key}="):
+            new_lines.append(f"{env_key}={new_token}\n")
+            found = True
+        else:
+            new_lines.append(line)
+    
+    if not found:
+        new_lines.append(f"{env_key}={new_token}\n")
+    
+    with open(env_path, "w") as f:
+        f.writelines(new_lines)
+    
+    # Also update os.environ for current process
+    os.environ[env_key] = new_token
+    
+    ip = request.client.host if request.client else None
+    await _log(admin["id"], "update_bot_token", "settings", None, {"bot": bot_name}, ip)
+    
+    return {"ok": True, "message": f"Updated {bot_name} token. Restart bots to apply."}
 
 @router.get("/admin-ids")
 async def get_admin_ids(admin=Depends(require_role("owner"))):
