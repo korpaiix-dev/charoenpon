@@ -462,6 +462,7 @@ async def handle_photo_slip(
         return
 
     await update.message.reply_text("🔍 กำลังตรวจสอบสลิปค่ะ กรุณารอสักครู่...")
+    logger.info("Slip received from user %s, selected_tier=%s", user.id, selected_tier)
 
     # Get the largest photo
     photo = update.message.photo[-1]
@@ -626,6 +627,7 @@ async def handle_photo_slip(
         await session.flush()
         payment_id = payment.id
         user_db_id = db_user.id
+        logger.info("Payment created: id=%s user=%s amount=%s", payment_id, user.id, expected_price)
 
     # Decision — ALL slips go to admin for manual review
     # AI info is stored for admin reference
@@ -720,8 +722,9 @@ async def handle_photo_slip(
             parse_mode="HTML",
             reply_markup=keyboard,
         )
+        logger.info("Admin notification sent to group %s for payment %s", ADMIN_GROUP_ID, payment_id)
     except Exception as exc:
-        logger.error("Failed to send slip to admin group: %s", exc)
+        logger.error("CRITICAL: Failed to notify admin for payment %s: %s", payment_id, exc)
 
     await log_admin_action(
         admin_id=0,
