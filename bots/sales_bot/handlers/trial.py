@@ -3,7 +3,7 @@
 ระบบทดลอง VIP 24 ชม. ฿99
 - /trial command หรือ /start trial → เช็คสิทธิ์ + แสดงข้อมูล
 - จำกัด 1 ครั้ง / 30 วัน ต่อคน
-- deep link: tg://resolve?domain=jarernAD1_bot&start=trial
+- deep link: tg://resolve?domain=NamwarnJarern_bot&start=trial
 """
 
 from __future__ import annotations

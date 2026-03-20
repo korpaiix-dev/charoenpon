@@ -152,7 +152,7 @@ async def invite_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not await _is_vip_active(tg_user.id):
         await update.message.reply_text(
             "❌ สมัคร VIP ก่อนถึงจะชวนเพื่อนได้ค่ะ\n\n"
-            '👉 <a href="tg://resolve?domain=jarernAD1_bot&start=packages">📦 ดูแพ็กเกจ VIP เจริญพร</a>',
+            '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=packages">📦 ดูแพ็กเกจ VIP เจริญพร</a>',
             parse_mode="HTML",
         )
         return
@@ -187,8 +187,8 @@ async def invite_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "ชวน 1 คน = ได้ VIP ฟรี 7 วัน\n"
         "ชวน 5 คน = ได้ VIP ฟรี 30 วัน!\n\n"
         "ลิงก์ชวนเพื่อนของคุณ:\n"
-        f'👉 <a href="https://t.me/jarernAD1_bot?start=ref_{code}">🔗 กดส่งลิงก์ให้เพื่อน</a>\n\n'
-        f"หรือคัดลอก: <code>https://t.me/jarernAD1_bot?start=ref_{code}</code>\n\n"
+        f'👉 <a href="https://t.me/NamwarnJarern_bot?start=ref_{code}">🔗 กดส่งลิงก์ให้เพื่อน</a>\n\n'
+        f"หรือคัดลอก: <code>https://t.me/NamwarnJarern_bot?start=ref_{code}</code>\n\n"
         "📊 <b>สถิติของคุณ:</b>\n"
         f"ชวนสำเร็จ: {completed} คน | ได้ฟรี: {stats['total_reward_days']} วัน\n"
     )
@@ -303,7 +303,7 @@ async def _get_invite_link_callback(update: Update, context: ContextTypes.DEFAUL
     if not await _is_vip_active(tg_user.id):
         await query.edit_message_text(
             "❌ สมัคร VIP ก่อนถึงจะชวนเพื่อนได้ค่ะ\n\n"
-            '👉 <a href="tg://resolve?domain=jarernAD1_bot&start=packages">📦 ดูแพ็กเกจ VIP เจริญพร</a>',
+            '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=packages">📦 ดูแพ็กเกจ VIP เจริญพร</a>',
             parse_mode="HTML",
         )
         return
@@ -329,8 +329,8 @@ async def _get_invite_link_callback(update: Update, context: ContextTypes.DEFAUL
         "ชวน 1 คน = ได้ VIP ฟรี 7 วัน\n"
         "ชวน 5 คน = ได้ VIP ฟรี 30 วัน!\n\n"
         "ลิงก์ชวนเพื่อนของคุณ:\n"
-        f'👉 <a href="https://t.me/jarernAD1_bot?start=ref_{code}">🔗 กดส่งลิงก์ให้เพื่อน</a>\n\n'
-        f"หรือคัดลอก: <code>https://t.me/jarernAD1_bot?start=ref_{code}</code>\n\n"
+        f'👉 <a href="https://t.me/NamwarnJarern_bot?start=ref_{code}">🔗 กดส่งลิงก์ให้เพื่อน</a>\n\n'
+        f"หรือคัดลอก: <code>https://t.me/NamwarnJarern_bot?start=ref_{code}</code>\n\n"
         "📊 <b>สถิติของคุณ:</b>\n"
         f"ชวนสำเร็จ: {completed} คน | ได้ฟรี: {stats['total_reward_days']} วัน\n\n"
         f"{next_reward_text}"

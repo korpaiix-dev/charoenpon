@@ -70,7 +70,7 @@ DM_TEXT = (
     "🎯 ชวน 5 คน = +30 วัน VIP ฟรี!\n\n"
     "━━━━━━━━━━━━━━━━━━\n"
     '📩 <b>รับลิงก์ชวนเพื่อนเลย 👇</b>\n'
-    '👉 <a href="tg://resolve?domain=jarernAD1_bot&start=invite">🎁 กดรับลิงก์ชวนเพื่อน</a>\n'
+    '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=invite">🎁 กดรับลิงก์ชวนเพื่อน</a>\n'
     "━━━━━━━━━━━━━━━━━━"
 )
 
@@ -83,7 +83,7 @@ FREE_GROUP_TEXT = (
     "✅ รวมกว่า 10,000 คลิป\n\n"
     "━━━━━━━━━━━━━━━━━━\n"
     '📩 <b>สมัคร VIP แล้วชวนเพื่อนเลย 👇</b>\n'
-    '👉 <a href="tg://resolve?domain=jarernAD1_bot&start=packages">⚡ สมัคร VIP เจริญพร ⚡</a>\n'
+    '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=packages">⚡ สมัคร VIP เจริญพร ⚡</a>\n'
     "━━━━━━━━━━━━━━━━━━"
 )
 
@@ -202,7 +202,7 @@ async def _create_referral_promo_image() -> bytes | None:
 
         # CTA
         draw.text((400, 550), "สมัคร VIP แล้วชวนเพื่อนเลย!", fill="#FFD700", font=font_medium, anchor="mm")
-        draw.text((400, 620), "@jarernAD1_bot", fill="white", font=font_medium, anchor="mm")
+        draw.text((400, 620), "@NamwarnJarern_bot", fill="white", font=font_medium, anchor="mm")
 
         # Save
         buf = io.BytesIO()
