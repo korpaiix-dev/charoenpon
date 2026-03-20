@@ -578,7 +578,7 @@ async def handle_photo_slip(
             return
 
         # Duplicate payment guard: same user + same amount within 60 seconds
-        dedup_cutoff = datetime.now(timezone.utc) - timedelta(seconds=60)
+        dedup_cutoff = datetime.utcnow() - timedelta(seconds=60)
         dup_check = await session.execute(
             select(Payment).where(
                 Payment.user_id == db_user.id,
@@ -812,7 +812,7 @@ async def handle_truemoney_link(
             return
 
         # Duplicate payment guard: same user + same amount within 60 seconds
-        dedup_cutoff = datetime.now(timezone.utc) - timedelta(seconds=60)
+        dedup_cutoff = datetime.utcnow() - timedelta(seconds=60)
         dup_check = await session.execute(
             select(Payment).where(
                 Payment.user_id == db_user.id,
