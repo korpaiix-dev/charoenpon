@@ -32,7 +32,7 @@ UPSELL_TEXT = (
     "สมัคร VIP เต็มตอนนี้:\n\n"
     "━━━━━━━━━━━━━━━━━━\n"
     '📩 <b>สมัครต่อเลย 👇</b>\n'
-    '👉 <a href="tg://resolve?domain=jarernAD1_bot&start=packages">⚡ สมัคร VIP เจริญพร ⚡</a>\n'
+    '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=packages">⚡ สมัคร VIP เจริญพร ⚡</a>\n'
     "━━━━━━━━━━━━━━━━━━"
 )
 

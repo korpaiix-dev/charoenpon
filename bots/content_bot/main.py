@@ -529,7 +529,7 @@ def build_caption(base_caption: str, round_time: str, group_index: int) -> str:
         f"✅ รวมกว่า 10,000 คลิป\n\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f'📩 <b>สมัครเลย 👇</b>\n'
-        f'👉 <a href="tg://resolve?domain=jarernAD1_bot&start=t_{round_time}_g{group_index}">⚡ สมัคร VIP เจริญพร ⚡</a>\n'
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=t_{round_time}_g{group_index}">⚡ สมัคร VIP เจริญพร ⚡</a>\n'
         f"━━━━━━━━━━━━━━━━━━"
     )
 

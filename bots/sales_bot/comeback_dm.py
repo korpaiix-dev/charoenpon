@@ -74,7 +74,7 @@ def _build_comeback_message(first_name: str, discount_pct: int, promo_code: str)
         f"\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f'📩 <b>สมัครต่ออายุเลย 👇</b>\n'
-        f'👉 <a href="tg://resolve?domain=jarernAD1_bot&start=comeback_{promo_code}">⚡ สมัคร VIP เจริญพร ลด {discount_pct}% ⚡</a>\n'
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">⚡ สมัคร VIP เจริญพร ลด {discount_pct}% ⚡</a>\n'
         f"━━━━━━━━━━━━━━━━━━"
     )
 

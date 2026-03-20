@@ -54,7 +54,7 @@ def _build_trial_promo_message(first_name: str) -> str:
         f"\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f'📩 <b>ลองเลย 👇</b>\n'
-        f'👉 <a href="tg://resolve?domain=jarernAD1_bot&start=trial">⚡ ทดลอง VIP เจริญพร ฿99 ⚡</a>\n'
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=trial">⚡ ทดลอง VIP เจริญพร ฿99 ⚡</a>\n'
         f"━━━━━━━━━━━━━━━━━━\n"
         f"\n"
         f"⚠️ สิทธิ์นี้จำกัด 1 ครั้ง / 30 วัน!"

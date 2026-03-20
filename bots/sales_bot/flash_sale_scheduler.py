@@ -65,7 +65,7 @@ FLASH_SALE_PROMO = (
     "\n"
     "━━━━━━━━━━━━━━━━━━\n"
     '📩 <b>สมัครเลย 👇</b>\n'
-    '👉 <a href="tg://resolve?domain=jarernAD1_bot&start=flashsale">⚡ สมัคร VIP เจริญพร ฿199 ⚡</a>\n'
+    '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=flashsale">⚡ สมัคร VIP เจริญพร ฿199 ⚡</a>\n'
     "━━━━━━━━━━━━━━━━━━\n"
     "\n"
     "เมื่อหมดก็หมด ไม่มีรอบสอง!"
@@ -231,7 +231,7 @@ FLASH_SALE_REMIND = (
     "\n"
     "━━━━━━━━━━━━━━━━━━\n"
     '📩 <b>สมัครเลย 👇</b>\n'
-    '👉 <a href="tg://resolve?domain=jarernAD1_bot&start=flashsale">⚡ สมัคร VIP เจริญพร ฿199 ⚡</a>\n'
+    '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=flashsale">⚡ สมัคร VIP เจริญพร ฿199 ⚡</a>\n'
     "━━━━━━━━━━━━━━━━━━\n"
     "\n"
     "หมดแล้วหมดเลย! 🔥"
@@ -282,7 +282,7 @@ async def remind_flash_sale(context: ContextTypes.DEFAULT_TYPE) -> None:
         f"\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f'📩 <b>กดซื้อเลย 👇</b>\n'
-        f'👉 <a href="tg://resolve?domain=jarernAD1_bot&start=flashsale">⚡ สมัคร VIP เจริญพร ฿199 ⚡</a>\n'
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=flashsale">⚡ สมัคร VIP เจริญพร ฿199 ⚡</a>\n'
         f"━━━━━━━━━━━━━━━━━━\n"
         f"\n"
         f"หมดแล้วหมดเลย! 🔥"
