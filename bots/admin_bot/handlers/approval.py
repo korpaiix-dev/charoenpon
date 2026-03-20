@@ -517,7 +517,7 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
         # Find package by price
         async with get_session() as session:
             from shared.models import Package, PackageTier
-            tier_map = {"300": "300", "500": "500", "1299": "1299", "2499": "2499"}
+            tier_map = {"199": "300", "300": "300", "500": "500", "1299": "1299", "2499": "2499"}
             tier = tier_map.get(price)
             if not tier:
                 await query.answer(f"❌ ราคา {price} ไม่ถูกต้อง", show_alert=True)
@@ -589,6 +589,16 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
             pkg_name = package.name
             duration = package.duration_days
             pkg_id = package.id
+
+        # Flash Sale: increment sold_slots if active
+        try:
+            from bots.sales_bot.handlers.flash_sale import increment_sold_slot
+            if tier == "300":
+                success, sold, total = await increment_sold_slot(pkg_id)
+                if success:
+                    logger.info("Flash sale slot incremented: %d/%d", sold, total)
+        except Exception as exc_fs:
+            logger.warning("Flash sale slot increment failed (non-critical): %s", exc_fs)
 
         # Generate invite links using Guardian Bot (must be admin in all VIP groups)
         guardian_bot = tg.Bot(token=os.environ.get("GUARDIAN_BOT_TOKEN", ""))

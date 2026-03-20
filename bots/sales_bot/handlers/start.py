@@ -28,6 +28,7 @@ WELCOME_TEXT = (
 
 MAIN_KEYBOARD = InlineKeyboardMarkup(
     [
+        [InlineKeyboardButton("⚡ Flash Sale", callback_data="view_flashsale")],
         [InlineKeyboardButton("📦 ดูแพ็กเกจ", callback_data="view_packages")],
         [InlineKeyboardButton("🆓 ห้องฟรี", url="https://t.me/addlist/2xN-ag15W4U2MTNl")],
         [InlineKeyboardButton("👩‍💼 ติดต่อแอดมิน", url="https://t.me/zeinju_bunker")],

@@ -68,6 +68,26 @@ TIER_PRICES: dict[str, Decimal] = {
     "2499": Decimal("2499"),
 }
 
+
+async def _get_effective_price(tier: str, context_user_data: dict) -> Decimal:
+    """Get effective price — flash sale price if active, otherwise normal."""
+    flash_sale_id = context_user_data.get("flash_sale_id")
+    if flash_sale_id and tier == "300":
+        from bots.sales_bot.handlers.flash_sale import get_flash_sale_price
+        from shared.database import get_session
+        from shared.models import Package, PackageTier
+        from sqlalchemy import select
+        async with get_session() as session:
+            pkg_result = await session.execute(
+                select(Package).where(Package.tier == PackageTier.TIER_300)
+            )
+            package = pkg_result.scalar_one_or_none()
+            if package:
+                flash_price = await get_flash_sale_price(package.id)
+                if flash_price is not None:
+                    return flash_price
+    return TIER_PRICES.get(tier, Decimal("0"))
+
 TRUEMONEY_PATTERN = re.compile(
     r"https?://gift\.truemoney\.com/campaign/??\?v=([a-zA-Z0-9]+)", re.IGNORECASE
 )
@@ -436,7 +456,7 @@ async def handle_photo_slip(
         )
         return
 
-    expected_price = TIER_PRICES.get(selected_tier)
+    expected_price = await _get_effective_price(selected_tier, context.user_data)
     if not expected_price:
         await update.message.reply_text("แพ็กเกจไม่ถูกต้องค่ะ กรุณาเลือกใหม่นะคะ")
         return
@@ -670,18 +690,19 @@ async def handle_photo_slip(
 
         keyboard = tg.InlineKeyboardMarkup([
             [
+                tg.InlineKeyboardButton("⚡ 199 (Flash)", callback_data=f"approve_199_{user.id}"),
                 tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}"),
+            ],
+            [
                 tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{user.id}"),
-            ],
-            [
                 tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{user.id}"),
+            ],
+            [
                 tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}"),
-            ],
-            [
                 tg.InlineKeyboardButton("❌ ปฏิเสธ", callback_data=f"reject_{user.id}"),
-                tg.InlineKeyboardButton("🚫 แบน", callback_data=f"ban_{user.id}"),
             ],
             [
+                tg.InlineKeyboardButton("🚫 แบน", callback_data=f"ban_{user.id}"),
                 tg.InlineKeyboardButton(f"💬 @{user.username}" if user.username else f"💬 ID: {user.id}", callback_data=f"chat_{user.id}"),
             ],
         ])
@@ -760,7 +781,7 @@ async def handle_truemoney_link(
         )
         return
 
-    expected_price = TIER_PRICES.get(selected_tier)
+    expected_price = await _get_effective_price(selected_tier, context.user_data)
     if not expected_price:
         await update.message.reply_text("แพ็กเกจไม่ถูกต้องค่ะ กรุณาเลือกใหม่นะคะ")
         return
@@ -863,14 +884,17 @@ async def handle_truemoney_link(
             admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
             keyboard = tg.InlineKeyboardMarkup([
                 [
+                    tg.InlineKeyboardButton("⚡ 199 (Flash)", callback_data=f"approve_199_{user.id}"),
                     tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}"),
-                    tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{user.id}"),
                 ],
                 [
+                    tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{user.id}"),
                     tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{user.id}"),
-                    tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}"),
                 ],
-                [tg.InlineKeyboardButton("❌ ซองเสีย", callback_data=f"reject_{user.id}")],
+                [
+                    tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}"),
+                    tg.InlineKeyboardButton("❌ ซองเสีย", callback_data=f"reject_{user.id}"),
+                ],
                 [tg.InlineKeyboardButton(f"💬 @{user.username}" if user.username else f"💬 ID: {user.id}", callback_data=f"chat_{user.id}")],
             ])
             await admin_bot.send_message(
@@ -900,6 +924,16 @@ async def handle_truemoney_link(
     if not reasons and tm_result["valid"]:
         # APPROVED
         invite_links_raw = await _approve_payment(payment, user.id, context.bot)
+
+        # Flash Sale: increment sold_slots if active
+        if context.user_data.get("flash_sale_id") and selected_tier == "300":
+            try:
+                from bots.sales_bot.handlers.flash_sale import increment_sold_slot
+                success_fs, sold_fs, total_fs = await increment_sold_slot(payment.package_id)
+                if success_fs:
+                    logger.info("Flash sale slot incremented (TrueMoney): %d/%d", sold_fs, total_fs)
+            except Exception as exc_fs:
+                logger.warning("Flash sale slot increment failed: %s", exc_fs)
 
         # คำนวณวันหมดอายุ
         async with get_session() as session:
