@@ -20,6 +20,7 @@ from shared.database import close_db, init_db
 
 from bots.admin_bot.handlers.approval import (
     approve_payment_callback,
+    chat_user_callback,
     cmd_pending_payments,
     cmd_pending_broadcasts,
     approve_broadcast_callback,
@@ -215,6 +216,9 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(reject_user_callback, pattern=r"^reject_\d+$"))
     application.add_handler(CallbackQueryHandler(ban_user_callback, pattern=r"^ban_\d+$"))
     application.add_handler(CallbackQueryHandler(sos_resend_callback, pattern=r"^sos_resend_\d+$"))
+
+    # Chat with customer button
+    application.add_handler(CallbackQueryHandler(chat_user_callback, pattern=r"^chat_user:\d+$"))
 
     # Unknown command handler
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
