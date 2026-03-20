@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 
 TH_TZ = timezone(timedelta(hours=7))
 
+# Admin/test Telegram IDs — never write to sheets
+EXCLUDED_TELEGRAM_IDS = {8502597269, 8370054523}
+
 
 class MembersSheet:
     """Manages the 'สมาชิก' worksheet."""
@@ -140,10 +143,21 @@ class MembersSheet:
 
     @classmethod
     async def update_member(cls, user_id: int) -> None:
-        """Update or insert a single member row in Google Sheets."""
+        """Update or insert a single member row in Google Sheets.
+
+        Admin/test users (EXCLUDED_TELEGRAM_IDS) are skipped.
+        """
         data = await cls.get_member_data(user_id)
         if not data:
             logger.warning("User %d not found, cannot update member sheet", user_id)
+            return
+
+        # Skip admin/test users
+        if data["telegram_id"] in EXCLUDED_TELEGRAM_IDS:
+            logger.info(
+                "Skipping member %d — telegram_id=%d is admin/test",
+                user_id, data["telegram_id"],
+            )
             return
 
         try:
