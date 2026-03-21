@@ -153,8 +153,9 @@ def create_application() -> Application:
     for handler in get_start_handlers():
         app.add_handler(handler, group=0)
 
-    for handler in get_trial_handlers():
-        app.add_handler(handler, group=0)
+    # Trial handlers — ปิดแล้ว (ยกเลิกโปร 99)
+    # for handler in get_trial_handlers():
+    #     app.add_handler(handler, group=0)
 
     for handler in get_flash_sale_handlers():
         app.add_handler(handler, group=0)
@@ -212,12 +213,12 @@ def create_application() -> Application:
     )
 
     # --- Scheduler: TRIAL PROMO DM ทุกวัน 00:30 ไทย (17:30 UTC) ---
-    # หลัง Flash Sale ปิด 30 นาที — ส่ง DM Trial ฿99 ให้ลูกค้าใหม่ที่ไม่เคยจ่าย
-    app.job_queue.run_daily(
-        run_trial_promo_dm_job,
-        time=dt_time(hour=0, minute=30, tzinfo=TH_TZ),
-        name="trial_promo_dm_daily_0030",
-    )
+    # หลัง Flash Sale ปิด 30 นาที — ส่ง DM Trial ฿99 — ปิดแล้ว (ยกเลิกโปร 99)
+    # app.job_queue.run_daily(
+    #     run_trial_promo_dm_job,
+    #     time=dt_time(hour=0, minute=30, tzinfo=TH_TZ),
+    #     name="trial_promo_dm_daily_0030",
+    # )
 
     # --- Scheduler: COMEBACK DM ทุกวัน 10:00 ไทย ---
     app.job_queue.run_daily(
@@ -226,14 +227,13 @@ def create_application() -> Application:
         name="comeback_dm_daily_1000",
     )
 
-    # --- Scheduler: Trial Upsell DM ทุก 30 นาที ---
-    # เช็ค trial ที่หมดอายุแล้ว 1 ชม. แล้วส่ง DM upsell VIP
-    app.job_queue.run_repeating(
-        check_trial_upsell,
-        interval=1800,  # 30 นาที
-        first=60,  # เริ่มหลัง boot 1 นาที
-        name="trial_upsell_check",
-    )
+    # --- Scheduler: Trial Upsell DM — ปิดแล้ว (ยกเลิกโปร 99) ---
+    # app.job_queue.run_repeating(
+    #     check_trial_upsell,
+    #     interval=1800,
+    #     first=60,
+    #     name="trial_upsell_check",
+    # )
 
     # --- Scheduler: GOD MODE Upsell DM ทุกวัน 15:00 ไทย ---
     app.job_queue.run_daily(
@@ -242,13 +242,13 @@ def create_application() -> Application:
         name="god_mode_upsell_dm_daily_1500",
     )
 
-    # --- Scheduler: Trial Promo Broadcast เสาร์ 21 มี.ค. 14:00 ไทย ---
-    app.job_queue.run_daily(
-        broadcast_trial_promo,
-        time=dt_time(hour=14, minute=0, tzinfo=TH_TZ),
-        days=(5,),  # Saturday
-        name="trial_promo_broadcast_saturday_1400",
-    )
+    # --- Scheduler: Trial Promo Broadcast — ปิดแล้ว (ยกเลิกโปร 99) ---
+    # app.job_queue.run_daily(
+    #     broadcast_trial_promo,
+    #     time=dt_time(hour=14, minute=0, tzinfo=TH_TZ),
+    #     days=(5,),  # Saturday
+    #     name="trial_promo_broadcast_saturday_1400",
+    # )
 
     # --- Scheduler: Referral Promo Broadcast อาทิตย์ 14:00 ไทย ---
     app.job_queue.run_daily(
