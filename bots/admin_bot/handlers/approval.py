@@ -184,6 +184,7 @@ async def approve_payment_callback(update: Update, context: ContextTypes.DEFAULT
             import os
             import telegram as tg
             sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+            await sales_bot.initialize()
             invite_links = await generate_invite_links_for_user(
                 sales_bot, user.telegram_id, payment.package_id
             )
@@ -275,6 +276,7 @@ async def approve_payment_callback(update: Update, context: ContextTypes.DEFAULT
         try:
             import telegram as tg
             sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+            await sales_bot.initialize()
             from bots.sales_bot.handlers.referral import process_referral_reward
             await process_referral_reward(user.telegram_id, sales_bot)
         except Exception as exc_ref:
@@ -644,7 +646,9 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
 
         # Generate invite links using Guardian Bot (must be admin in all VIP groups)
         guardian_bot = tg.Bot(token=os.environ.get("GUARDIAN_BOT_TOKEN", ""))
+        await guardian_bot.initialize()
         sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+        await sales_bot.initialize()
         invite_links = await generate_invite_links_for_user(guardian_bot, target_user_id, pkg_id)
 
         links_list = []
@@ -799,6 +803,7 @@ async def reject_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     import os, telegram as tg
     try:
         sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+        await sales_bot.initialize()
         await sales_bot.send_message(
             chat_id=target_user_id,
             text="❌ <b>สลิปไม่ผ่านการตรวจสอบค่ะ</b>\nกรุณาส่งสลิปใหม่ หรือติดต่อแอดมิน https://t.me/zeinju_bunker",
@@ -844,6 +849,7 @@ async def ban_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 db_user.is_banned = True
 
         sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+        await sales_bot.initialize()
         await sales_bot.send_message(
             chat_id=target_user_id,
             text="🚫 <b>คุณถูกระงับการใช้งานถาวร</b>\nเนื่องจากส่งรูปภาพที่ไม่เหมาะสมหรือสลิปปลอม หากมีข้อสงสัยกรุณาติดต่อแอดมิน",
@@ -926,7 +932,9 @@ async def sos_resend_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         # Generate invite links using Guardian Bot
         guardian_bot = tg.Bot(token=os.environ.get("GUARDIAN_BOT_TOKEN", ""))
+        await guardian_bot.initialize()
         sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+        await sales_bot.initialize()
 
         if sub_package_id == "__csv_member__":
             # CSV user: ตรวจสอบ membership จริงในแต่ละกลุ่ม แล้วสร้าง invite เฉพาะกลุ่มที่เป็นสมาชิก

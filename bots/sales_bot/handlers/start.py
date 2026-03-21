@@ -206,11 +206,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         if handled:
             return
 
-    # Handle trial deep link: /start trial
-    if source == "trial":
-        from bots.sales_bot.handlers.trial import trial_command
-        await trial_command(update, context)
-        return
+    # Handle trial deep link: /start trial — ปิดแล้ว (ยกเลิกโปร 99)
+    # if source == "trial":
+    #     from bots.sales_bot.handlers.trial import trial_command
+    #     await trial_command(update, context)
+    #     return
 
     # Handle upgrade deep link: /start upgrade
     if source == "upgrade":
@@ -229,16 +229,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         [InlineKeyboardButton("⚡ Flash Sale", callback_data="view_flashsale")],
     ]
 
-    # เช็คสิทธิ์ trial
-    try:
-        from bots.sales_bot.handlers.trial import _check_trial_eligible
-        trial_eligible = await _check_trial_eligible(tg_user.id)
-        if trial_eligible:
-            keyboard_rows.append(
-                [InlineKeyboardButton("🆕 ทดลอง VIP 24 ชม. ฿99", callback_data="view_trial")]
-            )
-    except Exception:
-        pass  # ถ้าเช็คไม่ได้ ไม่แสดงปุ่ม
+    # เช็คสิทธิ์ trial — ปิดแล้ว (ยกเลิกโปร 99)
+    # try:
+    #     from bots.sales_bot.handlers.trial import _check_trial_eligible
+    #     trial_eligible = await _check_trial_eligible(tg_user.id)
+    #     if trial_eligible:
+    #         keyboard_rows.append(
+    #             [InlineKeyboardButton("🆕 ทดลอง VIP 24 ชม. ฿99", callback_data="view_trial")]
+    #         )
+    # except Exception:
+    #     pass
 
     # เช็ค VIP Active สำหรับปุ่มชวนเพื่อน + อัพเกรด
     try:

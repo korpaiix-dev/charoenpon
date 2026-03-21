@@ -780,7 +780,14 @@ def main() -> None:
         logger.error("CONTENT_BOT_TOKEN not set")
         return
 
-    app = Application.builder().token(CONTENT_BOT_TOKEN).build()
+    app = (
+        Application.builder()
+        .token(CONTENT_BOT_TOKEN)
+        .read_timeout(30)
+        .write_timeout(30)
+        .connect_timeout(15)
+        .build()
+    )
 
     # Post-init: สร้างตาราง DB ถ้ายังไม่มี
     async def post_init(application: Application) -> None:

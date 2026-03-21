@@ -1164,6 +1164,47 @@ async def handle_truemoney_link(
             f"Reasons: {'; '.join(reasons)}",
         )
 
+        # แจ้ง Telegram Admin Group ด้วย — ให้แอดมินเข้าไปเช็คได้
+        try:
+            import telegram as tg
+            import html as _html
+            safe_name = _html.escape(str(user.first_name or "ลูกค้า"))
+            ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+            admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
+            await admin_bot.initialize()
+            reasons_tg = "\n".join(f"• {r}" for r in reasons)
+            keyboard = tg.InlineKeyboardMarkup([
+                [
+                    tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}"),
+                    tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{user.id}"),
+                ],
+                [
+                    tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{user.id}"),
+                    tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}"),
+                ],
+                [tg.InlineKeyboardButton(
+                    f"💬 แชทลูกค้า @{user.username}" if user.username else f"💬 แชท ID: {user.id}",
+                    url=f"tg://user?id={user.id}"
+                )],
+            ])
+            await admin_bot.send_message(
+                chat_id=ADMIN_GROUP_ID,
+                text=(
+                    f"❌ <b>Payment Rejected (TrueMoney)</b>\n\n"
+                    f"👤 ลูกค้า: <a href='tg://user?id={user.id}'>{safe_name}</a>\n"
+                    f"🆔 TG ID: <code>{user.id}</code>\n"
+                    f"📦 แพ็กเกจ: {selected_tier} THB\n"
+                    f"🔗 ลิงก์: {link}\n"
+                    f"📝 #PAY{payment_id}\n\n"
+                    f"<b>เหตุผล:</b>\n{reasons_tg}\n\n"
+                    f"⚠️ แอดมินตรวจสอบและกดอนุมัติ manual ได้ที่ปุ่มด้านล่าง"
+                ),
+                parse_mode="HTML",
+                reply_markup=keyboard,
+            )
+        except Exception as exc:
+            logger.warning("Failed to notify TG admin group (TM reject): %s", exc)
+
 
 async def handle_non_slip_payment(
     update: Update, context: ContextTypes.DEFAULT_TYPE
