@@ -46,6 +46,17 @@ class GroupSlug(str, enum.Enum):
     INTER = "INTER"
     SERIES = "SERIES"
     RANDOM = "RANDOM"
+    FREE1 = "FREE1"
+    FREE2 = "FREE2"
+    FREE3 = "FREE3"
+    FREE4 = "FREE4"
+    FREE5 = "FREE5"
+    FREE6 = "FREE6"
+    FREE7 = "FREE7"
+    FREE8 = "FREE8"
+    FREE9 = "FREE9"
+    FREE10 = "FREE10"
+    FREE11 = "FREE11"
 
 
 class PaymentStatus(str, enum.Enum):
