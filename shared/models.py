@@ -45,6 +45,7 @@ class GroupSlug(str, enum.Enum):
     OF = "OF"
     INTER = "INTER"
     SERIES = "SERIES"
+    RANDOM = "RANDOM"
 
 
 class PaymentStatus(str, enum.Enum):

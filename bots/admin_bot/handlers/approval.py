@@ -918,11 +918,46 @@ async def sos_resend_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 pass
 
             if not csv_found:
-                await query.answer("❌ ลูกค้าไม่มี subscription และไม่อยู่ในฐานข้อมูลลูกค้าเก่า", show_alert=True)
+                # แจ้งเตือนในข้อความแทน popup — ให้แอดมินเห็นชัด
+                import html as _html
+                safe_admin = _html.escape(str(query.from_user.first_name or "Admin"))
+                old_text = query.message.text or ""
+                new_text = (
+                    f"{old_text}\n\n"
+                    f"⚠️ <b>แจ้งเตือน:</b> ลูกค้า TG ID <code>{target_user_id}</code> "
+                    f"ไม่มีในระบบ (ไม่มี subscription, ไม่มี payment, ไม่อยู่ในฐานข้อมูลลูกค้าเก่า)\n"
+                    f"👮 กดโดย: {safe_admin}\n\n"
+                    f"💡 <b>ทางแก้:</b> ต้อง approve แพ็กเกจให้ลูกค้าก่อน แล้วค่อยกดส่งลิงก์ใหม่"
+                )
+                try:
+                    approve_keyboard = tg.InlineKeyboardMarkup([
+                        [
+                            tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{target_user_id}"),
+                            tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{target_user_id}"),
+                        ],
+                        [
+                            tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{target_user_id}"),
+                            tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{target_user_id}"),
+                        ],
+                        [tg.InlineKeyboardButton("🔄 ส่งลิงก์ใหม่", callback_data=f"sos_resend_{target_user_id}")],
+                    ])
+                    await query.edit_message_text(text=new_text[:4096], parse_mode="HTML", reply_markup=approve_keyboard)
+                except Exception as e:
+                    logger.error("Failed to edit SOS no-sub message: %s", e)
+                    await query.answer("❌ ลูกค้าไม่มีในระบบ — ต้อง approve แพ็กเกจก่อน", show_alert=True)
                 return
 
             if csv_status == "Expired":
-                await query.answer("❌ ลูกค้าหมดอายุแล้ว ไม่สามารถส่งลิ้งค์ได้", show_alert=True)
+                old_text = query.message.text or ""
+                new_text = (
+                    f"{old_text}\n\n"
+                    f"⚠️ <b>แจ้งเตือน:</b> ลูกค้า TG ID <code>{target_user_id}</code> หมดอายุแล้ว\n"
+                    f"💡 ต้องต่ออายุ/ซื้อแพ็กเกจใหม่ก่อนถึงจะส่งลิงก์ได้"
+                )
+                try:
+                    await query.edit_message_text(text=new_text[:4096], parse_mode="HTML")
+                except Exception:
+                    await query.answer("❌ ลูกค้าหมดอายุแล้ว ไม่สามารถส่งลิ้งค์ได้", show_alert=True)
                 return
 
             # ลูกค้าเก่า — ตรวจสอบว่าเป็นสมาชิกกลุ่มไหนอยู่แล้ว แล้วส่งเฉพาะกลุ่มนั้น
