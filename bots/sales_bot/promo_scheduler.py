@@ -27,8 +27,6 @@ CONTENT_BOT_TOKEN = os.environ.get("CONTENT_BOT_TOKEN", "8371029400:AAEc8PSwvX-D
 
 # 11 กลุ่มฟรี (same as content_bot/flash_sale_scheduler)
 FREE_GROUPS = [
-    -1003540998287,
-    -1003777838783,
     -1003733093219,
     -1003772512123,
     -1003706880995,

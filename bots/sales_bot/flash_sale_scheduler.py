@@ -39,8 +39,6 @@ TH_TZ = timezone(timedelta(hours=7))
 
 # 11 กลุ่มฟรี (same as content_bot)
 FREE_GROUPS = [
-    -1003540998287,
-    -1003777838783,
     -1003733093219,
     -1003772512123,
     -1003706880995,
