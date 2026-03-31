@@ -17,7 +17,7 @@ async def _log(admin_id, action, entity_type, entity_id, details, ip):
 # ========== PACKAGES ==========
 @router.get("/packages")
 async def list_packages(admin=Depends(require_role("admin"))):
-    rows = await pool.fetch("SELECT * FROM packages ORDER BY sort_order")
+    rows = await pool.fetch("SELECT * FROM packages WHERE is_active = TRUE ORDER BY sort_order")
     return [dict(r) for r in rows]
 
 @router.post("/packages")

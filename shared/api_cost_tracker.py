@@ -19,10 +19,18 @@ logger = logging.getLogger(__name__)
 
 # --- Price per 1M tokens (input, output) in USD ---
 PRICES: dict[str, dict[str, float]] = {
+    # Legacy short keys (backward compatibility)
     "gemini-2.0-flash-lite": {"input": 0.075, "output": 0.30},
     "deepseek-chat": {"input": 0.14, "output": 0.28},
     "claude-haiku-4.5": {"input": 0.80, "output": 4.00},
     "gemini-2.5-flash": {"input": 0.15, "output": 0.60},
+    # Full model names (canonical keys)
+    "google/gemini-2.0-flash-lite-001": {"input": 0.075, "output": 0.30},
+    "deepseek/deepseek-chat": {"input": 0.14, "output": 0.28},
+    "anthropic/claude-haiku-3-5": {"input": 0.80, "output": 4.00},
+    "google/gemini-2.5-flash": {"input": 0.15, "output": 0.60},
+    "anthropic/claude-sonnet-4-20250514": {"input": 3.00, "output": 15.00},
+    "openai/gpt-4o-mini": {"input": 0.15, "output": 0.60},
 }
 
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"

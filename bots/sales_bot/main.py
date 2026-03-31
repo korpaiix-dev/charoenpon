@@ -36,7 +36,16 @@ from bots.sales_bot.trial_promo_dm import run_trial_promo_dm_job
 from bots.sales_bot.flash_sale_scheduler import start_flash_sale, end_flash_sale, remind_flash_sale
 from bots.sales_bot.promo_scheduler import broadcast_trial_promo, broadcast_referral_promo
 from bots.sales_bot.trial_upsell import check_trial_upsell
+from bots.sales_bot.lead_followup import run_lead_followup_job
+from bots.sales_bot.lead_followup_v2 import run_lead_followup_v2_job
 from bots.sales_bot.spam_filter import spam_filter_middleware
+from bots.sales_bot.handlers.referral import send_referral_reminder
+from bots.sales_bot.daily_report import send_daily_report
+from bots.sales_bot.preview_generator import run_preview_generator_job
+from bots.sales_bot.free_group_poster import post_to_free_groups
+from bots.sales_bot.retention_alert import run_retention_alert_job
+from bots.sales_bot.referral_v2 import send_referral_reminder_v2
+from bots.sales_bot.marketing_brain import run_brain_weekly_job
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +265,84 @@ def create_application() -> Application:
         time=dt_time(hour=14, minute=0, tzinfo=TH_TZ),
         days=(6,),  # Sunday
         name="referral_promo_broadcast_sunday_1400",
+    )
+
+    # --- Scheduler: Lead Follow-up DM ทุก 1 ชม. (v1 — replaced by v2) ---
+    # app.job_queue.run_repeating(
+    #     run_lead_followup_job,
+    #     interval=3600,
+    #     first=120,
+    #     name="lead_followup_hourly",
+    # )
+
+    # --- Scheduler: Lead Follow-up v2 DM ทุก 1 ชม. ---
+    app.job_queue.run_repeating(
+        run_lead_followup_v2_job,
+        interval=3600,
+        first=120,
+        name="lead_followup_v2_hourly",
+    )
+
+    # --- Scheduler: Referral Reminder DM ทุกวัน 15:00 ไทย ---
+    app.job_queue.run_daily(
+        send_referral_reminder,
+        time=dt_time(hour=15, minute=0, tzinfo=TH_TZ),
+        name="referral_reminder_daily_1500",
+    )
+
+    # --- Scheduler: Daily Report ทุกวัน 22:00 ไทย (15:00 UTC) ---
+    app.job_queue.run_daily(
+        send_daily_report,
+        time=dt_time(hour=22, minute=0, tzinfo=TH_TZ),
+        name="daily_report_2200",
+    )
+
+    # --- Scheduler: Preview Generator Batch ทุกวัน 06:00 ไทย ---
+    app.job_queue.run_daily(
+        run_preview_generator_job,
+        time=dt_time(hour=6, minute=0, tzinfo=TH_TZ),
+        name="preview_generator_daily_0600",
+    )
+
+    # --- Scheduler: Free Group Poster 3 รอบ/วัน ---
+    # Disabled — content_bot (มิน) handles free group posting
+    # app.job_queue.run_daily(
+    #     post_to_free_groups,
+    #     time=dt_time(hour=11, minute=0, tzinfo=TH_TZ),
+    #     name="free_group_poster_1100",
+    # )
+    # app.job_queue.run_daily(
+    #     post_to_free_groups,
+    #     time=dt_time(hour=15, minute=0, tzinfo=TH_TZ),
+    #     name="free_group_poster_1500",
+    # )
+    # app.job_queue.run_daily(
+    #     post_to_free_groups,
+    #     time=dt_time(hour=20, minute=0, tzinfo=TH_TZ),
+    #     name="free_group_poster_2000",
+    # )
+
+    # --- Scheduler: Retention Alert v2 ทุกวัน 09:30 ไทย ---
+    app.job_queue.run_daily(
+        run_retention_alert_job,
+        time=dt_time(hour=9, minute=30, tzinfo=TH_TZ),
+        name="retention_alert_v2_0930",
+    )
+
+    # --- Scheduler: Referral Reminder v2 ทุกวันจันทร์ 15:00 ไทย ---
+    app.job_queue.run_daily(
+        send_referral_reminder_v2,
+        time=dt_time(hour=15, minute=0, tzinfo=TH_TZ),
+        days=(0,),  # Monday
+        name="referral_reminder_v2_monday_1500",
+    )
+
+    # --- Scheduler: Marketing Brain ทุกวันอาทิตย์ 20:00 ไทย ---
+    app.job_queue.run_daily(
+        run_brain_weekly_job,
+        time=dt_time(hour=20, minute=0, tzinfo=TH_TZ),
+        days=(6,),  # Sunday
+        name="marketing_brain_weekly_sunday_2000",
     )
 
     return app

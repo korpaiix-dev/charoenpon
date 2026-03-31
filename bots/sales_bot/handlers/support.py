@@ -1,7 +1,7 @@
 """Support handler - Sales Bot แพร.
 
 ตอบคำถามทั่วไป + ติดต่อแอดมิน
-ใช้ AI แพร (gemini-flash-lite) ลงท้าย ค่ะ เสมอ
+ใช้ AI แพร (claude-haiku-3.5) ลงท้าย ค่ะ เสมอ
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from shared.api_cost_tracker import call_openrouter
 
 logger = logging.getLogger(__name__)
 
-AI_MODEL = "google/gemini-2.0-flash-lite-001"
+AI_MODEL = "anthropic/claude-haiku-3-5"
 
 PRAE_SYSTEM_PROMPT = """คุณคือ "แพร" ผู้ช่วยฝ่ายขายของบริษัทเจริญพร VIP Telegram System
 คุณเป็นผู้หญิง พูดไทย สุภาพ อบอุ่น กระตือรือร้น
@@ -50,9 +50,20 @@ async def handle_support_text(
 
     user_text = update.message.text.strip()
 
-    # SOS detection — เข้ากลุ่มไม่ได้ / กลุ่มหาย / กลุ่มบิน
-    SOS_KEYWORDS = ["SOS", "sos", "Sos", "เอสโอเอส", "เข้าไม่ได้", "กลุ่มบิน", "กลุ่มหาย", "กดไม่ได้", "ลิงก์หมด", "ลิ้งค์หมด", "ลิ้งหมด", "เข้ากลุ่มไม่ได้", "กลุ่มไม่ขึ้น", "ลิงค์เข้าไม่ได้", "ลิ้งค์เข้าไม่ได้", "เข้ากลุ่ม", "ขอลิ้ง", "ขอลิงก์", "ขอลิงค์"]
+    # SOS detection — เข้ากลุ่มไม่ได้ / กลุ่มหาย / กลุ่มบิน (ลดคำกว้าง ป้องกันสแปม)
+    SOS_KEYWORDS = ["SOS", "sos", "Sos", "เอสโอเอส", "เข้าไม่ได้", "กลุ่มบิน", "กลุ่มหาย", "กดไม่ได้", "ลิงก์หมด", "ลิ้งค์หมด", "ลิ้งหมด", "เข้ากลุ่มไม่ได้", "กลุ่มไม่ขึ้น", "ลิงค์เข้าไม่ได้", "ลิ้งค์เข้าไม่ได้"]
     if any(w in user_text for w in SOS_KEYWORDS):
+        # Rate limit: 1 SOS per user per 6 hours
+        import time as _time
+        last_sos = context.user_data.get("last_sos_time", 0)
+        if _time.time() - last_sos < 21600:  # 6 hours
+            await update.message.reply_text(
+                "📩 แพรรับเรื่องไว้แล้วค่ะ แอดมินกำลังดูอยู่นะคะ\n"
+                "ถ้ารอนานไป ทักแอดมินได้เลย → https://t.me/zeinju_bunker"
+            )
+            return
+        context.user_data["last_sos_time"] = _time.time()
+
         await update.message.reply_text(
             "📩 รับทราบค่า แพรส่งเรื่องให้แอดมินดูแล้วนะ\n"
             "รอสักครู่นะคะ ถ้านานไป ทักแอดมินได้เลย → https://t.me/zeinju_bunker"
@@ -71,7 +82,7 @@ async def handle_support_text(
         except Exception as db_exc:
             logger.error("SOS DB insert failed: %s", db_exc)
 
-        # Send SOS to admin group
+        # Send SOS to admin group with approve/deny/ban buttons
         try:
             import os, html as _html
             import telegram as tg
@@ -80,16 +91,26 @@ async def handle_support_text(
             now_th = datetime.now(timezone(timedelta(hours=7)))
             ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
             admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
+            await admin_bot.initialize()
             
+            uname_display = f"@{user.username}" if user.username else f"ID: {user.id}"
             sos_msg = (
-                f"🆘 <b>SOS แจ้งปัญหาการเข้ากลุ่ม</b>\n\n"
-                f"👤 <b>ลูกค้า:</b> <a href='tg://user?id={user.id}'>{safe_name}</a> (ID: <code>{user.id}</code>)\n"
-                f"🕒 <b>เวลา:</b> {now_th.strftime('%d/%m/%Y %H:%M')}\n"
-                f"💬 <b>ข้อความ:</b> {_html.escape(user_text[:200])}"
+                f"🆘 <b>SOS เข้ากลุ่มไม่ได้</b>\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"👤 {safe_name} ({uname_display}) (ID: <code>{user.id}</code>)\n"
+                f"🕒 {now_th.strftime('%d/%m/%Y %H:%M')}\n"
+                f"💬 {_html.escape(user_text[:200])}"
+            )
+            chat_btn = (
+                tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"})
+                if user.username
+                else tg.InlineKeyboardButton(f"💬 แชทลูกค้า", callback_data=f"chat_user_{user.id}", api_kwargs={"style": "primary"})
             )
             keyboard = tg.InlineKeyboardMarkup([
-                [tg.InlineKeyboardButton("🔄 ส่งลิงก์ใหม่", callback_data=f"sos_resend_{user.id}")],
-                [tg.InlineKeyboardButton(f"💬 แชท ID: {user.id}", callback_data=f"chat_{user.id}")],
+                [tg.InlineKeyboardButton("✅ ส่งลิงก์ใหม่", callback_data=f"sos_resend_{user.id}", api_kwargs={"style": "success"})],
+                [tg.InlineKeyboardButton("❌ ไม่อนุมัติ", callback_data=f"sos_deny_{user.id}", api_kwargs={"style": "danger"}),
+                 tg.InlineKeyboardButton("🚫 แบน", callback_data=f"sos_ban_{user.id}", api_kwargs={"style": "danger"})],
+                [chat_btn],
             ])
             await admin_bot.send_message(
                 chat_id=ADMIN_GROUP_ID,

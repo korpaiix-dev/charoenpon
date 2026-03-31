@@ -283,6 +283,7 @@ class ContentFetcher:
     def bot(self) -> Bot:
         if self._bot is None:
             self._bot = Bot(token=self.bot_token)
+            await self._bot.initialize()
         return self._bot
 
     # ────────────── Reddit ──────────────

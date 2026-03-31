@@ -1,0 +1,23 @@
+[
+  {
+    "date": "2026-03-23T13:32:21.524680+07:00",
+    "posts_analyzed": 2,
+    "best_caption": "0",
+    "best_hour": "11",
+    "avg_score": 0.0
+  },
+  {
+    "date": "2026-03-30T10:00:10.478379+07:00",
+    "posts_analyzed": 15,
+    "best_caption": "0",
+    "best_hour": "11",
+    "avg_score": 0.0
+  },
+  {
+    "date": "2026-03-30T10:00:15.046513+07:00",
+    "posts_analyzed": 15,
+    "best_caption": "0",
+    "best_hour": "11",
+    "avg_score": 0.0
+  }
+]

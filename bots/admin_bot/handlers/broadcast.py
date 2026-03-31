@@ -315,6 +315,7 @@ async def _send_broadcast(
 ) -> tuple[int, int]:
     """Send broadcast to user IDs via Sales Bot. Returns (success, failed)."""
     sales_bot = _get_sales_bot()
+    await sales_bot.initialize()
     success = 0
     failed = 0
 

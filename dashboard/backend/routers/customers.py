@@ -240,6 +240,28 @@ async def broadcast_message(
     return {"sent": sent, "failed": failed, "total": total}
 
 
+# ========== BROADCAST HISTORY ==========
+@router.get("/broadcast/history")
+async def broadcast_history(page: int = 1, per_page: int = 25, admin=Depends(get_current_admin)):
+    """Get broadcast history from broadcast_log table."""
+    offset = (page - 1) * per_page
+    total = await pool.fetchval("SELECT COUNT(*) FROM broadcast_log")
+    rows = await pool.fetch("""
+        SELECT bl.*, u.display_name as admin_name
+        FROM broadcast_log bl
+        LEFT JOIN dashboard_admins u ON bl.admin_id = u.id
+        ORDER BY bl.created_at DESC
+        LIMIT $1 OFFSET $2
+    """, per_page, offset)
+    return {
+        "items": [dict(r) for r in rows],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "pages": (total + per_page - 1) // per_page,
+    }
+
+
 # ========== CUSTOMER DETAIL ==========
 @router.get("/{user_id}")
 async def get_customer(user_id: int, admin=Depends(get_current_admin)):

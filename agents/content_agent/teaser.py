@@ -1,6 +1,6 @@
 """Teaser Generator (มิน) - สร้าง Teaser สำหรับกลุ่มฟรี.
 
-Model: deepseek/deepseek-chat ผ่าน OpenRouter
+Model: anthropic/claude-haiku-3-5 ผ่าน OpenRouter
 สไตล์: เร้าใจ ลึกลับ FOMO ปิดท้าย CTA ห้ามโจ่งแจ้ง วับๆแวมๆ
 """
 
@@ -15,7 +15,7 @@ from shared.models import GroupSlug
 
 logger = logging.getLogger(__name__)
 
-MODEL = "deepseek/deepseek-chat"
+MODEL = "anthropic/claude-haiku-3-5"
 CALLER = "content_agent/teaser"
 
 TEASER_STYLES = [

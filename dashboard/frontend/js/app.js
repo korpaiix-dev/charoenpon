@@ -20,6 +20,7 @@ const NAV_ITEMS = [
     { id: 'team', icon: '👨‍💼', label: 'ทีมงาน', minRole: 'admin' },
     { id: 'settings', icon: '⚙️', label: 'ตั้งค่า', minRole: 'admin' },
     { id: 'marketing', icon: '📊', label: 'Marketing', minRole: 'admin' },
+    { id: 'activity', icon: '📋', label: 'Activity Log', minRole: 'admin' },
 ];
 
 // ========== API ==========
@@ -119,6 +120,7 @@ function navigate(page) {
         dashboard: '📊 ภาพรวม', customers: '👥 ลูกค้า', finance: '💰 การเงิน',
         promotions: '📢 โปรโมชั่น', content: '📸 Content', groups: '📱 กลุ่ม',
         team: '👨‍💼 ทีมงาน', settings: '⚙️ ตั้งค่า', marketing: '📊 Marketing',
+        activity: '📋 Activity Log',
     };
     document.getElementById('page-title').textContent = titles[page] || page;
     document.getElementById('sidebar').classList.remove('open');
@@ -134,6 +136,7 @@ function navigate(page) {
         dashboard: renderDashboard, customers: renderCustomers, finance: renderFinance,
         promotions: renderPromotions, content: renderContent, groups: renderGroups,
         team: renderTeam, settings: renderSettings, marketing: renderMarketing,
+        activity: renderActivityLog,
     };
     (pages[page] || (() => { content.innerHTML = '<div class="empty-state"><div class="icon">🚧</div><p>Coming soon</p></div>'; }))();
 }
@@ -160,25 +163,130 @@ function closeModal(e) {
     document.getElementById('modal-overlay').classList.add('hidden');
 }
 
-// ========== ALERT POLLING + CHROME NOTIFICATION ==========
+// ========== ALERT POLLING + BROWSER NOTIFICATION + SOUND ==========
 let alertInterval;
 let lastAlertCount = { pending: -1, sos: -1 };
+let notifSound = null;
+
+function initNotifSound() {
+    // สร้างเสียงเตือนด้วย Web Audio API (ไม่ต้องโหลดไฟล์)
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        notifSound = new AudioCtx();
+    } catch {}
+}
+
+function playNotifSound(type) {
+    try {
+        if (!notifSound || notifSound.state === 'closed') initNotifSound();
+        if (notifSound.state === 'suspended') notifSound.resume();
+        const osc = notifSound.createOscillator();
+        const gain = notifSound.createGain();
+        osc.connect(gain);
+        gain.connect(notifSound.destination);
+        gain.gain.value = 0.3;
+        if (type === 'sos') {
+            // SOS = เสียงด่วน 3 ครั้ง
+            osc.frequency.value = 880;
+            osc.type = 'square';
+            gain.gain.setValueAtTime(0.3, notifSound.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, notifSound.currentTime + 0.6);
+            osc.start(notifSound.currentTime);
+            osc.stop(notifSound.currentTime + 0.6);
+        } else if (type === 'anomaly') {
+            // ยอดผิดปกติ = เสียงต่ำเตือน
+            osc.frequency.value = 440;
+            osc.type = 'sawtooth';
+            gain.gain.setValueAtTime(0.25, notifSound.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, notifSound.currentTime + 0.8);
+            osc.start(notifSound.currentTime);
+            osc.stop(notifSound.currentTime + 0.8);
+        } else {
+            // สลิปใหม่ = เสียงสั้นๆ
+            osc.frequency.value = 660;
+            osc.type = 'sine';
+            gain.gain.setValueAtTime(0.3, notifSound.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, notifSound.currentTime + 0.4);
+            osc.start(notifSound.currentTime);
+            osc.stop(notifSound.currentTime + 0.4);
+        }
+    } catch {}
+}
 
 function startAlertPolling() {
-    // Request notification permission on login
-    if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission();
-    }
+    initNotifSound();
     checkAlerts();
-    alertInterval = setInterval(checkAlerts, 30000);
+    alertInterval = setInterval(checkAlerts, 10000); // 10 วินาที
+}
+
+// ── In-Page Notification (ทำงานบน HTTP ได้) ──
+let _notifId = 0;
+function showNotifCard(type, title, desc, imgUrl, onClick) {
+    const panel = document.getElementById('notif-panel');
+    if (!panel) return;
+    const id = `notif-${++_notifId}`;
+    const typeClass = type === 'sos' ? 'notif-sos' : type === 'anomaly' ? 'notif-anomaly' : 'notif-slip';
+    const now = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+
+    let imgHtml;
+    if (imgUrl) {
+        imgHtml = `<img class="notif-img" src="${imgUrl}" onerror="this.outerHTML='<div class=\\'notif-noimg\\'>📄</div>'" alt="สลิป">`;
+    } else {
+        const emoji = type === 'sos' ? '🆘' : type === 'anomaly' ? '⚠️' : '💰';
+        imgHtml = `<div class="notif-noimg">${emoji}</div>`;
+    }
+
+    const card = document.createElement('div');
+    card.id = id;
+    card.className = `notif-card ${typeClass}`;
+    card.innerHTML = `
+        ${imgHtml}
+        <div class="notif-body">
+            <div class="notif-title"><span class="notif-dot"></span>${title}</div>
+            <div class="notif-desc">${desc}</div>
+            <div class="notif-time">${now}</div>
+        </div>
+        <button class="notif-close" onclick="event.stopPropagation();dismissNotif('${id}')">&times;</button>
+    `;
+    card.addEventListener('click', () => {
+        dismissNotif(id);
+        if (onClick) onClick();
+    });
+    panel.prepend(card);
+
+    // Auto-dismiss หลัง 30 วินาที (SOS ไม่หาย ต้องกดปิดเอง)
+    if (type !== 'sos') {
+        setTimeout(() => dismissNotif(id), 30000);
+    }
+
+    // จำกัดไม่เกิน 5 การ์ด
+    while (panel.children.length > 5) {
+        panel.removeChild(panel.lastChild);
+    }
+}
+
+function dismissNotif(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.add('notif-hide');
+    setTimeout(() => el.remove(), 300);
 }
 
 async function checkAlerts() {
     try {
+        // Auto-refresh pending slips + SOS on dashboard page
+        if (currentPage === 'dashboard') {
+            loadDashboardPendingSlips();
+            loadSOSAlerts();
+        }
+        if (currentPage === 'finance') {
+            loadPendingSlips();
+        }
         const data = await api('/dashboard/alerts');
         const pendingCount = data.pending_slips || 0;
         const sosCount = data.sos_count || 0;
-        const totalBadge = pendingCount + sosCount;
+        const anomalyCount = data.anomaly_count || 0;
+        const totalBadge = pendingCount + sosCount + anomalyCount;
 
         // Update badge
         const badge = document.getElementById('alert-badge');
@@ -190,27 +298,60 @@ async function checkAlerts() {
             badge.classList.add('hidden');
         }
 
-        // Chrome Push Notification (skip first load when counts are -1)
-        if (lastAlertCount.pending >= 0 && Notification.permission === 'granted') {
-            // สลิปรอ approve
+        // In-Page Notification + Sound (skip first load when counts are -1)
+        if (lastAlertCount.pending >= 0) {
+            // 🔔 สลิปใหม่ — พร้อมรูป
             if ((data.pending_payments || 0) > lastAlertCount.pending) {
-                new Notification('💰 สลิปรอ Approve', {
-                    body: `มีสลิปใหม่ ${data.pending_payments} รายการ`,
-                    icon: '/favicon.ico',
-                    tag: 'pending-payment'
-                });
+                const newSlips = data.new_slips || [];
+                if (newSlips.length > 0) {
+                    newSlips.slice(0, 3).forEach(slip => {
+                        const imgUrl = slip.slip_file_id ? `/api/payments/${slip.id}/slip-image` : null;
+                        const name = slip.first_name || slip.username || 'ลูกค้า';
+                        const amt = Number(slip.amount).toLocaleString();
+                        showNotifCard('slip',
+                            '💰 สลิปใหม่รอตรวจ!',
+                            `<b>${name}</b> — ฿${amt}<br>${slip.package_name || ''}`,
+                            imgUrl,
+                            () => navigate('finance')
+                        );
+                    });
+                } else {
+                    showNotifCard('slip',
+                        '💰 สลิปใหม่รอตรวจ!',
+                        `มีสลิปใหม่ <b>${data.pending_payments}</b> รายการ`,
+                        null,
+                        () => navigate('finance')
+                    );
+                }
+                playNotifSound('slip');
             }
-            // SOS
+            // 🆘 SOS
             if (sosCount > lastAlertCount.sos) {
-                new Notification('🆘 SOS แจ้งปัญหา', {
-                    body: `ลูกค้าแจ้งปัญหา ${sosCount} ราย`,
-                    icon: '/favicon.ico',
-                    tag: 'sos-alert'
-                });
+                showNotifCard('sos',
+                    '🆘 SOS — ด่วน!',
+                    `ลูกค้าแจ้งปัญหา <b>${sosCount}</b> ราย<br>กรุณาตรวจสอบทันที!`,
+                    null,
+                    () => navigate('dashboard')
+                );
+                playNotifSound('sos');
+            }
+            // ⚠️ ยอดผิดปกติ
+            if (anomalyCount > (lastAlertCount.anomaly || 0)) {
+                const anomalies = data.anomalies || [];
+                const desc = anomalies.length > 0
+                    ? anomalies.slice(0, 2).map(a => `<b>${a.first_name || 'ลูกค้า'}</b>: ฿${Number(a.amount).toLocaleString()} (${a.reason})`).join('<br>')
+                    : `พบยอดผิดปกติ <b>${anomalyCount}</b> รายการ`;
+                showNotifCard('anomaly',
+                    '⚠️ ยอดเงินผิดปกติ!',
+                    desc,
+                    null,
+                    () => navigate('finance')
+                );
+                playNotifSound('anomaly');
             }
         }
 
-        lastAlertCount = { pending: data.pending_payments || 0, sos: sosCount };
+        lastAlertCount = { pending: data.pending_payments || 0, sos: sosCount, anomaly: anomalyCount };
     } catch {}
 }
 
@@ -319,9 +460,12 @@ async function renderDashboard() {
             </div>
             <div class="section-title" style="margin-top:1.5rem;">🚨 Alerts</div>
             <div class="alert-box">${alertItems}</div>
+            <div id="dashboard-pending-slips"></div>
             <div id="sos-section"></div>
         `;
-        
+
+        // Load pending slips on dashboard
+        loadDashboardPendingSlips();
         // Load SOS alerts
         loadSOSAlerts();
         
@@ -366,18 +510,26 @@ async function loadSOSAlerts() {
             section.innerHTML = '';
             return;
         }
-        let html = `<div class="section-title" style="margin-top:1.5rem;">🆘 SOS แจ้งปัญหา (${data.length})</div>`;
+        let html = `<div class="section-title" style="margin-top:1.5rem;display:flex;align-items:center;gap:1rem;">🆘 SOS แจ้งปัญหา (${data.length})
+            ${data.length > 1 ? `<button class="btn btn-sm btn-warning" onclick="batchResolveAllSOS()">✅ Batch Resolve All (${data.length})</button>` : ''}
+            <button class="btn btn-sm btn-outline" onclick="showSOSHistory()">📋 History</button>
+        </div>`;
         data.forEach(s => {
             const name = s.username ? '@' + s.username : s.first_name || 'ลูกค้า';
+            const hasActive = s.has_active_sub;
             html += `<div class="pending-card">
                 <div class="pending-info">
-                    <span>👤 ${name}</span>
+                    <span>👤 ${name} ${hasActive ? '<span style="color:var(--success);font-size:0.75rem;">● VIP</span>' : '<span style="color:var(--error);font-size:0.75rem;">● ไม่มี VIP</span>'}</span>
                     <span style="font-family:var(--font-mono);font-size:0.8rem;color:var(--text-muted);">ID: ${s.telegram_id}</span>
                     <span style="font-size:0.85rem;">💬 ${(s.message || '').slice(0, 100)}</span>
                     <span style="color:var(--text-muted);font-size:0.8rem;">🕒 ${fmtDateTime(s.created_at)}</span>
                 </div>
                 <div class="btn-group">
-                    <button class="btn btn-sm btn-primary" id="sos-btn-${s.telegram_id}" onclick="resendSOSLinks(${s.telegram_id}, this)">🔗 ส่งลิงก์ใหม่</button>
+                    ${hasActive
+                        ? `<button class="btn btn-sm btn-primary" id="sos-btn-${s.telegram_id}" onclick="resendSOSLinks(${s.telegram_id}, this)">🔗 ส่งลิงก์ใหม่</button>`
+                        : `<button class="btn btn-sm btn-warning" onclick="sosContactCustomer(${s.telegram_id}, '${name.replace(/'/g, "\\'")}')">💬 แจ้งลูกค้า</button>`
+                    }
+                    <button class="btn btn-sm btn-outline" onclick="resolveSOSManual(${s.telegram_id})">✅ จบเคส</button>
                 </div>
             </div>`;
         });
@@ -411,11 +563,102 @@ async function resendSOSLinks(telegramId, btn) {
     }
 }
 
+async function sosContactCustomer(telegramId, name) {
+    const defaultMsg = `สวัสดีค่ะ ${name} 🙏\n\nทางเราตรวจสอบแล้ว ยังไม่พบ VIP ที่ active อยู่ค่ะ\n\nถ้าต้องการเข้ากลุ่มใหม่ กรุณาสมัคร VIP หรือติดต่อแอดมินนะคะ 💕`;
+    const msg = prompt('ข้อความถึงลูกค้า:', defaultMsg);
+    if (!msg) return;
+    try {
+        await api(`/dashboard/sos/${telegramId}/contact`, {
+            method: 'POST',
+            body: JSON.stringify({ message: msg })
+        });
+        toast('ส่งข้อความถึงลูกค้าแล้ว ✅', 'success');
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+async function resolveSOSManual(telegramId) {
+    if (!confirm(`จบเคส SOS ของ ID ${telegramId}? (mark as resolved)`)) return;
+    try {
+        await api(`/dashboard/sos/${telegramId}/resolve`, { method: 'POST' });
+        toast('✅ จบเคสแล้ว', 'success');
+        loadSOSAlerts();
+        checkAlerts();
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+async function batchResolveAllSOS() {
+    if (!confirm('Resolve SOS ทั้งหมดที่ค้างอยู่?')) return;
+    try {
+        const result = await api('/dashboard/sos/batch-resolve', { method: 'POST' });
+        toast(`✅ Resolve สำเร็จ ${result.resolved_count} รายการ`, 'success');
+        loadSOSAlerts();
+        checkAlerts();
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+let sosHistoryPage = 1, sosHistoryFilter = 'all';
+async function showSOSHistory(page) {
+    if (page) sosHistoryPage = page;
+    try {
+        const data = await api(`/dashboard/sos-history?status=${sosHistoryFilter}&page=${sosHistoryPage}&per_page=20`);
+        let html = `<div class="filters" style="margin-bottom:1rem;">
+            <button class="filter-btn ${sosHistoryFilter==='all'?'active':''}" onclick="sosHistoryFilter='all';sosHistoryPage=1;showSOSHistory()">All</button>
+            <button class="filter-btn ${sosHistoryFilter==='PENDING'?'active':''}" onclick="sosHistoryFilter='PENDING';sosHistoryPage=1;showSOSHistory()">Pending</button>
+            <button class="filter-btn ${sosHistoryFilter==='RESOLVED'?'active':''}" onclick="sosHistoryFilter='RESOLVED';sosHistoryPage=1;showSOSHistory()">Resolved</button>
+        </div>`;
+        html += '<div class="table-wrap"><table><thead><tr><th>วันที่</th><th>ชื่อ</th><th>TG ID</th><th>ข้อความ</th><th>สถานะ</th><th>Resolved by</th></tr></thead><tbody>';
+        data.items.forEach(s => {
+            const name = s.username ? '@' + s.username : s.first_name || '-';
+            html += `<tr>
+                <td>${fmtDateTime(s.created_at)}</td>
+                <td>${name}</td>
+                <td style="font-family:var(--font-mono);font-size:0.8rem;">${s.telegram_id}</td>
+                <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${(s.message || '-').slice(0, 80)}</td>
+                <td>${statusBadge(s.status)}</td>
+                <td>${s.resolved_by || '-'} ${s.resolved_at ? fmtDateTime(s.resolved_at) : ''}</td>
+            </tr>`;
+        });
+        html += '</tbody></table></div>';
+        html += paginationHtml(data.page, data.pages, 'showSOSHistory');
+        openModal(`🆘 SOS History (${data.total} รายการ)`, html);
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+async function loadDashboardPendingSlips() {
+    const el = document.getElementById('dashboard-pending-slips');
+    if (!el) return;
+    try {
+        const pending = await api('/payments/pending');
+        if (!pending.length) { el.innerHTML = ''; return; }
+        let html = `<div class="section-title" style="margin-top:1.5rem;">🚨 สลิปรอ Approve (${pending.length})</div>`;
+        pending.forEach(p => {
+            const slipHtml = p.slip_file_id
+                ? `<img src="/api/payments/${p.id}/slip-image" alt="สลิป" style="max-width:180px;max-height:220px;border-radius:8px;cursor:pointer;border:1px solid var(--border);" onclick="window.open(this.src)" onerror="this.outerHTML='<span style=\\'color:var(--text-dim)\\'>โหลดรูปไม่ได้</span>'">`
+                : `<span style="color:var(--text-dim);font-size:0.85rem;">ไม่มีสลิป</span>`;
+            html += `<div class="pending-card" style="display:flex;gap:1rem;align-items:flex-start;">
+                <div style="flex-shrink:0;">${slipHtml}</div>
+                <div style="flex:1;">
+                    <div class="pending-info">
+                        <span>👤 ${p.username ? '@'+p.username : p.first_name || p.telegram_id}</span>
+                        <span style="font-weight:600;">${fmtBaht(p.amount)}</span>
+                        <span style="color:var(--text-muted);font-size:0.8rem;">${fmtDateTime(p.created_at)} | ${p.package_name || ''}</span>
+                    </div>
+                    <div class="btn-group" style="margin-top:0.5rem;">
+                        <button class="btn btn-sm btn-success" onclick="approvePayment(${p.id})">✅ อนุมัติ</button>
+                        <button class="btn btn-sm btn-danger" onclick="rejectPayment(${p.id})">❌ ปฏิเสธ</button>
+                    </div>
+                </div>
+            </div>`;
+        });
+        el.innerHTML = html;
+    } catch {}
+}
+
 // ========== PAGE: CUSTOMERS ==========
 let customerSearch = '', customerFilter = 'all', customerPage = 1;
 async function renderCustomers() {
     const content = document.getElementById('page-content');
-    const broadcastBtn = hasRole('admin') ? `<button class="btn btn-primary" onclick="showBroadcastModal()" style="margin-bottom:1rem;">📢 Broadcast</button>` : '';
+    const broadcastBtn = hasRole('admin') ? `<button class="btn btn-primary" onclick="showBroadcastModal()" style="margin-bottom:1rem;">📢 Broadcast</button> <button class="btn btn-outline" onclick="showBroadcastHistory()" style="margin-bottom:1rem;">📋 Broadcast History</button>` : '';
     content.innerHTML = `
         ${broadcastBtn}
         <div class="filters">
@@ -550,6 +793,29 @@ async function doBroadcast() {
         btn.textContent = '📩 ส่ง Broadcast';
         toast(e.message, 'error');
     }
+}
+
+let bcHistoryPage = 1;
+async function showBroadcastHistory(page) {
+    if (page) bcHistoryPage = page;
+    try {
+        const data = await api(`/customers/broadcast/history?page=${bcHistoryPage}&per_page=20`);
+        let html = '<div class="table-wrap"><table><thead><tr><th>วันที่</th><th>Admin</th><th>Target</th><th>ข้อความ</th><th>ส่ง/ล้มเหลว</th></tr></thead><tbody>';
+        data.items.forEach(b => {
+            const target = b.target_tier || b.target_group || 'all';
+            const msg = (b.message_text || '').slice(0, 60) + ((b.message_text || '').length > 60 ? '...' : '');
+            html += `<tr>
+                <td>${fmtDateTime(b.created_at)}</td>
+                <td>${b.admin_name || b.admin_id}</td>
+                <td>${target}</td>
+                <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.85rem;">${msg}</td>
+                <td><span style="color:var(--success);">${b.total_sent}</span> / <span style="color:var(--error);">${b.total_failed}</span></td>
+            </tr>`;
+        });
+        html += '</tbody></table></div>';
+        html += paginationHtml(data.page, data.pages, 'showBroadcastHistory');
+        openModal(`📋 Broadcast History (${data.total} รายการ)`, html);
+    } catch (e) { toast(e.message, 'error'); }
 }
 
 async function loadCustomers(page) {
@@ -736,16 +1002,21 @@ async function loadPendingSlips() {
         if (!pending.length) { document.getElementById('pending-slips').innerHTML = ''; return; }
         let html = `<div class="section-title">🚨 สลิปรอ Approve (${pending.length})</div>`;
         pending.forEach(p => {
-            html += `<div class="pending-card">
-                <div class="pending-info">
-                    <span>👤 ${p.username ? '@'+p.username : p.first_name || p.telegram_id}</span>
-                    <span style="font-weight:600;">${fmtBaht(p.amount)}</span>
-                    <span style="color:var(--text-muted);font-size:0.8rem;">${fmtDateTime(p.created_at)}</span>
-                    ${p.slip_url ? `<button class="btn btn-sm btn-outline" onclick="window.open('${p.slip_url}')">🖼 ดูสลิป</button>` : ''}
-                </div>
-                <div class="btn-group">
-                    <button class="btn btn-sm btn-success" onclick="approvePayment(${p.id})">✅ อนุมัติ</button>
-                    <button class="btn btn-sm btn-danger" onclick="rejectPayment(${p.id})">❌ ปฏิเสธ</button>
+            const slipHtml = p.slip_file_id
+                ? `<img src="/api/payments/${p.id}/slip-image" alt="สลิป" style="max-width:180px;max-height:220px;border-radius:8px;cursor:pointer;border:1px solid var(--border);" onclick="window.open(this.src)" onerror="this.outerHTML='<span style=\\'color:var(--text-dim)\\'>โหลดรูปไม่ได้</span>'">`
+                : `<span style="color:var(--text-dim);font-size:0.85rem;">ไม่มีสลิป</span>`;
+            html += `<div class="pending-card" style="display:flex;gap:1rem;align-items:flex-start;">
+                <div style="flex-shrink:0;">${slipHtml}</div>
+                <div style="flex:1;">
+                    <div class="pending-info">
+                        <span>👤 ${p.username ? '@'+p.username : p.first_name || p.telegram_id}</span>
+                        <span style="font-weight:600;">${fmtBaht(p.amount)}</span>
+                        <span style="color:var(--text-muted);font-size:0.8rem;">${fmtDateTime(p.created_at)} | ${p.package_name || ''}</span>
+                    </div>
+                    <div class="btn-group" style="margin-top:0.5rem;">
+                        <button class="btn btn-sm btn-success" onclick="approvePayment(${p.id})">✅ อนุมัติ</button>
+                        <button class="btn btn-sm btn-danger" onclick="rejectPayment(${p.id})">❌ ปฏิเสธ</button>
+                    </div>
                 </div>
             </div>`;
         });
@@ -783,7 +1054,7 @@ async function approvePayment(id) {
     try {
         await api(`/payments/${id}/approve`, { method: 'POST' });
         toast('อนุมัติแล้ว', 'success');
-        loadPendingSlips(); loadPayments(); checkAlerts();
+        loadPendingSlips(); loadDashboardPendingSlips(); loadPayments(); checkAlerts();
     } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -793,7 +1064,7 @@ async function rejectPayment(id) {
     try {
         await api(`/payments/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) });
         toast('ปฏิเสธแล้ว', 'success');
-        loadPendingSlips(); loadPayments(); checkAlerts();
+        loadPendingSlips(); loadDashboardPendingSlips(); loadPayments(); checkAlerts();
     } catch (e) { toast(e.message, 'error'); }
 }
 
@@ -844,7 +1115,17 @@ async function loadFinanceCharts() {
 let promoTab = 'flash';
 async function renderPromotions() {
     const content = document.getElementById('page-content');
-    content.innerHTML = `
+    let statsHtml = '';
+    try {
+        const ps = await api('/promo-stats');
+        statsHtml = `<div class="cards-grid" style="margin-bottom:1rem;">
+            <div class="card"><div class="card-label">🎟 Code ใช้แล้ว</div><div class="card-value">${fmt(ps.codes_used)}</div></div>
+            <div class="card"><div class="card-label">💸 ส่วนลดรวม</div><div class="card-value">${fmtBaht(ps.total_discount)}</div></div>
+            <div class="card"><div class="card-label">⚡ Flash Sale ขายไป</div><div class="card-value">${fmt(ps.flash_sold)} slots</div></div>
+            <div class="card"><div class="card-label">💰 Flash Revenue</div><div class="card-value">${fmtBaht(ps.flash_revenue)}</div></div>
+        </div>`;
+    } catch {}
+    content.innerHTML = `${statsHtml}
         <div class="tabs">
             <div class="tab ${promoTab==='flash'?'active':''}" onclick="promoTab='flash';renderPromotions()">⚡ Flash Sale</div>
             <div class="tab ${promoTab==='code'?'active':''}" onclick="promoTab='code';renderPromotions()">🎟 Promo Code</div>
@@ -1634,7 +1915,7 @@ async function renderMarketing() {
         `;
 
         // Weekly chart
-        if (weekly.length >= 3) {
+        if (weekly.length >= 1) {
             charts.weekly = new Chart(document.getElementById('weekly-chart'), {
                 type: 'bar',
                 data: {
@@ -1658,9 +1939,59 @@ async function renderMarketing() {
             });
         } else {
             const weeklyEl = document.getElementById('weekly-chart');
-            if (weeklyEl) weeklyEl.parentElement.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.9rem;">📊 ยังมีข้อมูลน้อย รอสะสมอย่างน้อย 3 สัปดาห์</div>';
+            if (weeklyEl) weeklyEl.parentElement.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.9rem;">📊 ยังไม่มีข้อมูลรายสัปดาห์</div>';
         }
     } catch (e) { content.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${e.message}</p></div>`; }
+}
+
+// ========== PAGE: ACTIVITY LOG ==========
+let activityPage = 1, activityAction = '', activityAdmin = 0;
+async function renderActivityLog() {
+    const content = document.getElementById('page-content');
+    try {
+        const filters = await api('/dashboard/activity-log/filters');
+        const actionOpts = '<option value="">ทั้งหมด</option>' + filters.actions.map(a => `<option value="${a}" ${activityAction===a?'selected':''}>${a}</option>`).join('');
+        const adminOpts = '<option value="0">ทั้งหมด</option>' + filters.admins.map(a => `<option value="${a.id}" ${activityAdmin==a.id?'selected':''}>${a.name}</option>`).join('');
+        content.innerHTML = `
+            <div class="filters" style="margin-bottom:1rem;">
+                <select onchange="activityAction=this.value;activityPage=1;loadActivityLog()" style="padding:0.5rem;border-radius:var(--radius-sm);background:var(--surface-2);color:var(--text);border:1px solid var(--border);">
+                    ${actionOpts}
+                </select>
+                <select onchange="activityAdmin=parseInt(this.value);activityPage=1;loadActivityLog()" style="padding:0.5rem;border-radius:var(--radius-sm);background:var(--surface-2);color:var(--text);border:1px solid var(--border);">
+                    ${adminOpts}
+                </select>
+            </div>
+            <div id="activity-table"><div class="loading"><div class="spinner"></div></div></div>
+            <div id="activity-pagination"></div>
+        `;
+        loadActivityLog();
+    } catch (e) { content.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${e.message}</p></div>`; }
+}
+
+async function loadActivityLog(page) {
+    if (page) activityPage = page;
+    try {
+        let url = `/dashboard/activity-log?page=${activityPage}&per_page=30`;
+        if (activityAction) url += `&action=${encodeURIComponent(activityAction)}`;
+        if (activityAdmin) url += `&admin_id=${activityAdmin}`;
+        const data = await api(url);
+        let html = '<div class="table-wrap"><table><thead><tr><th>เวลา</th><th>Admin</th><th>Action</th><th>Type</th><th>Entity ID</th><th>Details</th><th>IP</th></tr></thead><tbody>';
+        data.items.forEach(a => {
+            const details = a.details ? JSON.stringify(a.details).slice(0, 100) : '-';
+            html += `<tr>
+                <td style="white-space:nowrap;">${fmtDateTime(a.created_at)}</td>
+                <td>${a.admin_name || a.admin_id}</td>
+                <td><span class="status-badge">${a.action}</span></td>
+                <td>${a.entity_type || '-'}</td>
+                <td>${a.entity_id || '-'}</td>
+                <td style="font-size:0.8rem;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${details}</td>
+                <td style="font-size:0.75rem;font-family:var(--font-mono);">${a.ip_address || '-'}</td>
+            </tr>`;
+        });
+        html += '</tbody></table></div>';
+        document.getElementById('activity-table').innerHTML = data.items.length ? html : '<div class="empty-state"><div class="icon">📋</div><p>ไม่มี activity</p></div>';
+        document.getElementById('activity-pagination').innerHTML = paginationHtml(data.page, data.pages, 'loadActivityLog');
+    } catch (e) { toast(e.message, 'error'); }
 }
 
 // ========== INIT ==========

@@ -26,6 +26,13 @@ logger = logging.getLogger(__name__)
 
 TH_TZ = timezone(timedelta(hours=7))
 
+
+async def make_bot(token: str) -> Bot:
+    """สร้าง Bot instance พร้อม initialize() — ป้องกัน Frozen_method_invalid."""
+    bot = Bot(token=token)
+    await bot.initialize()
+    return bot
+
 THAI_MONTHS = [
     "", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
     "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค.",

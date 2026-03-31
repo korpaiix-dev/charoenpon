@@ -146,6 +146,7 @@ async def prepare_image_for_twitter(file_id: str) -> str | None:
 
     try:
         bot = Bot(token=bot_token)
+        await bot.initialize()
         file = await bot.get_file(file_id)
         buf = io.BytesIO()
         await file.download_to_memory(buf)

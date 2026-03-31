@@ -332,6 +332,7 @@ async def notify_admin_for_decision(
 
     try:
         admin_bot = Bot(token=admin_bot_token)
+        await admin_bot.initialize()
         msg = await admin_bot.send_message(
             chat_id=admin_group_id,
             text=text,
@@ -387,6 +388,7 @@ async def _guardian_timeout_kick(context) -> None:
         # Notify user via Sales Bot
         try:
             _sales = Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+            await _sales.initialize()
             await _sales.send_message(
                 chat_id=user_id,
                 text=(
@@ -402,6 +404,7 @@ async def _guardian_timeout_kick(context) -> None:
     # Edit admin message
     try:
         admin_bot = Bot(token=admin_bot_token)
+        await admin_bot.initialize()
         await admin_bot.edit_message_text(
             chat_id=admin_group_id,
             message_id=message_id,

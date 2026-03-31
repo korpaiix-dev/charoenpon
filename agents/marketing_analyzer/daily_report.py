@@ -43,9 +43,13 @@ logger = logging.getLogger(__name__)
 
 TH_TZ = timezone(timedelta(hours=7))
 
+# Facebook Manager data
+FB_CUSTOMERS_FILE = "/root/charoenpon/fb-manager/data/customers.json"
+FB_POST_LOG_FILE = "/root/charoenpon/fb-manager/data/post_log.json"
+
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-AI_MODEL = "google/gemini-2.0-flash-lite-001"
+AI_MODEL = "anthropic/claude-sonnet-4-20250514"
 
 DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 DISCORD_CH_DAILY_REPORT = os.environ.get("DISCORD_CH_DAILY_REPORT", "")
@@ -362,6 +366,74 @@ async def _get_subscription_data(now_utc: datetime, today_start_utc: datetime) -
 # ─── AI Analysis ─────────────────────────────────────────────────────────────
 
 
+async def _get_facebook_data(today_str: str) -> dict:
+    """ดึงข้อมูล Facebook Page จาก fb-manager data files"""
+    import subprocess
+
+    result = {
+        "total_customers": 0,
+        "new_today": 0,
+        "hot_leads": 0,
+        "warm_leads": 0,
+        "cold_leads": 0,
+        "posts_today": 0,
+        "replies_today": 0,
+        "top_categories": {},
+        "page_followers": 0,
+        "avg_likes_per_post": 0,
+    }
+
+    # 1. Customer data
+    try:
+        if os.path.exists(FB_CUSTOMERS_FILE):
+            with open(FB_CUSTOMERS_FILE) as f:
+                customers = json.load(f)
+            result["total_customers"] = len(customers)
+            for c in customers.values():
+                score = c.get("lead_score", "COLD")
+                if score == "HOT":
+                    result["hot_leads"] += 1
+                elif score == "WARM":
+                    result["warm_leads"] += 1
+                else:
+                    result["cold_leads"] += 1
+                if c.get("first_contact", "").startswith(today_str):
+                    result["new_today"] += 1
+                # Aggregate categories
+                for cat, cnt in c.get("categories", {}).items():
+                    result["top_categories"][cat] = result["top_categories"].get(cat, 0) + cnt
+    except Exception as e:
+        logger.warning(f"FB customers read error: {e}")
+
+    # 2. Post log
+    try:
+        if os.path.exists(FB_POST_LOG_FILE):
+            with open(FB_POST_LOG_FILE) as f:
+                posts = json.load(f)
+            result["posts_today"] = sum(1 for p in posts if p.get("time", "").startswith(today_str))
+    except Exception as e:
+        logger.warning(f"FB post log read error: {e}")
+
+    # 3. Page stats จาก fb-manager container
+    try:
+        cmd = [
+            "docker", "exec", "charoenpon-fb-manager", "python", "-c",
+            "import sys; sys.path.insert(0,'/app'); from fb_api import get_page_info, get_feed; "
+            "import json; info=get_page_info(); feed=get_feed(10); "
+            "likes=sum(p.get('likes',{}).get('summary',{}).get('total_count',0) for p in feed); "
+            "print(json.dumps({'fans':info.get('fan_count',0),'avg_likes':round(likes/max(len(feed),1),1)}))"
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        if proc.returncode == 0 and proc.stdout.strip():
+            stats = json.loads(proc.stdout.strip())
+            result["page_followers"] = stats.get("fans", 0)
+            result["avg_likes_per_post"] = stats.get("avg_likes", 0)
+    except Exception as e:
+        logger.warning(f"FB stats error: {e}")
+
+    return result
+
+
 async def _ai_analyze(data: dict) -> dict[str, str]:
     """วิเคราะห์ข้อมูล marketing ด้วย AI (Gemini Flash via OpenRouter).
 
@@ -378,7 +450,7 @@ async def _ai_analyze(data: dict) -> dict[str, str]:
 
     prompt = f"""คุณคือ Marketing Analyst ของ VIP เจริญพร (ขายสมาชิก Telegram 18+)
 
-วิเคราะห์ข้อมูล marketing วันนี้:
+วิเคราะห์ข้อมูล marketing วันนี้ (รวม Facebook Page data):
 {data_text}
 
 ตอบในรูปแบบนี้:
@@ -388,6 +460,7 @@ async def _ai_analyze(data: dict) -> dict[str, str]:
 1. สิ่งที่ดี (ทำต่อ)
 2. สิ่งที่ต้องปรับ (ทำไม + แก้ยังไง)
 3. สิ่งที่น่ากังวล (ถ้ามี)
+4. วิเคราะห์ Facebook: engagement, lead quality, แนวทางปรับปรุง
 
 ## Action Items
 ตอบเป็น JSON format:
@@ -397,6 +470,7 @@ async def _ai_analyze(data: dict) -> dict[str, str]:
   "sales_bot": ["action 1"],
   "flash_sale": ["action 1"],
   "trial": ["action 1"],
+  "facebook": ["action 1", "action 2"],
   "summary": "สรุป 1 บรรทัด"
 }}
 ```
@@ -498,6 +572,9 @@ async def generate_daily_marketing_report() -> dict[str, Any]:
     payments = await _get_payment_data(today_start_utc)
     subscriptions = await _get_subscription_data(now_naive, today_start_utc)
 
+    # Facebook Page data
+    facebook = await _get_facebook_data(now_th.strftime("%Y-%m-%d"))
+
     all_data = {
         "date": now_th.strftime("%Y-%m-%d"),
         "flash_sale": flash_sale,
@@ -507,6 +584,7 @@ async def generate_daily_marketing_report() -> dict[str, Any]:
         "teaser": teaser,
         "payments": payments,
         "subscriptions": subscriptions,
+        "facebook": facebook,
     }
 
     # ─── AI Analysis ───
@@ -565,6 +643,19 @@ async def generate_daily_marketing_report() -> dict[str, Any]:
         f"\n━━━ Subscription สรุป ━━━\n"
         f"✅ Active: {subscriptions['active']} | ⏳ หมดวันนี้: {subscriptions['expiring_today']} | 🆕 ใหม่: {subscriptions['new_today']}\n"
     )
+
+    # Facebook Page
+    report += (
+        f"\n━━━ 📘 Facebook Page ━━━\n"
+        f"👥 Followers: {facebook['page_followers']:,}\n"
+        f"📝 โพสต์วันนี้: {facebook['posts_today']}\n"
+        f"❤️ Avg Likes/Post: {facebook['avg_likes_per_post']}\n"
+        f"💬 ลูกค้าทัก Messenger: {facebook['total_customers']} คน (ใหม่วันนี้: {facebook['new_today']})\n"
+        f"🔴 HOT: {facebook['hot_leads']} | 🟡 WARM: {facebook['warm_leads']} | 🟢 COLD: {facebook['cold_leads']}\n"
+    )
+    if facebook["top_categories"]:
+        cats = ", ".join(f"{k}: {v}" for k, v in facebook["top_categories"].items())
+        report += f"📊 คำถามที่ถามบ่อย: {cats}\n"
 
     # AI Analysis
     report += (

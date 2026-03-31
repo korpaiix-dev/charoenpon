@@ -1,9 +1,10 @@
 """Comeback DM System — ส่ง DM ลูกค้าเก่าที่หมดอายุ พร้อมส่วนลด.
 
-- รอบ 1: หมดอายุ > 3 วัน → ส่วนลด 20%
-- รอบ 2: DM รอบ 1 แล้ว 14 วัน + ยังไม่ซื้อ → ส่วนลด 30%
+- รอบ 1: หมดอายุ > 3 วัน → ส่วนลด 30%
+- รอบ 2: DM รอบ 1 แล้ว 7 วัน + ยังไม่ซื้อ → ส่วนลด 40%
 - Rate limit: 30 DM/วัน, delay 3 วินาที
 - Promo code หมดอายุ 48 ชม.
+- A/B Testing: หลาย variant per round + adaptive weighted random
 """
 
 from __future__ import annotations
@@ -11,13 +12,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import random
 import secrets
 import string
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import httpx
-from sqlalchemy import select, and_, func
+from sqlalchemy import Integer, select, and_, func, text
 from telegram import Bot
 from telegram.error import Forbidden
 from telegram.ext import ContextTypes
@@ -25,6 +27,7 @@ from telegram.ext import ContextTypes
 from shared.database import get_session
 from shared.models import (
     ComebackDmLog,
+    ContentQueue,
     Subscription,
     SubscriptionStatus,
     User,
@@ -42,6 +45,29 @@ BASE_PRICE = Decimal("300")  # VIP 30 วัน ราคาปกติ
 
 ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
 
+# ─── DB Migration ────────────────────────────────────────────────────────────
+
+MIGRATION_SQL = """
+ALTER TABLE comeback_dm_log ADD COLUMN IF NOT EXISTS variant VARCHAR(10);
+"""
+
+
+async def ensure_columns() -> None:
+    """Add variant column if not exists."""
+    try:
+        async with get_session() as session:
+            await session.execute(text(MIGRATION_SQL))
+            await session.commit()
+    except Exception as exc:
+        logger.warning("comeback_dm migration (may already exist): %s", exc)
+
+
+# ─── A/B Test Message Variants ──────────────────────────────────────────────
+
+def _calculate_discounted_price(discount_pct: int) -> int:
+    """คำนวณราคาหลังลด."""
+    return int(BASE_PRICE * (100 - discount_pct) / 100)
+
 
 def _generate_promo_code() -> str:
     """สร้าง promo code 8 ตัวอักษร."""
@@ -49,33 +75,298 @@ def _generate_promo_code() -> str:
     return "".join(secrets.choice(chars) for _ in range(8))
 
 
-def _calculate_discounted_price(discount_pct: int) -> int:
-    """คำนวณราคาหลังลด."""
-    return int(BASE_PRICE * (100 - discount_pct) / 100)
-
-
-def _build_comeback_message(first_name: str, discount_pct: int, promo_code: str) -> str:
-    """สร้างข้อความ DM COMEBACK."""
-    discounted_price = _calculate_discounted_price(discount_pct)
+# Round 1 Variants
+def _variant_r1_a(first_name: str, discount_pct: int, promo_code: str, new_clips: int) -> str:
+    """FOMO: คุณพลาดคลิปใหม่ XX ชิ้น"""
+    price = _calculate_discounted_price(discount_pct)
+    clips_text = f"{new_clips} ชิ้น" if new_clips > 0 else "เพียบ"
     return (
-        f"สวัสดีค่ะ คุณ {first_name} 💕\n"
+        f"คุณ {first_name} พลาดคลิปใหม่ {clips_text} แล้วนะ 🔥\n"
         f"\n"
-        f"VIP เจริญพร ของคุณหมดอายุไปแล้ว...\n"
-        f"แต่เรามีคลิปใหม่ๆ เพียบ!\n"
+        f"กลับมาวันนี้ ลด {discount_pct}%\n"
+        f"VIP 30 วัน ฿{price} (จาก ฿300)\n"
         f"\n"
-        f"🔥 กลับมาวันนี้ รับส่วนลด {discount_pct}%\n"
-        f"สมาชิก VIP 30 วัน ฿{discounted_price} (จาก ฿300)\n"
+        f"⏰ ใช้ได้ 48 ชม.\n"
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">สมัครต่อเลย</a>'
+    )
+
+
+def _variant_r1_b(first_name: str, discount_pct: int, promo_code: str, new_clips: int) -> str:
+    """Social proof: เมื่อวานมี XX คนกลับมาสมัคร"""
+    price = _calculate_discounted_price(discount_pct)
+    # ใช้ random range สำหรับ social proof number (realistic)
+    social_count = random.randint(8, 25)
+    return (
+        f"คุณ {first_name} รู้มั้ย? เมื่อวานมี {social_count} คนกลับมาสมัคร VIP แล้ว 🎉\n"
         f"\n"
-        f"✅ คลิปเต็มไม่เบลอ ทุกวัน\n"
-        f"✅ คลิป Exclusive ก่อนใคร\n"
-        f"✅ รวมกว่า 10,000 คลิป\n"
+        f"ลด {discount_pct}% เฉพาะคุณ → ฿{price} เท่านั้น!\n"
         f"\n"
-        f"⏰ สิทธิ์นี้ใช้ได้ 48 ชม. เท่านั้น\n"
+        f"⏰ หมดเขต 48 ชม.\n"
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">สมัคร VIP ลด {discount_pct}%</a>'
+    )
+
+
+def _variant_r1_c(first_name: str, discount_pct: int, promo_code: str, new_clips: int) -> str:
+    """Scarcity: เหลืออีก XX ชั่วโมงเท่านั้น"""
+    price = _calculate_discounted_price(discount_pct)
+    return (
+        f"⚠️ คุณ {first_name} โปรนี้เหลืออีก 48 ชั่วโมงเท่านั้น!\n"
         f"\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f'📩 <b>สมัครต่ออายุเลย 👇</b>\n'
-        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">⚡ สมัคร VIP เจริญพร ลด {discount_pct}% ⚡</a>\n'
-        f"━━━━━━━━━━━━━━━━━━"
+        f"VIP 30 วัน ลด {discount_pct}% → ฿{price}\n"
+        f"คลิปเต็มไม่เบลอ 10,000+ ชิ้น\n"
+        f"\n"
+        f"หมดแล้วหมดเลย!\n"
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">รับส่วนลดเลย</a>'
+    )
+
+
+def _variant_r1_d(first_name: str, discount_pct: int, promo_code: str, new_clips: int) -> str:
+    """Direct/สั้น: VIP ลด 30% วันนี้วันเดียว"""
+    price = _calculate_discounted_price(discount_pct)
+    return (
+        f"VIP เจริญพร ลด {discount_pct}% → ฿{price} 🔥\n"
+        f"⏰ 48 ชม. เท่านั้น\n"
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">สมัครเลย</a>'
+    )
+
+
+MESSAGE_VARIANTS_ROUND1 = [
+    ("A", _variant_r1_a),
+    ("B", _variant_r1_b),
+    ("C", _variant_r1_c),
+    ("D", _variant_r1_d),
+]
+
+
+# Round 2 Variants
+def _variant_r2_a(first_name: str, discount_pct: int, promo_code: str, new_clips: int) -> str:
+    """โอกาสสุดท้าย urgent"""
+    price = _calculate_discounted_price(discount_pct)
+    clips_text = f"{new_clips} ชิ้น" if new_clips > 0 else "เพียบ"
+    return (
+        f"โอกาสสุดท้ายค่ะ คุณ {first_name} 🚨\n"
+        f"\n"
+        f"คลิปใหม่{clips_text}รอคุณอยู่\n"
+        f"ลดพิเศษ {discount_pct}% → ฿{price} เท่านั้น!\n"
+        f"\n"
+        f"⏰ หมดเขต 48 ชม.\n"
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">สมัคร VIP ลด {discount_pct}%</a>'
+    )
+
+
+def _variant_r2_b(first_name: str, discount_pct: int, promo_code: str, new_clips: int) -> str:
+    """ลดเพิ่มเป็น 40%"""
+    price = _calculate_discounted_price(discount_pct)
+    return (
+        f"คุณ {first_name} ลดเพิ่มเป็น {discount_pct}% แล้วค่ะ! 🎉\n"
+        f"\n"
+        f"VIP 30 วัน เหลือ ฿{price} เท่านั้น\n"
+        f"คลิปเต็มไม่เบลอ 10,000+ ชิ้น\n"
+        f"\n"
+        f"⏰ 48 ชม. สุดท้าย!\n"
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">รับส่วนลด {discount_pct}%</a>'
+    )
+
+
+def _variant_r2_c(first_name: str, discount_pct: int, promo_code: str, new_clips: int) -> str:
+    """ให้ทดลอง 24 ชม. ฟรีก่อน"""
+    price = _calculate_discounted_price(discount_pct)
+    return (
+        f"คุณ {first_name} ลองดูฟรี 24 ชม. ก่อนก็ได้นะ! 🎁\n"
+        f"\n"
+        f"หรือถ้าชอบ สมัคร VIP เลย ลด {discount_pct}% → ฿{price}\n"
+        f"\n"
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">เริ่มทดลองฟรี / สมัคร VIP</a>'
+    )
+
+
+MESSAGE_VARIANTS_ROUND2 = [
+    ("A", _variant_r2_a),
+    ("B", _variant_r2_b),
+    ("C", _variant_r2_c),
+]
+
+
+# ─── Adaptive Variant Selection ─────────────────────────────────────────────
+
+async def _get_variant_weights(dm_round: int) -> dict[str, float]:
+    """ดึง conversion rate ของแต่ละ variant จาก 7 วันที่ผ่านมา.
+
+    Returns dict เช่น {"A": 0.3, "B": 0.5, "C": 0.1, "D": 0.1}
+    ถ้าข้อมูลไม่พอ 7 วัน → return dict เปล่า (ใช้ uniform random)
+    """
+    cutoff = datetime.utcnow() - timedelta(days=7)
+    async with get_session() as session:
+        # เช็คว่ามีข้อมูล variant ครบ 7 วันไหม
+        count_result = await session.execute(
+            text("""
+                SELECT COUNT(*) FROM comeback_dm_log
+                WHERE round = :round AND variant IS NOT NULL AND sent_at >= :cutoff
+            """),
+            {"round": dm_round, "cutoff": cutoff},
+        )
+        total = count_result.scalar() or 0
+
+        if total < 20:  # ต้องมีอย่างน้อย 20 records ถึงจะใช้ adaptive
+            return {}
+
+        # ดึง conversion rate per variant
+        result = await session.execute(
+            text("""
+                SELECT variant,
+                       COUNT(*) as sent,
+                       COALESCE(SUM(CASE WHEN purchased THEN 1 ELSE 0 END), 0) as purchased,
+                       COALESCE(SUM(CASE WHEN responded THEN 1 ELSE 0 END), 0) as responded
+                FROM comeback_dm_log
+                WHERE round = :round AND variant IS NOT NULL AND sent_at >= :cutoff
+                GROUP BY variant
+            """),
+            {"round": dm_round, "cutoff": cutoff},
+        )
+        rows = result.fetchall()
+
+    if not rows:
+        return {}
+
+    # คำนวณ weight: purchased * 3 + responded * 1 + baseline 1
+    weights = {}
+    for row in rows:
+        score = (row.purchased * 3) + (row.responded * 1) + 1
+        weights[row.variant] = float(score)
+
+    # Normalize
+    total_weight = sum(weights.values())
+    if total_weight > 0:
+        weights = {k: v / total_weight for k, v in weights.items()}
+
+    return weights
+
+
+def _pick_variant(variants: list[tuple[str, callable]], weights: dict[str, float]) -> tuple[str, callable]:
+    """เลือก variant โดยใช้ weighted random (ถ้ามี weights) หรือ uniform random."""
+    if weights:
+        # Weighted random
+        variant_names = [v[0] for v in variants]
+        variant_weights = [weights.get(v[0], 0.1) for v in variants]  # default 0.1 for unseen
+        total = sum(variant_weights)
+        variant_weights = [w / total for w in variant_weights]
+
+        chosen_name = random.choices(variant_names, weights=variant_weights, k=1)[0]
+        for v in variants:
+            if v[0] == chosen_name:
+                return v
+    # Uniform random
+    return random.choice(variants)
+
+
+# ─── Analytics ───────────────────────────────────────────────────────────────
+
+async def analyze_comeback_performance() -> dict:
+    """วิเคราะห์ performance ของ Comeback DM แยกตาม variant.
+
+    Returns dict:
+    {
+        "round1": {"A": {"sent": 10, "responded": 3, "purchased": 1, "conv_rate": 0.1}, ...},
+        "round2": {"A": {...}, ...},
+        "total_sent": 100,
+        "total_responded": 20,
+        "total_purchased": 5,
+        "best_variant_r1": "B",
+        "best_variant_r2": "A",
+    }
+    """
+    cutoff = datetime.utcnow() - timedelta(days=7)
+    result_data = {"round1": {}, "round2": {}, "total_sent": 0, "total_responded": 0, "total_purchased": 0}
+
+    async with get_session() as session:
+        for dm_round in [1, 2]:
+            result = await session.execute(
+                text("""
+                    SELECT variant,
+                           COUNT(*) as sent,
+                           COALESCE(SUM(CASE WHEN responded THEN 1 ELSE 0 END), 0) as responded,
+                           COALESCE(SUM(CASE WHEN purchased THEN 1 ELSE 0 END), 0) as purchased
+                    FROM comeback_dm_log
+                    WHERE round = :round AND sent_at >= :cutoff
+                    GROUP BY variant
+                    ORDER BY variant
+                """),
+                {"round": dm_round, "cutoff": cutoff},
+            )
+            rows = result.fetchall()
+
+            round_key = f"round{dm_round}"
+            best_conv = -1
+            best_variant = None
+
+            for row in rows:
+                v_name = row.variant or "NONE"
+                sent = row.sent
+                responded = row.responded
+                purchased = row.purchased
+                conv_rate = purchased / sent if sent > 0 else 0.0
+
+                result_data[round_key][v_name] = {
+                    "sent": sent,
+                    "responded": responded,
+                    "purchased": purchased,
+                    "conv_rate": round(conv_rate, 4),
+                }
+                result_data["total_sent"] += sent
+                result_data["total_responded"] += responded
+                result_data["total_purchased"] += purchased
+
+                if conv_rate > best_conv:
+                    best_conv = conv_rate
+                    best_variant = v_name
+
+            result_data[f"best_variant_r{dm_round}"] = best_variant
+
+    return result_data
+
+
+# ─── Existing Helpers (preserved) ────────────────────────────────────────────
+
+async def _get_new_content_count(since_days: int = 7) -> int:
+    """นับจำนวนคลิปใหม่ในช่วง X วันที่ผ่านมา."""
+    cutoff = datetime.utcnow() - timedelta(days=since_days)
+    async with get_session() as session:
+        result = await session.execute(
+            select(func.count(ContentQueue.id)).where(
+                ContentQueue.created_at >= cutoff,
+                ContentQueue.is_used == True,  # noqa: E712
+            )
+        )
+        return result.scalar() or 0
+
+
+def _build_comeback_message_round1(first_name: str, discount_pct: int, promo_code: str, new_clips: int) -> str:
+    """สร้างข้อความ DM COMEBACK รอบ 1 — สั้น กระชับ FOMO. (Legacy, kept for compat)"""
+    discounted_price = _calculate_discounted_price(discount_pct)
+    clips_text = f"คลิปใหม่ {new_clips} ชิ้น" if new_clips > 0 else "คลิปใหม่เพียบ"
+    return (
+        f"คุณ {first_name} พลาด{clips_text}แล้วนะ 🔥\n"
+        f"\n"
+        f"กลับมาวันนี้ ลด {discount_pct}%\n"
+        f"VIP 30 วัน ฿{discounted_price} (จาก ฿300)\n"
+        f"\n"
+        f"⏰ ใช้ได้ 48 ชม.\n"
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">สมัครต่อเลย</a>'
+    )
+
+
+def _build_comeback_message_round2(first_name: str, discount_pct: int, promo_code: str, new_clips: int) -> str:
+    """สร้างข้อความ DM COMEBACK รอบ 2 — โอกาสสุดท้าย. (Legacy, kept for compat)"""
+    discounted_price = _calculate_discounted_price(discount_pct)
+    clips_text = f"{new_clips} ชิ้น" if new_clips > 0 else "เพียบ"
+    return (
+        f"โอกาสสุดท้ายค่ะ คุณ {first_name} 🚨\n"
+        f"\n"
+        f"คลิปใหม่{clips_text}รอคุณอยู่\n"
+        f"ลดพิเศษ {discount_pct}% → ฿{discounted_price} เท่านั้น!\n"
+        f"\n"
+        f"⏰ หมดเขต 48 ชม.\n"
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">สมัคร VIP ลด {discount_pct}%</a>'
     )
 
 
@@ -125,8 +416,8 @@ async def get_expired_customers(days_since_expire: int = 3) -> list[dict]:
 
 
 async def get_round2_customers() -> list[dict]:
-    """ดึงลูกค้าที่ DM รอบ 1 แล้ว 14 วัน + ยังไม่ซื้อ + ยังไม่เคย DM รอบ 2."""
-    cutoff = datetime.utcnow() - timedelta(days=14)
+    """ดึงลูกค้าที่ DM รอบ 1 แล้ว 7 วัน + ยังไม่ซื้อ + ยังไม่เคย DM รอบ 2."""
+    cutoff = datetime.utcnow() - timedelta(days=7)
 
     async with get_session() as session:
         # User ที่เคย DM รอบ 2 แล้ว
@@ -167,13 +458,27 @@ async def get_round2_customers() -> list[dict]:
     return customers
 
 
-async def send_comeback_dm(bot: Bot, user: dict, discount_pct: int = 20, dm_round: int = 1) -> bool:
+async def send_comeback_dm(
+    bot: Bot,
+    user: dict,
+    discount_pct: int = 30,
+    dm_round: int = 1,
+    new_clips: int = 0,
+    variant_name: str | None = None,
+    variant_func: callable | None = None,
+) -> bool:
     """ส่ง DM ให้ลูกค้าเก่าพร้อมส่วนลด.
 
     Returns True if sent successfully, False if failed.
     """
     promo_code = _generate_promo_code()
-    message = _build_comeback_message(user["first_name"], discount_pct, promo_code)
+
+    if variant_func:
+        message = variant_func(user["first_name"], discount_pct, promo_code, new_clips)
+    elif dm_round == 2:
+        message = _build_comeback_message_round2(user["first_name"], discount_pct, promo_code, new_clips)
+    else:
+        message = _build_comeback_message_round1(user["first_name"], discount_pct, promo_code, new_clips)
 
     try:
         await bot.send_message(
@@ -195,7 +500,7 @@ async def send_comeback_dm(bot: Bot, user: dict, discount_pct: int = 20, dm_roun
         )
         return False
 
-    # Log to DB
+    # Log to DB (with variant)
     async with get_session() as session:
         log_entry = ComebackDmLog(
             user_id=user["user_id"],
@@ -205,10 +510,18 @@ async def send_comeback_dm(bot: Bot, user: dict, discount_pct: int = 20, dm_roun
             round=dm_round,
         )
         session.add(log_entry)
+        await session.flush()
+
+        # Set variant via raw SQL (column may not be in ORM yet)
+        if variant_name:
+            await session.execute(
+                text("UPDATE comeback_dm_log SET variant = :v WHERE id = :id"),
+                {"v": variant_name, "id": log_entry.id},
+            )
 
     logger.info(
-        "COMEBACK DM sent: user_id=%d tg=%d round=%d discount=%d%% code=%s",
-        user["user_id"], user["telegram_id"], dm_round, discount_pct, promo_code,
+        "COMEBACK DM sent: user_id=%d tg=%d round=%d discount=%d%% variant=%s code=%s",
+        user["user_id"], user["telegram_id"], dm_round, discount_pct, variant_name or "NONE", promo_code,
     )
     return True
 
@@ -291,18 +604,30 @@ async def _notify_discord_system_log(message: str) -> None:
 async def run_comeback_dm_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Scheduled job: ส่ง DM COMEBACK ลูกค้าเก่า.
 
-    - รอบ 1: หมดอายุ > 3 วัน, discount 20%
-    - รอบ 2: DM รอบ 1 แล้ว 14 วัน + ยังไม่ซื้อ, discount 30%
+    - รอบ 1: หมดอายุ > 3 วัน, discount 30%, A/B test 4 variants
+    - รอบ 2: DM รอบ 1 แล้ว 7 วัน + ยังไม่ซื้อ, discount 40%, A/B test 3 variants
+    - Adaptive: ถ้ามีข้อมูล 7 วัน+ ใช้ weighted random
     """
     bot = context.bot
     now_th = datetime.now(TH_TZ)
     logger.info("🔄 COMEBACK DM job started at %s", now_th.strftime("%Y-%m-%d %H:%M"))
 
+    # Ensure variant column exists
+    await ensure_columns()
+
+    # ดึงจำนวนคลิปใหม่สำหรับ FOMO message
+    new_clips = await _get_new_content_count(since_days=7)
+
+    # ดึง weights สำหรับ adaptive variant selection
+    r1_weights = await _get_variant_weights(dm_round=1)
+    r2_weights = await _get_variant_weights(dm_round=2)
+
     total_sent = 0
     total_failed = 0
     dm_budget = MAX_DM_PER_DAY
+    variant_counts: dict[str, int] = {}
 
-    # ---- รอบ 1: ลูกค้าหมดอายุ > 3 วัน ----
+    # ---- รอบ 1: ลูกค้าหมดอายุ > 3 วัน, ลด 30% (฿210) ----
     round1_customers = await get_expired_customers(days_since_expire=3)
     round1_sent = 0
     round1_failed = 0
@@ -310,17 +635,22 @@ async def run_comeback_dm_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     for customer in round1_customers:
         if dm_budget <= 0:
             break
-        success = await send_comeback_dm(bot, customer, discount_pct=20, dm_round=1)
+        v_name, v_func = _pick_variant(MESSAGE_VARIANTS_ROUND1, r1_weights)
+        success = await send_comeback_dm(
+            bot, customer, discount_pct=30, dm_round=1, new_clips=new_clips,
+            variant_name=v_name, variant_func=v_func,
+        )
         if success:
             round1_sent += 1
             total_sent += 1
             dm_budget -= 1
+            variant_counts[f"R1_{v_name}"] = variant_counts.get(f"R1_{v_name}", 0) + 1
         else:
             round1_failed += 1
             total_failed += 1
         await asyncio.sleep(DM_DELAY_SECONDS)
 
-    # ---- รอบ 2: DM รอบ 1 แล้ว 14 วัน + ยังไม่ซื้อ ----
+    # ---- รอบ 2: DM รอบ 1 แล้ว 7 วัน + ยังไม่ซื้อ, ลด 40% (฿180) ----
     round2_sent = 0
     round2_failed = 0
 
@@ -329,22 +659,30 @@ async def run_comeback_dm_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         for customer in round2_customers:
             if dm_budget <= 0:
                 break
-            success = await send_comeback_dm(bot, customer, discount_pct=30, dm_round=2)
+            v_name, v_func = _pick_variant(MESSAGE_VARIANTS_ROUND2, r2_weights)
+            success = await send_comeback_dm(
+                bot, customer, discount_pct=40, dm_round=2, new_clips=new_clips,
+                variant_name=v_name, variant_func=v_func,
+            )
             if success:
                 round2_sent += 1
                 total_sent += 1
                 dm_budget -= 1
+                variant_counts[f"R2_{v_name}"] = variant_counts.get(f"R2_{v_name}", 0) + 1
             else:
                 round2_failed += 1
                 total_failed += 1
             await asyncio.sleep(DM_DELAY_SECONDS)
 
     # ---- Summary ----
+    variant_summary = ", ".join(f"{k}:{v}" for k, v in sorted(variant_counts.items()))
     summary = (
         f"📊 COMEBACK DM Summary ({now_th.strftime('%d/%m/%Y')})\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"รอบ 1 (ลด 20%): ส่ง {round1_sent} / ไม่ได้ {round1_failed}\n"
-        f"รอบ 2 (ลด 30%): ส่ง {round2_sent} / ไม่ได้ {round2_failed}\n"
+        f"รอบ 1 (ลด 30%): ส่ง {round1_sent} / ไม่ได้ {round1_failed}\n"
+        f"รอบ 2 (ลด 40%): ส่ง {round2_sent} / ไม่ได้ {round2_failed}\n"
+        f"Variants: {variant_summary or 'N/A'}\n"
+        f"Adaptive: {'ON' if r1_weights else 'OFF'}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"รวม: ส่ง {total_sent} / ไม่ได้ {total_failed}"
     )
@@ -358,6 +696,7 @@ async def run_comeback_dm_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     if admin_token and total_sent > 0:
         try:
             admin_bot = Bot(token=admin_token)
+            await admin_bot.initialize()
 
             # ดึงสถิติ responded/purchased ของวันนี้
             today_start = now_th.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -386,8 +725,10 @@ async def run_comeback_dm_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                 f"วันนี้ส่ง DM COMEBACK <b>{total_sent}</b> คน\n"
                 f"ตอบกลับ (กดลิงก์): <b>{responded_all}</b> คน\n"
                 f"สมัคร VIP: <b>{purchased_all}</b> คน\n\n"
-                f"รอบ 1 (ลด 20%): {round1_sent} คน\n"
-                f"รอบ 2 (ลด 30%): {round2_sent} คน"
+                f"รอบ 1 (ลด 30%): {round1_sent} คน\n"
+                f"รอบ 2 (ลด 40%): {round2_sent} คน\n\n"
+                f"🔬 <b>A/B Variants:</b> {variant_summary or 'N/A'}\n"
+                f"🤖 Adaptive: {'ON' if r1_weights else 'OFF (< 20 records)'}"
             )
             await admin_bot.send_message(
                 chat_id=ADMIN_GROUP_ID,

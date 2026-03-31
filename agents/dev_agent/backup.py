@@ -56,18 +56,17 @@ def _get_pg_env() -> dict[str, str]:
 
 
 async def run_pg_dump(output_path: Path) -> bool:
-    """รัน pg_dump ผ่าน docker exec ไปยัง postgres container."""
+    """รัน pg_dump ตรงผ่าน network (ไม่ต้องพึ่ง docker CLI)."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # ใช้ docker exec รัน pg_dump ใน postgres container แล้ว redirect output ออกมา
-    container = "charoenpon-postgres"
+    # ใช้ pg_dump ตรงผ่าน PGHOST (postgres container name on docker network)
     cmd = (
-        f"docker exec -e PGPASSWORD={DB_PASSWORD} {container} "
-        f"pg_dump -U {DB_USER} -d {DB_NAME} "
-        f"--format=custom --compress=6 > {output_path}"
+        f"PGPASSWORD={DB_PASSWORD} pg_dump -h {DB_HOST} -p {DB_PORT} "
+        f"-U {DB_USER} -d {DB_NAME} "
+        f"--format=custom --compress=6 -f {output_path}"
     )
 
-    logger.info("Running pg_dump via docker exec: %s", container)
+    logger.info("Running pg_dump via network: host=%s port=%s", DB_HOST, DB_PORT)
 
     proc = await asyncio.create_subprocess_shell(
         cmd,

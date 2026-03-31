@@ -222,6 +222,7 @@ async def broadcast_trial_promo(context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     bot = Bot(token=token)
+    await bot.initialize()
     image = await _create_promo_image(bot, "TRIAL VIP", "ทดลอง 24 ชม. แค่ ฿99")
 
     success, failed = await _broadcast_to_free_groups(bot, TRIAL_PROMO_TEXT, image)
@@ -238,6 +239,7 @@ async def broadcast_referral_promo(context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     bot = Bot(token=token)
+    await bot.initialize()
     image = await _create_promo_image(bot, "INVITE FRIENDS", "ชวนเพื่อน = VIP ฟรี!")
 
     success, failed = await _broadcast_to_free_groups(bot, REFERRAL_PROMO_TEXT, image)

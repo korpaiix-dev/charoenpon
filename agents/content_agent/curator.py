@@ -1,6 +1,6 @@
 """Content Curator (มิน) - จัดการ content ทุกกลุ่ม VIP ตามมาตรฐานแต่ละ tier.
 
-Model: deepseek/deepseek-chat ผ่าน OpenRouter
+Model: anthropic/claude-haiku-3-5 ผ่าน OpenRouter
 กฎเหล็ก: 18+ เต็มที่ใน VIP, ห้ามส่งไฟล์ให้เจมส์ ส่งแค่ hint
 """
 
@@ -17,7 +17,7 @@ from shared.models import ContentSchedule, GroupSlug
 
 logger = logging.getLogger(__name__)
 
-MODEL = "deepseek/deepseek-chat"
+MODEL = "anthropic/claude-haiku-3-5"
 CALLER = "content_agent/curator"
 
 

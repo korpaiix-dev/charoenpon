@@ -592,6 +592,7 @@ class PaymentApprovalView(discord.ui.View):
             import telegram as tg
             import os
             sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+            await sales_bot.initialize()
             invite_links = await _approve_payment(payment, user_tg_id, sales_bot)
             links_text = "\n".join(invite_links) if invite_links else "ไม่สามารถสร้างลิงก์ได้"
 
@@ -652,6 +653,7 @@ class PaymentApprovalView(discord.ui.View):
                 if user:
                     try:
                         sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+                        await sales_bot.initialize()
                         await sales_bot.send_message(
                             chat_id=user.telegram_id,
                             text=(

@@ -260,6 +260,7 @@ async def handle_guardian_callback(
             try:
                 from telegram import Bot as _Bot
                 _sales = _Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+                await _sales.initialize()
                 await _sales.send_message(
                     chat_id=user_id,
                     text=(

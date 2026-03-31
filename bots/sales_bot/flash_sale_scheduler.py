@@ -2,7 +2,7 @@
 
 - ทุกวันศุกร์ 21:00 ไทย: สร้าง flash_sale record + เปิด + โปรโมทพร้อมภาพ Flash Sale → 11 กลุ่มฟรี
 - ทุกวันศุกร์ 22:00, 23:00 ไทย: remind flash sale พร้อมภาพใหม่ (ถ้ายัง active)
-- ทุกวันเสาร์ 00:00 ไทย: ปิด flash sale
+- ทุกวันเสาร์ 00:00 ไทย: ปิด flash sale + log analytics
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import select, update as sa_update
+from sqlalchemy import select, update as sa_update, text
 from telegram import Bot
 from telegram.ext import ContextTypes
 
@@ -69,6 +69,137 @@ FLASH_SALE_PROMO = (
     "เมื่อหมดก็หมด ไม่มีรอบสอง!"
 )
 
+# ─── DB Migration: flash_sale_analytics table ────────────────────────────────
+
+ANALYTICS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS flash_sale_analytics (
+    id SERIAL PRIMARY KEY,
+    flash_sale_id INTEGER NOT NULL,
+    total_clicks INTEGER NOT NULL DEFAULT 0,
+    total_orders INTEGER NOT NULL DEFAULT 0,
+    total_revenue NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    conversion_rate NUMERIC(5, 4) NOT NULL DEFAULT 0,
+    analyzed_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_fsa_flash_sale_id ON flash_sale_analytics(flash_sale_id);
+"""
+
+
+async def _ensure_analytics_table() -> None:
+    """Create flash_sale_analytics table if not exists."""
+    try:
+        async with get_session() as session:
+            await session.execute(text(ANALYTICS_TABLE_SQL))
+            await session.commit()
+    except Exception as exc:
+        logger.warning("flash_sale_analytics migration (may already exist): %s", exc)
+
+
+# ─── Flash Sale Analytics ────────────────────────────────────────────────────
+
+async def analyze_flash_sale_performance() -> dict:
+    """วิเคราะห์ performance ของ Flash Sales ทั้งหมด.
+
+    Returns dict:
+    {
+        "sales": [
+            {"id": 1, "name": "...", "sold": 10, "total": 30, "revenue": 1990,
+             "starts_at": ..., "day_of_week": "Friday", "hour": 21},
+            ...
+        ],
+        "best_day": "Friday",
+        "best_hour": 21,
+        "avg_conversion": 0.33,
+        "total_revenue": 5970,
+    }
+    """
+    await _ensure_analytics_table()
+
+    async with get_session() as session:
+        result = await session.execute(
+            text("""
+                SELECT id, name, sold_slots, total_slots, flash_price, original_price,
+                       starts_at, ends_at, is_active
+                FROM flash_sales
+                ORDER BY starts_at DESC
+                LIMIT 20
+            """)
+        )
+        rows = result.fetchall()
+
+    if not rows:
+        return {"sales": [], "best_day": None, "best_hour": None, "avg_conversion": 0, "total_revenue": 0}
+
+    sales = []
+    day_revenue: dict[str, float] = {}
+    hour_revenue: dict[int, float] = {}
+    total_revenue = 0
+    total_sold = 0
+    total_slots = 0
+
+    for row in rows:
+        revenue = float(row.flash_price) * row.sold_slots
+        starts_utc = row.starts_at
+        # Convert to Thai time for day/hour analysis
+        if starts_utc:
+            starts_th = starts_utc.replace(tzinfo=timezone.utc).astimezone(TH_TZ) if starts_utc.tzinfo is None else starts_utc.astimezone(TH_TZ)
+            day_name = starts_th.strftime("%A")
+            hour = starts_th.hour
+        else:
+            day_name = "Unknown"
+            hour = 0
+
+        sales.append({
+            "id": row.id,
+            "name": row.name,
+            "sold": row.sold_slots,
+            "total": row.total_slots,
+            "revenue": revenue,
+            "starts_at": starts_utc,
+            "day_of_week": day_name,
+            "hour": hour,
+        })
+
+        day_revenue[day_name] = day_revenue.get(day_name, 0) + revenue
+        hour_revenue[hour] = hour_revenue.get(hour, 0) + revenue
+        total_revenue += revenue
+        total_sold += row.sold_slots
+        total_slots += row.total_slots
+
+    best_day = max(day_revenue, key=day_revenue.get) if day_revenue else None
+    best_hour = max(hour_revenue, key=hour_revenue.get) if hour_revenue else None
+    avg_conversion = total_sold / total_slots if total_slots > 0 else 0
+
+    return {
+        "sales": sales,
+        "best_day": best_day,
+        "best_hour": best_hour,
+        "avg_conversion": round(avg_conversion, 4),
+        "total_revenue": total_revenue,
+    }
+
+
+async def _log_flash_sale_analytics(flash_sale_id: int, sold: int, total: int, revenue: float) -> None:
+    """Log analytics เมื่อ flash sale จบ."""
+    await _ensure_analytics_table()
+    conv_rate = sold / total if total > 0 else 0
+
+    try:
+        async with get_session() as session:
+            await session.execute(
+                text("""
+                    INSERT INTO flash_sale_analytics (flash_sale_id, total_clicks, total_orders, total_revenue, conversion_rate)
+                    VALUES (:fsid, 0, :orders, :revenue, :conv)
+                """),
+                {"fsid": flash_sale_id, "orders": sold, "revenue": revenue, "conv": round(conv_rate, 4)},
+            )
+            await session.commit()
+        logger.info("Flash sale analytics logged: flash_sale_id=%d sold=%d revenue=%.2f", flash_sale_id, sold, revenue)
+    except Exception as exc:
+        logger.error("Failed to log flash sale analytics: %s", exc)
+
+
+# ─── Start Flash Sale ────────────────────────────────────────────────────────
 
 async def start_flash_sale(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Job: เปิด Flash Sale ทุกวันศุกร์ 21:00 ไทย."""
@@ -158,6 +289,7 @@ async def start_flash_sale(context: ContextTypes.DEFAULT_TYPE) -> None:
         if admin_token:
             try:
                 admin_bot = Bot(token=admin_token)
+                await admin_bot.initialize()
                 await admin_bot.send_message(
                     chat_id=admin_group_id,
                     text=(
@@ -177,7 +309,7 @@ async def start_flash_sale(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def end_flash_sale(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Job: ปิด Flash Sale ทุกวันเสาร์ 00:00 ไทย."""
+    """Job: ปิด Flash Sale ทุกวันเสาร์ 00:00 ไทย + log analytics."""
     logger.info("Ending Flash Friday")
 
     try:
@@ -190,11 +322,18 @@ async def end_flash_sale(context: ContextTypes.DEFAULT_TYPE) -> None:
 
             sold = flash.sold_slots if flash else 0
             total = flash.total_slots if flash else 30
+            flash_id = flash.id if flash else None
+            flash_price = float(flash.flash_price) if flash else 199
 
             # Deactivate all flash sales
             await session.execute(
                 sa_update(FlashSale).where(FlashSale.is_active == True).values(is_active=False)  # noqa: E712
             )
+
+        # Log analytics
+        if flash_id:
+            revenue = sold * flash_price
+            await _log_flash_sale_analytics(flash_id, sold, total, revenue)
 
         # Notify admin with results
         admin_group_id = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
@@ -202,6 +341,7 @@ async def end_flash_sale(context: ContextTypes.DEFAULT_TYPE) -> None:
         if admin_token:
             try:
                 admin_bot = Bot(token=admin_token)
+                await admin_bot.initialize()
                 revenue = sold * 199
                 await admin_bot.send_message(
                     chat_id=admin_group_id,

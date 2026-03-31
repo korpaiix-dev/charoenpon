@@ -1,6 +1,6 @@
 """Finance Reports (นัท) - รายงานการเงิน daily/weekly + alerts อัตโนมัติ.
 
-Model: deepseek/deepseek-chat ผ่าน OpenRouter
+Model: openai/gpt-4o-mini ผ่าน OpenRouter
 - รายงานประจำวัน 23:00: รายรับ/รายจ่าย/กำไร/margin แยกวิธีชำระ
 - รายงานประจำสัปดาห์ จันทร์ 07:00: MRR/CAC/Churn/ARPU/แพ็กเกจขายดี
 - ALERT อัตโนมัติ: รายรับต่ำ>30%, Ads เกิน>20%, Churn>10คน/24h
@@ -36,7 +36,7 @@ from shared.utils import TH_TZ, format_thb
 
 logger = logging.getLogger(__name__)
 
-MODEL = "deepseek/deepseek-chat"
+MODEL = "openai/gpt-4o-mini"
 CALLER = "finance_agent/reports"
 
 DISCORD_BOT_TOKEN: str = os.environ.get("DISCORD_BOT_TOKEN", "")

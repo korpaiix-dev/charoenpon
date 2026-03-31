@@ -1,6 +1,6 @@
 """Ad Copywriter (เจมส์) - เขียน Facebook ad copy เซ็กซี่แต่ safe.
 
-Model: anthropic/claude-haiku-4-5 ผ่าน OpenRouter
+Model: anthropic/claude-haiku-3-5 ผ่าน OpenRouter
 กฎเหล็ก: เซ็กซี่-safe, ห้าม 18+, ห้าม repost จาก Telegram
 """
 
@@ -13,7 +13,7 @@ from shared.api_cost_tracker import call_openrouter
 
 logger = logging.getLogger(__name__)
 
-MODEL = "anthropic/claude-haiku-4-5"
+MODEL = "anthropic/claude-haiku-3-5"
 CALLER = "marketing_agent/copywriter"
 
 FB_ALLOWED_CTAS = ["Send Message", "Learn More"]
