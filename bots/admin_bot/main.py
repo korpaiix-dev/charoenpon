@@ -20,17 +20,19 @@ from shared.database import close_db, init_db
 
 from bots.admin_bot.handlers.approval import (
     approve_payment_callback,
-    chat_user_callback,
     cmd_pending_payments,
     cmd_pending_broadcasts,
     approve_broadcast_callback,
     reject_payment_callback,
     reject_broadcast_callback,
     inspect_payment_callback,
+    approve_promo_callback,
     approve_by_price_callback,
     reject_user_callback,
     ban_user_callback,
     sos_resend_callback,
+    sos_deny_callback,
+    sos_ban_callback,
 )
 from bots.admin_bot.handlers.broadcast import get_broadcast_handlers
 from bots.admin_bot.handlers.reports import (
@@ -211,14 +213,15 @@ def main() -> None:
     # Payment inspect callback
     application.add_handler(CallbackQueryHandler(inspect_payment_callback, pattern=r"^pay_inspect:\d+$"))
 
-    # New-style approval buttons (approve_300_userid, reject_userid, ban_userid)
+    # New-style approval buttons (approve_promo_userid, approve_300_userid, reject_userid, ban_userid)
+    application.add_handler(CallbackQueryHandler(approve_promo_callback, pattern=r"^approve_promo_\d+$"))
     application.add_handler(CallbackQueryHandler(approve_by_price_callback, pattern=r"^approve_\d+_\d+$"))
     application.add_handler(CallbackQueryHandler(reject_user_callback, pattern=r"^reject_\d+$"))
     application.add_handler(CallbackQueryHandler(ban_user_callback, pattern=r"^ban_\d+$"))
     application.add_handler(CallbackQueryHandler(sos_resend_callback, pattern=r"^sos_resend_\d+$"))
+    application.add_handler(CallbackQueryHandler(sos_deny_callback, pattern=r"^sos_deny_\d+$"))
+    application.add_handler(CallbackQueryHandler(sos_ban_callback, pattern=r"^sos_ban_\d+$"))
 
-    # Chat with customer button
-    application.add_handler(CallbackQueryHandler(chat_user_callback, pattern=r"^chat_user:\d+$"))
 
     # Unknown command handler
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
