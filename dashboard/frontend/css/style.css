@@ -301,6 +301,80 @@ tr:nth-child(even):hover td { background: rgba(0, 212, 255, 0.05); }
 .toast-info { background: rgba(0, 212, 255, 0.15); color: var(--primary); border: 1px solid var(--primary); }
 @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
+/* ========== ALERT NOTIFICATION PANEL ========== */
+.notif-panel {
+    position: fixed; top: 1rem; right: 1rem;
+    display: flex; flex-direction: column; gap: 0.5rem;
+    z-index: 999; max-width: 420px; width: 100%;
+    pointer-events: none;
+}
+.notif-card {
+    pointer-events: all;
+    display: flex; gap: 0.75rem; align-items: flex-start;
+    background: var(--surface-2); border-radius: 12px;
+    padding: 1rem; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    border-left: 4px solid var(--primary);
+    animation: notifSlide 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    cursor: pointer; transition: transform 0.2s, opacity 0.3s;
+    position: relative;
+}
+.notif-card:hover { transform: scale(1.02); }
+.notif-card.notif-slip { border-left-color: var(--success); }
+.notif-card.notif-sos { border-left-color: var(--error); animation: notifSlide 0.4s cubic-bezier(0.16, 1, 0.3, 1), notifGlow 1s ease infinite; }
+.notif-card.notif-anomaly { border-left-color: var(--warning); }
+.notif-card.notif-hide { opacity: 0; transform: translateX(120%); }
+
+.notif-img {
+    width: 80px; height: 100px; object-fit: cover;
+    border-radius: 8px; border: 1px solid var(--border);
+    flex-shrink: 0; background: var(--surface);
+}
+.notif-body { flex: 1; min-width: 0; }
+.notif-title {
+    font-weight: 700; font-size: 0.95rem; margin-bottom: 0.25rem;
+    display: flex; align-items: center; gap: 0.4rem;
+}
+.notif-title .notif-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--success); display: inline-block;
+    animation: notifPulse 1.5s infinite;
+}
+.notif-sos .notif-dot { background: var(--error); }
+.notif-anomaly .notif-dot { background: var(--warning); }
+.notif-desc { font-size: 0.82rem; color: var(--text-muted); line-height: 1.4; }
+.notif-desc b { color: var(--text); }
+.notif-time { font-size: 0.72rem; color: var(--text-dim); margin-top: 0.3rem; }
+.notif-close {
+    position: absolute; top: 0.4rem; right: 0.6rem;
+    background: none; border: none; color: var(--text-dim);
+    font-size: 1rem; cursor: pointer; padding: 0.2rem;
+    line-height: 1;
+}
+.notif-close:hover { color: var(--text); }
+.notif-noimg {
+    width: 52px; height: 52px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.8rem; background: var(--surface); border-radius: 8px;
+}
+
+@keyframes notifSlide {
+    from { transform: translateX(120%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+@keyframes notifPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.3); }
+}
+@keyframes notifGlow {
+    0%, 100% { box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+    50% { box-shadow: 0 8px 32px rgba(255,107,107,0.3); }
+}
+
+@media (max-width: 600px) {
+    .notif-panel { max-width: 100%; right: 0.5rem; left: 0.5rem; top: 0.5rem; }
+    .notif-img { width: 60px; height: 75px; }
+}
+
 /* ========== CHART ========== */
 .chart-container { position: relative; height: 180px; max-height: 180px; margin: 1rem 0; }
 
@@ -381,7 +455,7 @@ tr:nth-child(even):hover td { background: rgba(0, 212, 255, 0.05); }
     margin-bottom: 0.75rem; display: flex; align-items: center;
     justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;
 }
-.pending-info { display: flex; align-items: center; gap: 1rem; font-size: 0.9rem; }
+.pending-info { display: flex; flex-direction: column; align-items: flex-start; gap: 0.3rem; font-size: 0.9rem; }
 
 /* ========== MINI CARDS (4-col) ========== */
 .mini-cards {
@@ -419,11 +493,13 @@ tr:nth-child(even):hover td { background: rgba(0, 212, 255, 0.05); }
     .main-content { margin-left: 0; }
     .page-content { padding: 1rem; }
     .top-bar { padding: 0.75rem 1rem; }
-    .cards-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+    .cards-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); overflow-x: hidden; }
     .card-wide { grid-column: span 1; }
     .form-row { flex-direction: column; }
     .filters { flex-direction: column; }
     .search-input { min-width: auto; width: 100%; }
+    .page-content { overflow-x: hidden; }
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
 
 /* ========== LOADING ========== */

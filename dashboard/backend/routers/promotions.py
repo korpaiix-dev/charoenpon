@@ -9,11 +9,40 @@ from datetime import datetime
 
 router = APIRouter(tags=["promotions"])
 
+
+def _to_dt(val):
+    """Convert string or datetime to datetime."""
+    if isinstance(val, datetime):
+        return val
+    if isinstance(val, str):
+        return datetime.fromisoformat(val)
+    raise ValueError(f"Cannot parse datetime from {val!r}")
+
+
 async def _log(admin_id, action, entity_type, entity_id, details, ip):
     await pool.execute(
         "INSERT INTO dashboard_activity_log (admin_id, action, entity_type, entity_id, details, ip_address) VALUES ($1,$2,$3,$4,$5::jsonb,$6)",
         admin_id, action, entity_type, entity_id, json.dumps(details) if details else None, ip
     )
+
+# ========== PROMO STATS SUMMARY ==========
+@router.get("/api/promo-stats")
+async def promo_stats(admin=Depends(require_role("admin"))):
+    """Summary stats for promotions page."""
+    row = await pool.fetchrow("""
+        SELECT
+            (SELECT COUNT(*) FROM promo_code_usage) as codes_used,
+            (SELECT COALESCE(SUM(discount_amount), 0) FROM promo_code_usage) as total_discount,
+            (SELECT COALESCE(SUM(sold_slots), 0) FROM flash_sales) as flash_sold,
+            (SELECT COALESCE(SUM(sold_slots * flash_price), 0) FROM flash_sales WHERE sold_slots > 0) as flash_revenue
+    """)
+    return {
+        "codes_used": row["codes_used"],
+        "total_discount": float(row["total_discount"]),
+        "flash_sold": row["flash_sold"],
+        "flash_revenue": float(row["flash_revenue"]),
+    }
+
 
 # ========== FLASH SALES ==========
 @router.get("/api/flash-sales")
@@ -31,8 +60,8 @@ async def create_flash_sale(req: FlashSaleCreate, request: Request, admin=Depend
         INSERT INTO flash_sales (name, package_id, flash_price, original_price, total_slots, starts_at, ends_at, is_active)
         VALUES ($1, $2, $3, $4, $5, $6::timestamp, $7::timestamp, TRUE)
         RETURNING id
-    """, req.name, req.package_id, req.flash_price, req.original_price, req.total_slots, req.starts_at, req.ends_at)
-    
+    """, req.name, req.package_id, req.flash_price, req.original_price, req.total_slots, _to_dt(req.starts_at), _to_dt(req.ends_at))
+
     ip = request.client.host if request.client else None
     await _log(admin["id"], "create_flash_sale", "flash_sale", row["id"], {"name": req.name}, ip)
     return {"ok": True, "id": row["id"]}
@@ -45,17 +74,18 @@ async def update_flash_sale(sale_id: int, req: FlashSaleUpdate, request: Request
     for field, val in req.dict(exclude_none=True).items():
         if field in ("starts_at", "ends_at"):
             updates.append(f"{field} = ${idx}::timestamp")
+            params.append(_to_dt(val))
         else:
             updates.append(f"{field} = ${idx}")
-        params.append(val)
+            params.append(val)
         idx += 1
-    
+
     if not updates:
         raise HTTPException(400, "No fields to update")
-    
+
     params.append(sale_id)
     await pool.execute(f"UPDATE flash_sales SET {', '.join(updates)} WHERE id = ${idx}", *params)
-    
+
     ip = request.client.host if request.client else None
     await _log(admin["id"], "update_flash_sale", "flash_sale", sale_id, req.dict(exclude_none=True), ip)
     return {"ok": True}
@@ -90,8 +120,8 @@ async def create_promo_code(req: PromoCodeCreate, request: Request, admin=Depend
         INSERT INTO promo_codes (code, discount_pct, max_uses, package_id, min_amount, expires_at, created_by)
         VALUES ($1, $2, $3, $4, $5, $6::timestamp, $7)
         RETURNING id
-    """, req.code.upper(), req.discount_pct, req.max_uses, req.package_id, req.min_amount, req.expires_at, admin["id"])
-    
+    """, req.code.upper(), req.discount_pct, req.max_uses, req.package_id, req.min_amount, _to_dt(req.expires_at), admin["id"])
+
     ip = request.client.host if request.client else None
     await _log(admin["id"], "create_promo_code", "promo_code", row["id"], {"code": req.code}, ip)
     return {"ok": True, "id": row["id"]}
@@ -104,9 +134,10 @@ async def update_promo_code(code_id: int, req: PromoCodeUpdate, request: Request
     for field, val in req.dict(exclude_none=True).items():
         if field == "expires_at":
             updates.append(f"{field} = ${idx}::timestamp")
+            params.append(_to_dt(val))
         else:
             updates.append(f"{field} = ${idx}")
-        params.append(val)
+            params.append(val)
         idx += 1
     if not updates:
         raise HTTPException(400, "No fields to update")
@@ -142,7 +173,7 @@ async def create_scheduled(req: ScheduledPromotionCreate, request: Request, admi
         INSERT INTO scheduled_promotions (name, message_text, target_groups, scheduled_at, repeat_type, created_by)
         VALUES ($1, $2, $3::jsonb, $4::timestamp, $5, $6)
         RETURNING id
-    """, req.name, req.message_text, json.dumps(req.target_groups), req.scheduled_at, req.repeat_type, admin["id"])
+    """, req.name, req.message_text, json.dumps(req.target_groups), _to_dt(req.scheduled_at), req.repeat_type, admin["id"])
     ip = request.client.host if request.client else None
     await _log(admin["id"], "create_scheduled_promo", "scheduled_promotion", row["id"], {"name": req.name}, ip)
     return {"ok": True, "id": row["id"]}
@@ -158,7 +189,7 @@ async def update_scheduled(promo_id: int, req: ScheduledPromotionUpdate, request
             params.append(json.dumps(val))
         elif field == "scheduled_at":
             updates.append(f"{field} = ${idx}::timestamp")
-            params.append(val)
+            params.append(_to_dt(val))
         else:
             updates.append(f"{field} = ${idx}")
             params.append(val)

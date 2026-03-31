@@ -20,7 +20,7 @@ TH_TZ = timezone(timedelta(hours=7))
 DISCORD_BOT_TOKEN: str = os.environ.get("DISCORD_BOT_TOKEN", "")
 DISCORD_CH_MANAGER: str = os.environ.get("DISCORD_CH_MANAGER", "")
 
-AI_MODEL = "deepseek/deepseek-chat-v3-0324:free"
+AI_MODEL = "anthropic/claude-sonnet-4-20250514"
 CALLER = "manager_agent/reporter"
 
 

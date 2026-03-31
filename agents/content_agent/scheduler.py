@@ -29,7 +29,7 @@ from shared.utils import TH_TZ, format_datetime_thai, format_thb, get_expiring_u
 
 logger = logging.getLogger(__name__)
 
-MODEL = "deepseek/deepseek-chat"
+MODEL = "anthropic/claude-haiku-3-5"
 CALLER = "content_agent/scheduler"
 
 POST_TIMES_TH = [

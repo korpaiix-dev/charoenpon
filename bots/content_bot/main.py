@@ -56,8 +56,46 @@ FREE_GROUPS = [
     -1003789621076,  # เจริญพร
 ]
 
-AI_MODEL = "google/gemini-2.0-flash-lite-001"
+AI_MODEL = "anthropic/claude-haiku-3-5"
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+
+# ── Caption Styles สำหรับความหลากหลาย ──
+CAPTION_STYLES = [
+    {"name": "question", "prompt": "แบบตั้งคำถามชวนสงสัย เช่น 'อยากรู้มั้ยว่า...' 'เคยเห็นแบบนี้ยัง?'"},
+    {"name": "countdown", "prompt": "แบบ countdown เร่งด่วน เช่น 'เหลืออีก X ชม.!' 'วันนี้วันสุดท้าย!' สร้างความเร่งรีบ"},
+    {"name": "testimonial", "prompt": "แบบ testimonial อ้างอิงตัวเลข เช่น 'เมื่อวานมีคนสมัคร XX คน' 'สมาชิกใหม่วันนี้ XX คน' (ใช้ตัวเลขสมมุติ)"},
+    {"name": "curiosity_gap", "prompt": "แบบ curiosity gap สร้างช่องว่างความอยากรู้ เช่น 'คลิปนี้ถ้าไม่เบลอ...' 'ถ้าเห็นชัดๆ จะ...'"},
+    {"name": "emoji_heavy", "prompt": "แบบใช้อีโมจิเยอะๆ 4-6 ตัว สลับกับข้อความสั้นๆ ดูสนุกสนาน"},
+    {"name": "ultra_short", "prompt": "แบบสั้นมากแค่ 1 บรรทัด ไม่เกิน 15 คำ กระชับ ทรงพลัง"},
+    {"name": "storytelling", "prompt": "แบบเล่าเรื่องสั้นๆ เปิดเรื่องให้อยากรู้ตอนจบ เช่น 'น้องคนนี้...' 'คลิปนี้มีที่มา...'"},
+    {"name": "challenge", "prompt": "แบบท้าทาย/ยั่วยุ เช่น 'กล้าดูมั้ย?' 'ไม่ดูพลาดแน่' 'ถ้าไม่สมัครจะเสียใจ'"},
+    {"name": "exclusive", "prompt": "แบบเน้นความ exclusive เช่น 'มีแค่ใน VIP' 'ที่อื่นหาไม่ได้' 'เฉพาะสมาชิก'"},
+    {"name": "teasing", "prompt": "แบบแหย่ๆ ยั่วๆ เช่น 'เห็นแค่นี้พอมั้ย?' 'อยากดูต่อใช่ป่ะ' 'นิดเดียวพอนะ'"},
+]
+
+# Track ว่าวันนี้ใช้ style ไหนไปแล้ว (reset ทุกวัน)
+_used_styles_today: list[str] = []
+_used_styles_date: str = ""
+
+
+def _pick_caption_style() -> dict:
+    """สุ่มเลือก caption style ที่ยังไม่ใช้วันนี้."""
+    global _used_styles_today, _used_styles_date
+
+    today = datetime.now(TH_TZ).strftime("%Y-%m-%d")
+    if _used_styles_date != today:
+        _used_styles_today = []
+        _used_styles_date = today
+
+    available = [s for s in CAPTION_STYLES if s["name"] not in _used_styles_today]
+    if not available:
+        # ใช้ครบแล้ว → reset แล้วสุ่มใหม่
+        _used_styles_today = []
+        available = CAPTION_STYLES
+
+    style = random.choice(available)
+    _used_styles_today.append(style["name"])
+    return style
 
 
 async def _send_discord_content_log(content: str) -> None:
@@ -84,13 +122,17 @@ async def _send_discord_content_log(content: str) -> None:
         logger.error("Failed to send Discord content log: %s", e)
 
 
-async def generate_teaser_caption() -> str:
-    """AI สร้าง caption teaser เสียวๆ ล่อใจ."""
+async def generate_teaser_caption() -> tuple[str, str]:
+    """AI สร้าง caption teaser เสียวๆ ล่อใจ — return (caption, style_name)."""
     from shared.api_cost_tracker import call_openrouter
+
+    style = _pick_caption_style()
+    style_name = style["name"]
 
     prompt = (
         "เขียน caption ภาษาไทยสั้นๆ 1-2 บรรทัดสำหรับโพสต์ teaser 18+ "
         "ให้คนอยากดูเต็มๆ แล้วสมัคร VIP เจริญพร\n\n"
+        f"สไตล์ที่ต้องการ: {style['prompt']}\n\n"
         "กฎเหล็ก:\n"
         "- ตอบแค่ caption 1 อันเท่านั้น ห้ามให้ตัวเลือก ห้ามมีข้อ 1. 2. 3.\n"
         "- ห้ามขึ้นต้นด้วย 'นี่คือ' 'ตัวเลือก' 'แคปชั่น:' หรือคำนำใดๆ\n"
@@ -108,7 +150,7 @@ async def generate_teaser_caption() -> str:
             model=AI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             caller="content_bot/teaser_caption",
-            temperature=0.9,
+            temperature=0.95,
             max_tokens=100,
         )
         caption = data["choices"][0]["message"]["content"].strip().strip('"')
@@ -118,25 +160,35 @@ async def generate_teaser_caption() -> str:
             r'^(ตัวเลือก(ที่\s*)?\d+[:.]\s*|แคปชั่น[:.]\s*|caption[:.]\s*|นี่คือ\s*)',
             '', caption, flags=re.IGNORECASE,
         )
-        # ถ้ามีหลายบรรทัด เอาแค่บรรทัดแรกที่มีเนื้อหาจริง
         lines = [
             l.strip() for l in caption.split('\n')
             if l.strip() and not l.strip().startswith(('1.', '2.', '3.', 'ตัวเลือก'))
         ]
         caption = lines[0] if lines else caption.split('\n')[0]
-        return caption.strip()
+        return caption.strip(), style_name
     except Exception as exc:
         logger.error("AI caption failed: %s", exc)
 
-    # Fallback captions
+    # Fallback captions — หลากหลาย 16 แบบ
     fallbacks = [
         "🔥 ของดีมาแล้ว สมัคร VIP ดูเต็มๆ",
         "😈 แอบดูนิดนึง... อยากดูต่อ สมัคร VIP เจริญพร",
         "🔞 คลิปเด็ดวันนี้ ดูฟรีได้แค่นี้~",
         "💦 น้องคนนี้ ของดีจริงๆ ดูเต็มใน VIP เจริญพร",
         "🫣 แค่ตัวอย่าง... ของจริงอยู่ใน VIP เจริญพร",
+        "👀 เห็นแค่นี้พอมั้ย? ของเต็มอยู่ใน VIP",
+        "🤫 ห้ามบอกใคร... คลิปนี้มีแค่ใน VIP เจริญพร",
+        "⏰ เหลืออีกไม่กี่ชม.! สมัครตอนนี้ดูได้เลย",
+        "🙈 ถ้าไม่เบลอ... จะร้อนแค่ไหน สมัคร VIP รู้เลย",
+        "💋 น้องใหม่มาแรง ดูได้เฉพาะสมาชิก VIP เจริญพร",
+        "🎯 กล้าดูมั้ย? สมัคร VIP เจริญพร แล้วจะรู้",
+        "🌶️ เผ็ดมาก! ดูเต็มๆ ได้เฉพาะใน VIP",
+        "😏 อยากรู้มั้ยว่าน้องทำอะไรต่อ? สมัคร VIP เลย",
+        "🔒 ปลดล็อกของดี สมัคร VIP เจริญพร วันนี้",
+        "💥 คลิปนี้มีคนดู 500+ แล้ว! สมัครดูเต็มใน VIP",
+        "✨ ที่อื่นหาไม่ได้ มีแค่ใน VIP เจริญพร เท่านั้น",
     ]
-    return random.choice(fallbacks)
+    return random.choice(fallbacks), style_name
 
 
 async def blur_image(bot: Bot, file_id: str) -> io.BytesIO:
@@ -538,7 +590,7 @@ async def post_teaser_to_free_groups(context: ContextTypes.DEFAULT_TYPE) -> None
     round_time = get_round_time()
     logger.info("Starting text-only teaser post round (round=%s)...", round_time)
 
-    base_caption = await generate_teaser_caption()
+    base_caption, caption_style = await generate_teaser_caption()
 
     success = 0
     failed = 0
@@ -553,14 +605,17 @@ async def post_teaser_to_free_groups(context: ContextTypes.DEFAULT_TYPE) -> None
                 disable_web_page_preview=True,
             )
             success += 1
+            # Log engagement tracking
+            await _log_teaser_post(round_time, group_index, caption_style, base_caption, 0)
             await asyncio.sleep(1)
         except Exception as exc:
             logger.error("Failed to post to group %d: %s", group_id, exc)
             failed += 1
 
-    logger.info("Teaser round done: %d success, %d failed", success, failed)
+    logger.info("Teaser round done: %d success, %d failed (style=%s)", success, failed, caption_style)
     await _send_discord_content_log(
         f"📢 **Content Bot: Teaser Round Complete** [round={round_time}]\n"
+        f"📝 Style: {caption_style}\n"
         f"✅ Success: {success} / ❌ Failed: {failed} / Total: {len(FREE_GROUPS)} groups"
     )
 
@@ -571,14 +626,13 @@ async def post_teaser_with_image(context: ContextTypes.DEFAULT_TYPE, content_id:
     round_time = get_round_time()
     logger.info("Starting teaser post with image (round=%s, content_id=%d)...", round_time, content_id)
 
-    base_caption = await generate_teaser_caption()
+    base_caption, caption_style = await generate_teaser_caption()
 
     # Blur image
     try:
         blurred_buf = await blur_image(bot, file_id)
     except Exception as exc:
         logger.error("Failed to blur image: %s", exc)
-        # Fallback to text-only
         await post_teaser_to_free_groups(context)
         return
 
@@ -594,20 +648,21 @@ async def post_teaser_with_image(context: ContextTypes.DEFAULT_TYPE, content_id:
                 parse_mode="HTML",
             )
             success += 1
+            await _log_teaser_post(round_time, group_index, caption_style, base_caption, 1)
             await asyncio.sleep(1)
         except Exception as exc:
             logger.error("Failed to post image to group %d: %s", group_id, exc)
 
     failed_img = len(FREE_GROUPS) - success
-    logger.info("Image teaser round done: %d/%d", success, len(FREE_GROUPS))
+    logger.info("Image teaser round done: %d/%d (style=%s)", success, len(FREE_GROUPS), caption_style)
 
-    # Mark content as used หลังโพสต์สำเร็จ (ถ้ามีอย่างน้อย 1 กลุ่มสำเร็จ)
     if success > 0:
         await mark_content_used(content_id)
         logger.info("Marked content_id=%d as used", content_id)
 
     await _send_discord_content_log(
         f"🖼️ **Content Bot: Image Teaser Round Complete** [round={round_time}]\n"
+        f"📝 Style: {caption_style}\n"
         f"✅ Success: {success} / ❌ Failed: {failed_img} / Total: {len(FREE_GROUPS)} groups"
     )
 
@@ -622,7 +677,7 @@ async def post_teaser_album(context: ContextTypes.DEFAULT_TYPE, contents: list[d
         round_time, len(contents), content_ids,
     )
 
-    base_caption = await generate_teaser_caption()
+    base_caption, caption_style = await generate_teaser_caption()
 
     # เบลอรูปทั้งหมดล่วงหน้า
     blurred_items: list[tuple[int, io.BytesIO]] = []
@@ -660,10 +715,10 @@ async def post_teaser_album(context: ContextTypes.DEFAULT_TYPE, contents: list[d
         try:
             await bot.send_media_group(chat_id=group_id, media=media_group)
             success += 1
-            await asyncio.sleep(1.5)  # ช้าลงนิดเพราะ album ใช้ bandwidth มากกว่า
+            await _log_teaser_post(round_time, group_index, caption_style, base_caption, len(blurred_items))
+            await asyncio.sleep(1.5)
         except Exception as exc:
             logger.error("Failed to post album to group %d: %s", group_id, exc)
-            # Fallback: ลองส่งทีละรูปสำหรับกลุ่มนี้
             try:
                 blurred_items[0][1].seek(0)
                 await bot.send_photo(
@@ -673,14 +728,14 @@ async def post_teaser_album(context: ContextTypes.DEFAULT_TYPE, contents: list[d
                     parse_mode="HTML",
                 )
                 success += 1
+                await _log_teaser_post(round_time, group_index, caption_style, base_caption, 1)
                 logger.info("Fallback single photo sent to group %d", group_id)
             except Exception as exc2:
                 logger.error("Fallback single photo also failed for group %d: %s", group_id, exc2)
 
     failed_count = len(FREE_GROUPS) - success
-    logger.info("Album teaser round done: %d/%d groups", success, len(FREE_GROUPS))
+    logger.info("Album teaser round done: %d/%d groups (style=%s)", success, len(FREE_GROUPS), caption_style)
 
-    # Mark ทุก content ที่ใช้แล้วเป็น is_used=True
     if success > 0:
         for content_id, _ in blurred_items:
             await mark_content_used(content_id)
@@ -688,7 +743,7 @@ async def post_teaser_album(context: ContextTypes.DEFAULT_TYPE, contents: list[d
 
     await _send_discord_content_log(
         f"🖼️ **Content Bot: Album Teaser Round Complete** [round={round_time}]\n"
-        f"📸 Album: {len(blurred_items)} images\n"
+        f"📝 Style: {caption_style} | 📸 Album: {len(blurred_items)} images\n"
         f"✅ Success: {success} / ❌ Failed: {failed_count} / Total: {len(FREE_GROUPS)} groups"
     )
 
@@ -710,6 +765,7 @@ async def _check_content_queue_alert() -> None:
             if ADMIN_BOT_TOKEN:
                 from telegram import Bot as _Bot
                 admin_bot = _Bot(token=ADMIN_BOT_TOKEN)
+                await admin_bot.initialize()
                 await admin_bot.send_message(
                     chat_id=ADMIN_GROUP_ID,
                     text=(
@@ -725,34 +781,311 @@ async def _check_content_queue_alert() -> None:
 
 
 async def scheduled_teaser(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Scheduled job: โพสต์ teaser — ดึง 3-5 รูปส่งเป็น album, ถ้าน้อยกว่า 3 ส่งทีละรูป."""
+    """Scheduled job: โพสต์ teaser — สุ่มจำนวนรูป 2-5 หรือ single photo สลับ album."""
     logger.info("scheduled_teaser triggered")
 
-    # ดึง content 3-5 คลิปจาก queue
-    contents = await fetch_multiple_content(limit=5)
+    # สุ่มโหมด: 30% single photo, 70% album
+    use_single_mode = random.random() < 0.3
 
-    # ถ้าไม่มี content ใหม่เลย → ลอง recycle content เก่า (ใช้แล้ว > 7 วัน)
+    # สุ่มจำนวนรูปใน album: 2-5 (ไม่ใช่ 3 ทุกรอบ)
+    album_size = random.randint(2, 5)
+    fetch_limit = 1 if use_single_mode else album_size
+
+    contents = await fetch_multiple_content(limit=fetch_limit)
+
+    # ถ้าไม่มี content ใหม่เลย → ลอง recycle content เก่า
     if not contents:
         recycled = await recycle_old_content()
         if recycled > 0:
-            contents = await fetch_multiple_content(limit=5)
+            contents = await fetch_multiple_content(limit=fetch_limit)
 
-    if len(contents) >= 3:
-        # >= 3 คลิป → ส่งเป็น album
-        logger.info("Found %d content items → sending as album", len(contents))
+    if use_single_mode and len(contents) >= 1:
+        # Single photo mode — 1 รูป + caption ยาวขึ้น
+        c = contents[0]
+        logger.info("Single photo mode → content_id=%d", c["id"])
+        await post_teaser_with_image(context, c["id"], c["file_id"])
+    elif len(contents) >= 2:
+        # Album mode — 2-5 รูป
+        logger.info("Album mode → %d images", len(contents))
         await post_teaser_album(context, contents)
     elif len(contents) >= 1:
-        # 1-2 คลิป → ส่งทีละรูปเหมือนเดิม (ใช้คลิปแรก)
         c = contents[0]
-        logger.info("Found %d content items (< 3) → sending single image (id=%d)", len(contents), c["id"])
+        logger.info("Only 1 content available → single image (id=%d)", c["id"])
         await post_teaser_with_image(context, c["id"], c["file_id"])
     else:
-        # ไม่มีเลย → text-only
         logger.info("No content in queue (even after recycle), posting text-only teaser")
         await post_teaser_to_free_groups(context)
 
-    # เช็คและแจ้งเตือนหลังโพสต์ทุกรอบ
     await _check_content_queue_alert()
+
+
+# ── Task 4: Engagement Tracking — teaser_post_log ──
+
+async def _ensure_teaser_post_log_table() -> None:
+    """สร้างตาราง teaser_post_log ถ้ายังไม่มี."""
+    try:
+        async with get_session() as session:
+            from sqlalchemy import text
+            await session.execute(text("""
+                CREATE TABLE IF NOT EXISTS teaser_post_log (
+                    id SERIAL PRIMARY KEY,
+                    round_time VARCHAR(10) NOT NULL,
+                    group_index INT NOT NULL,
+                    caption_style VARCHAR(50) NOT NULL,
+                    caption_text TEXT NOT NULL,
+                    photo_count INT NOT NULL DEFAULT 0,
+                    posted_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            await session.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_teaser_post_log_style ON teaser_post_log(caption_style)
+            """))
+            await session.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_teaser_post_log_posted ON teaser_post_log(posted_at)
+            """))
+    except Exception as exc:
+        logger.error("Failed to create teaser_post_log table: %s", exc)
+
+
+async def _log_teaser_post(round_time: str, group_index: int, caption_style: str,
+                           caption_text: str, photo_count: int) -> None:
+    """Log ทุกครั้งที่ลง teaser → เก็บ style + caption + จำนวนรูป."""
+    try:
+        async with get_session() as session:
+            from sqlalchemy import text
+            await session.execute(text("""
+                INSERT INTO teaser_post_log (round_time, group_index, caption_style, caption_text, photo_count)
+                VALUES (:round_time, :group_index, :caption_style, :caption_text, :photo_count)
+            """), {
+                "round_time": round_time,
+                "group_index": group_index,
+                "caption_style": caption_style,
+                "caption_text": caption_text[:500],
+                "photo_count": photo_count,
+            })
+    except Exception as exc:
+        logger.error("Failed to log teaser post: %s", exc)
+
+
+async def get_caption_performance(days: int = 7) -> list[dict]:
+    """JOIN teaser_post_log กับ teaser_clicks → หา style ไหน conversion ดีสุด."""
+    try:
+        async with get_session() as session:
+            from sqlalchemy import text
+            result = await session.execute(text("""
+                SELECT
+                    pl.caption_style,
+                    COUNT(DISTINCT pl.id) as posts,
+                    COUNT(tc.id) as clicks,
+                    SUM(CASE WHEN tc.converted THEN 1 ELSE 0 END) as conversions,
+                    CASE WHEN COUNT(tc.id) > 0
+                        THEN ROUND(SUM(CASE WHEN tc.converted THEN 1 ELSE 0 END)::numeric / COUNT(tc.id) * 100, 1)
+                        ELSE 0
+                    END as conversion_rate
+                FROM teaser_post_log pl
+                LEFT JOIN teaser_clicks tc
+                    ON pl.round_time = tc.round_time
+                    AND pl.group_index = tc.group_index
+                    AND tc.created_at::date = pl.posted_at::date
+                WHERE pl.posted_at >= NOW() - INTERVAL '%s days'
+                GROUP BY pl.caption_style
+                ORDER BY clicks DESC
+            """ % days))
+            rows = result.fetchall()
+            return [
+                {
+                    "style": r[0],
+                    "posts": r[1],
+                    "clicks": r[2],
+                    "conversions": r[3],
+                    "conversion_rate": float(r[4]),
+                }
+                for r in rows
+            ]
+    except Exception as exc:
+        logger.error("get_caption_performance failed: %s", exc)
+        return []
+
+
+# ── Task 3: Smart Scheduling — analyze_best_rounds() ──
+
+async def analyze_best_rounds(days: int = 7) -> list[dict]:
+    """ดึง teaser_clicks 7 วันล่าสุด GROUP BY round_time → เรียงตาม clicks DESC."""
+    try:
+        async with get_session() as session:
+            from sqlalchemy import text
+            result = await session.execute(text("""
+                SELECT
+                    round_time,
+                    COUNT(*) as clicks,
+                    SUM(CASE WHEN converted THEN 1 ELSE 0 END) as conversions,
+                    CASE WHEN COUNT(*) > 0
+                        THEN ROUND(SUM(CASE WHEN converted THEN 1 ELSE 0 END)::numeric / COUNT(*) * 100, 1)
+                        ELSE 0
+                    END as conversion_rate
+                FROM teaser_clicks
+                WHERE created_at >= NOW() - INTERVAL '%s days'
+                GROUP BY round_time
+                ORDER BY clicks DESC
+            """ % days))
+            rows = result.fetchall()
+            rounds = [
+                {
+                    "round_time": r[0],
+                    "clicks": r[1],
+                    "conversions": r[2],
+                    "conversion_rate": float(r[3]),
+                }
+                for r in rows
+            ]
+            if rounds:
+                logger.info(
+                    "📊 Best rounds (last %d days): %s",
+                    days,
+                    " | ".join(f"{r['round_time']}: {r['clicks']} clicks ({r['conversion_rate']}%%)" for r in rounds),
+                )
+            return rounds
+    except Exception as exc:
+        logger.error("analyze_best_rounds failed: %s", exc)
+        return []
+
+
+# ── Task 5: Daily Report ──
+
+async def send_daily_content_report(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """ส่ง daily report ไป Admin Group ทุกวัน 23:30 ไทย."""
+    ADMIN_BOT_TOKEN = os.environ.get("ADMIN_BOT_TOKEN", "")
+    ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", os.environ.get("TG_GROUP_ADMIN", "-1003830920430")))
+
+    if not ADMIN_BOT_TOKEN:
+        logger.error("ADMIN_BOT_TOKEN not set, skipping daily report")
+        return
+
+    try:
+        from telegram import Bot as _Bot
+        admin_bot = _Bot(token=ADMIN_BOT_TOKEN)
+        await admin_bot.initialize()
+
+        async with get_session() as session:
+            from sqlalchemy import text
+
+            # Clicks วันนี้
+            today_clicks_row = await session.execute(text("""
+                SELECT COUNT(*) FROM teaser_clicks
+                WHERE (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date
+                    = (NOW() AT TIME ZONE 'Asia/Bangkok')::date
+            """))
+            today_clicks = today_clicks_row.scalar() or 0
+
+            # Clicks เมื่อวาน
+            yesterday_clicks_row = await session.execute(text("""
+                SELECT COUNT(*) FROM teaser_clicks
+                WHERE (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date
+                    = (NOW() AT TIME ZONE 'Asia/Bangkok')::date - INTERVAL '1 day'
+            """))
+            yesterday_clicks = yesterday_clicks_row.scalar() or 0
+
+            # % เปลี่ยนแปลง
+            if yesterday_clicks > 0:
+                change_pct = round((today_clicks - yesterday_clicks) / yesterday_clicks * 100, 1)
+                change_str = f"+{change_pct}%" if change_pct >= 0 else f"{change_pct}%"
+                change_emoji = "📈" if change_pct >= 0 else "📉"
+            else:
+                change_str = "N/A"
+                change_emoji = "➖"
+
+            # Best round วันนี้
+            best_round_row = await session.execute(text("""
+                SELECT round_time, COUNT(*) as clicks
+                FROM teaser_clicks
+                WHERE (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date
+                    = (NOW() AT TIME ZONE 'Asia/Bangkok')::date
+                GROUP BY round_time ORDER BY clicks DESC LIMIT 1
+            """))
+            best_round = best_round_row.fetchone()
+            best_round_str = f"{best_round[0]} ({best_round[1]} clicks)" if best_round else "N/A"
+
+            # Best group วันนี้
+            best_group_row = await session.execute(text("""
+                SELECT group_index, COUNT(*) as clicks
+                FROM teaser_clicks
+                WHERE (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date
+                    = (NOW() AT TIME ZONE 'Asia/Bangkok')::date
+                GROUP BY group_index ORDER BY clicks DESC LIMIT 1
+            """))
+            best_group = best_group_row.fetchone()
+            best_group_str = f"Group #{best_group[0]} ({best_group[1]} clicks)" if best_group else "N/A"
+
+            # Conversion rate วันนี้
+            conv_row = await session.execute(text("""
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN converted THEN 1 ELSE 0 END) as conversions
+                FROM teaser_clicks
+                WHERE (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date
+                    = (NOW() AT TIME ZONE 'Asia/Bangkok')::date
+            """))
+            conv = conv_row.fetchone()
+            conv_rate = round(conv[1] / conv[0] * 100, 1) if conv and conv[0] > 0 else 0
+
+            # คลิปเหลือกี่ชิ้น
+            from sqlalchemy import func as sqlfunc
+            queue_row = await session.execute(
+                select(sqlfunc.count(ContentQueue.id)).where(ContentQueue.is_used == False)
+            )
+            queue_remaining = queue_row.scalar() or 0
+
+            # Caption style ที่ดีสุด (จาก engagement tracking)
+            best_style_str = "N/A"
+            try:
+                style_row = await session.execute(text("""
+                    SELECT pl.caption_style, COUNT(tc.id) as clicks
+                    FROM teaser_post_log pl
+                    LEFT JOIN teaser_clicks tc
+                        ON pl.round_time = tc.round_time
+                        AND pl.group_index = tc.group_index
+                        AND tc.created_at::date = pl.posted_at::date
+                    WHERE pl.posted_at >= NOW() - INTERVAL '7 days'
+                    GROUP BY pl.caption_style
+                    ORDER BY clicks DESC LIMIT 1
+                """))
+                best_style = style_row.fetchone()
+                if best_style:
+                    best_style_str = f"{best_style[0]} ({best_style[1]} clicks)"
+            except Exception:
+                pass
+
+        # แนะนำรอบเวลาที่ดีสุด
+        best_rounds = await analyze_best_rounds(days=7)
+        recommended_str = "N/A"
+        if best_rounds:
+            top3 = best_rounds[:3]
+            recommended_str = " → ".join(f"{r['round_time']} ({r['clicks']})" for r in top3)
+
+        now_th = datetime.now(TH_TZ)
+        report = (
+            f"📊 <b>Content Bot Daily Report</b>\n"
+            f"📅 {now_th.strftime('%d/%m/%Y')}\n"
+            f"━━━━━━━━━━━━━━━━━━\n\n"
+            f"{change_emoji} <b>Clicks วันนี้:</b> {today_clicks} ({change_str} vs เมื่อวาน {yesterday_clicks})\n"
+            f"🏆 <b>Best Round:</b> {best_round_str}\n"
+            f"🎯 <b>Best Group:</b> {best_group_str}\n"
+            f"💰 <b>Conversion Rate:</b> {conv_rate}%\n"
+            f"📸 <b>คลิปเหลือ:</b> {queue_remaining} ชิ้น\n"
+            f"📝 <b>Best Caption Style:</b> {best_style_str}\n\n"
+            f"💡 <b>แนะนำรอบเวลา (7d):</b> {recommended_str}\n"
+            f"━━━━━━━━━━━━━━━━━━"
+        )
+
+        await admin_bot.send_message(
+            chat_id=ADMIN_GROUP_ID,
+            text=report,
+            parse_mode="HTML",
+        )
+        logger.info("Daily content report sent to admin group")
+
+    except Exception as exc:
+        logger.error("send_daily_content_report failed: %s", exc)
 
 
 # --- Auto-fetch scheduled job ---
@@ -790,7 +1123,8 @@ def main() -> None:
     # Post-init: สร้างตาราง DB ถ้ายังไม่มี
     async def post_init(application: Application) -> None:
         await init_db()
-        logger.info("DB initialized (content_queue table ready)")
+        await _ensure_teaser_post_log_table()
+        logger.info("DB initialized (content_queue + teaser_post_log tables ready)")
 
     app.post_init = post_init
 
@@ -816,6 +1150,23 @@ def main() -> None:
         scheduled_teaser,
         time=dt_time(hour=1, minute=0, tzinfo=TH_TZ),
         name="teaser_late",
+    )
+
+    # Schedule daily report ทุกวัน 23:30 ไทย
+    job_queue.run_daily(
+        send_daily_content_report,
+        time=dt_time(hour=23, minute=30, tzinfo=TH_TZ),
+        name="daily_content_report",
+    )
+
+    # Schedule daily best-round analysis ทุกวัน 23:00 ไทย (log ก่อนรายงาน)
+    async def _scheduled_analyze(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        await analyze_best_rounds(days=7)
+
+    job_queue.run_daily(
+        _scheduled_analyze,
+        time=dt_time(hour=23, minute=0, tzinfo=TH_TZ),
+        name="analyze_best_rounds",
     )
 
     # Schedule auto-fetch content ทุก 6 ชั่วโมง (04:00, 10:00, 16:00, 22:00 เวลาไทย)

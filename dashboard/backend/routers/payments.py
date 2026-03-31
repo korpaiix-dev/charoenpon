@@ -73,20 +73,62 @@ async def list_payments(
 
 @router.get("/pending")
 async def pending_payments(admin=Depends(get_current_admin)):
-    """Get pending payments from last 24 hours only."""
+    """Get pending payments from last 24 hours only.
+    Excludes payments where user already has active subscription (approved via Bot)."""
     rows = await pool.fetch("""
         SELECT p.*, u.username, u.first_name, u.telegram_id, pk.name as package_name
         FROM payments p
         JOIN users u ON p.user_id = u.id
         JOIN packages pk ON p.package_id = pk.id
         WHERE p.status = 'PENDING' AND p.created_at >= NOW() - interval '24 hours'
+          AND NOT EXISTS (
+            SELECT 1 FROM subscriptions s
+            WHERE s.user_id = p.user_id AND s.status = 'ACTIVE'
+              AND s.start_date > p.created_at - interval '1 hour'
+          )
         ORDER BY p.created_at ASC
     """)
+    # Auto-confirm stale PENDING payments where user already got subscription via Bot
+    stale = await pool.fetch("""
+        SELECT p.id FROM payments p
+        WHERE p.status = 'PENDING' AND p.created_at >= NOW() - interval '24 hours'
+          AND EXISTS (
+            SELECT 1 FROM subscriptions s
+            WHERE s.user_id = p.user_id AND s.status = 'ACTIVE'
+              AND s.start_date > p.created_at - interval '1 hour'
+          )
+    """)
+    if stale:
+        stale_ids = [r["id"] for r in stale]
+        await pool.execute(
+            "UPDATE payments SET status = 'CONFIRMED', verified_by = 0, verified_at = NOW() WHERE id = ANY($1::int[])",
+            stale_ids
+        )
+        logger.info("Auto-confirmed %d stale PENDING payments (already have active sub): %s", len(stale_ids), stale_ids)
     return [dict(r) for r in rows]
 
 @router.get("/pending-expired")
 async def pending_expired_payments(admin=Depends(get_current_admin)):
-    """Get PENDING payments older than 24 hours (expired/stale)."""
+    """Get PENDING payments older than 24 hours (expired/stale).
+    Excludes payments where user already has active subscription (approved via Bot)."""
+    # Auto-confirm stale ones first
+    stale = await pool.fetch("""
+        SELECT p.id FROM payments p
+        WHERE p.status = 'PENDING' AND p.created_at < NOW() - interval '24 hours'
+          AND EXISTS (
+            SELECT 1 FROM subscriptions s
+            WHERE s.user_id = p.user_id AND s.status = 'ACTIVE'
+              AND s.start_date > p.created_at - interval '1 hour'
+          )
+    """)
+    if stale:
+        stale_ids = [r["id"] for r in stale]
+        await pool.execute(
+            "UPDATE payments SET status = 'CONFIRMED', verified_by = 0, verified_at = NOW() WHERE id = ANY($1::int[])",
+            stale_ids
+        )
+        logger.info("Auto-confirmed %d expired PENDING payments: %s", len(stale_ids), stale_ids)
+    
     rows = await pool.fetch("""
         SELECT p.*, u.username, u.first_name, u.telegram_id, pk.name as package_name
         FROM payments p
@@ -115,12 +157,21 @@ async def _generate_invite_links(package_id: int) -> dict[str, str]:
     Uses Guardian Bot via Telegram API (createChatInviteLink).
     Returns {group_slug: invite_link_url}.
     """
-    # Get package's group_list
-    pkg = await pool.fetchrow("SELECT group_list FROM packages WHERE id = $1", package_id)
-    if not pkg or not pkg["group_list"]:
+    # Get package's groups_access
+    pkg = await pool.fetchrow("SELECT groups_access FROM packages WHERE id = $1", package_id)
+    if not pkg or not pkg["groups_access"]:
         return {}
 
-    group_slugs = pkg["group_list"]  # array of group slugs
+    # Parse groups_access (comma-separated or JSON array)
+    import json as _json
+    raw = pkg["groups_access"].strip()
+    if raw.startswith("["):
+        try:
+            group_slugs = _json.loads(raw)
+        except Exception:
+            group_slugs = [g.strip().strip('"') for g in raw.split(",") if g.strip()]
+    else:
+        group_slugs = [g.strip().strip('"') for g in raw.split(",") if g.strip()]
 
     invite_links = {}
     for slug in group_slugs:
@@ -358,10 +409,10 @@ async def reject_payment(payment_id: int, req: PaymentReject, request: Request, 
 async def payment_summary(admin=Depends(require_role("admin"))):
     row = await pool.fetchrow("""
         SELECT
-            COALESCE(SUM(CASE WHEN created_at::date = CURRENT_DATE THEN amount END), 0) as today,
-            COALESCE(SUM(CASE WHEN created_at >= date_trunc('week', CURRENT_DATE) THEN amount END), 0) as week,
-            COALESCE(SUM(CASE WHEN created_at >= date_trunc('month', CURRENT_DATE) THEN amount END), 0) as month,
-            COALESCE(SUM(CASE WHEN created_at >= date_trunc('year', CURRENT_DATE) THEN amount END), 0) as year
+            COALESCE(SUM(CASE WHEN (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date THEN amount END), 0) as today,
+            COALESCE(SUM(CASE WHEN created_at >= date_trunc('week', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN amount END), 0) as week,
+            COALESCE(SUM(CASE WHEN created_at >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN amount END), 0) as month,
+            COALESCE(SUM(CASE WHEN created_at >= date_trunc('year', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN amount END), 0) as year
         FROM payments WHERE status = 'CONFIRMED'
     """)
     return {k: float(v) for k, v in dict(row).items()}
@@ -371,7 +422,7 @@ async def chart_by_package(days: int = 30, admin=Depends(require_role("admin")))
     rows = await pool.fetch("""
         SELECT pk.name, pk.tier, COALESCE(SUM(p.amount), 0) as total
         FROM payments p JOIN packages pk ON p.package_id = pk.id
-        WHERE p.status = 'CONFIRMED' AND p.created_at >= CURRENT_DATE - $1 * interval '1 day'
+        WHERE p.status = 'CONFIRMED' AND pk.is_active = TRUE AND p.created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day'
         GROUP BY pk.name, pk.tier ORDER BY total DESC
     """, days)
     return [dict(r) for r in rows]
@@ -381,7 +432,7 @@ async def chart_by_method(days: int = 30, admin=Depends(require_role("admin"))):
     rows = await pool.fetch("""
         SELECT method::text, COALESCE(SUM(amount), 0) as total, COUNT(*) as count
         FROM payments
-        WHERE status = 'CONFIRMED' AND created_at >= CURRENT_DATE - $1 * interval '1 day'
+        WHERE status = 'CONFIRMED' AND created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day'
         GROUP BY method ORDER BY total DESC
     """, days)
     return [dict(r) for r in rows]
@@ -392,3 +443,41 @@ async def get_slip(payment_id: int, admin=Depends(get_current_admin)):
     if not row:
         raise HTTPException(404, "Payment not found")
     return {"slip_url": row["slip_url"], "slip_file_id": row["slip_file_id"]}
+
+@router.get("/{payment_id}/slip-image")
+async def get_slip_image(payment_id: int, admin=Depends(get_current_admin)):
+    """Proxy slip image from Telegram for display in dashboard."""
+    from fastapi.responses import StreamingResponse
+
+    row = await pool.fetchrow("SELECT slip_file_id FROM payments WHERE id = $1", payment_id)
+    if not row:
+        raise HTTPException(404, "Payment not found")
+    if not row["slip_file_id"]:
+        raise HTTPException(404, "No slip image")
+
+    token = SALES_BOT_TOKEN
+    if not token:
+        raise HTTPException(500, "SALES_BOT_TOKEN not configured")
+
+    # Get file path from Telegram
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"https://api.telegram.org/bot{token}/getFile", params={"file_id": row["slip_file_id"]})
+        data = resp.json()
+        if not data.get("ok"):
+            raise HTTPException(502, f"Telegram getFile failed: {data.get('description', 'unknown')}")
+        file_path = data["result"]["file_path"]
+
+        # Download the actual file and stream it back
+        file_resp = await client.get(f"https://api.telegram.org/file/bot{token}/{file_path}")
+        if file_resp.status_code != 200:
+            raise HTTPException(502, "Failed to download slip from Telegram")
+
+        # Telegram often returns application/octet-stream, force image type based on extension
+        ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else "jpg"
+        mime_map = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "gif": "image/gif", "webp": "image/webp"}
+        content_type = mime_map.get(ext, "image/jpeg")
+        return StreamingResponse(
+            iter([file_resp.content]),
+            media_type=content_type,
+            headers={"Cache-Control": "private, max-age=3600"},
+        )

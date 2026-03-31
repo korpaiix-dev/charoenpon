@@ -142,13 +142,13 @@ async def teaser_stats(days: int = 30, admin=Depends(require_role("admin"))):
     rows = await pool.fetch("""
         SELECT tc.created_at::date as date, COUNT(*) as clicks
         FROM teaser_clicks tc
-        WHERE tc.created_at >= CURRENT_DATE - $1 * interval '1 day'
+        WHERE tc.created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day'
         GROUP BY tc.created_at::date ORDER BY date DESC
     """, days)
     
     schedules = await pool.fetch("""
         SELECT scheduled_at::date as date, COUNT(*) as sent
-        FROM content_schedule WHERE is_sent = TRUE AND scheduled_at >= CURRENT_DATE - $1 * interval '1 day'
+        FROM content_schedule WHERE is_sent = TRUE AND scheduled_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day'
         GROUP BY scheduled_at::date ORDER BY date DESC
     """, days)
     

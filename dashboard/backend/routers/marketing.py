@@ -9,9 +9,9 @@ router = APIRouter(prefix="/api/marketing", tags=["marketing"])
 async def kpi(days: int = 30, admin=Depends(require_role("admin"))):
     row = await pool.fetchrow("""
         SELECT
-            COALESCE(SUM(CASE WHEN p.status = 'CONFIRMED' AND p.created_at >= CURRENT_DATE - $1 * interval '1 day' THEN p.amount END), 0) as revenue,
-            (SELECT COUNT(*) FROM users WHERE created_at >= CURRENT_DATE - $1 * interval '1 day') as new_members,
-            (SELECT COUNT(*) FROM subscriptions WHERE status = 'EXPIRED' AND updated_at >= CURRENT_DATE - $1 * interval '1 day') as churned,
+            COALESCE(SUM(CASE WHEN p.status = 'CONFIRMED' AND p.created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day' THEN p.amount END), 0) as revenue,
+            (SELECT COUNT(*) FROM users WHERE created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day') as new_members,
+            (SELECT COUNT(*) FROM subscriptions WHERE status = 'EXPIRED' AND updated_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day') as churned,
             (SELECT COUNT(*) FROM subscriptions WHERE status = 'ACTIVE') as active_members
         FROM payments p
     """, days)
@@ -33,7 +33,7 @@ async def weekly_comparison(admin=Depends(require_role("admin"))):
             SUM(p.amount) as revenue,
             COUNT(*) as transactions
         FROM payments p
-        WHERE p.status = 'CONFIRMED' AND p.created_at >= CURRENT_DATE - 56
+        WHERE p.status = 'CONFIRMED' AND p.created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - 56
         GROUP BY week_start ORDER BY week_start
     """)
     return [{"week": str(r["week_start"]), "revenue": float(r["revenue"]), "transactions": r["transactions"]} for r in rows]
@@ -43,14 +43,14 @@ async def funnel(days: int = 30, admin=Depends(require_role("admin"))):
     # Free group members → Teaser clicks → Trial purchases → VIP/GOD purchases
     free_members = await pool.fetchval("SELECT COUNT(*) FROM users")
     teaser_clicks = await pool.fetchval(
-        "SELECT COUNT(*) FROM teaser_clicks WHERE created_at >= CURRENT_DATE - $1 * interval '1 day'", days)
+        "SELECT COUNT(*) FROM teaser_clicks WHERE created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day'", days)
     trial_purchases = await pool.fetchval("""
         SELECT COUNT(*) FROM payments p JOIN packages pk ON p.package_id = pk.id
-        WHERE p.status = 'CONFIRMED' AND pk.tier = 'TIER_99' AND p.created_at >= CURRENT_DATE - $1 * interval '1 day'
+        WHERE p.status = 'CONFIRMED' AND pk.tier = 'TIER_99' AND p.created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day'
     """, days)
     vip_purchases = await pool.fetchval("""
         SELECT COUNT(*) FROM payments p JOIN packages pk ON p.package_id = pk.id
-        WHERE p.status = 'CONFIRMED' AND pk.tier != 'TIER_99' AND p.created_at >= CURRENT_DATE - $1 * interval '1 day'
+        WHERE p.status = 'CONFIRMED' AND pk.tier != 'TIER_99' AND p.created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day'
     """, days)
     
     return {

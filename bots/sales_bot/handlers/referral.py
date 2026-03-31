@@ -5,10 +5,12 @@
 - เพื่อนต้องจ่ายเงินจริง (CONFIRMED) ถึงนับ
 - ชวน 1 คน = +7 วัน, ชวน 5 คน = +30 วัน (bonus)
 - จำกัด 10 referrals/เดือน, ชวนตัวเองไม่ได้
+- Referral Reminder DM: ทุก 3 วัน ส่ง DM VIP ที่ยังไม่เคยชวนเพื่อน
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import random
@@ -16,7 +18,8 @@ import string
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, func, text
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import Forbidden
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -36,6 +39,32 @@ TH_TZ = timezone(timedelta(hours=7))
 MONTHLY_REFERRAL_LIMIT = 10
 REWARD_PER_REFERRAL = 7  # days
 MILESTONE_5_BONUS = 30  # days
+
+ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+MAX_REMINDER_PER_DAY = 20
+REMINDER_DELAY_SECONDS = 3
+
+# ─── DB Migration ────────────────────────────────────────────────────────────
+
+REMINDER_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS referral_reminder_log (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    telegram_id BIGINT NOT NULL,
+    sent_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_ref_reminder_user_id ON referral_reminder_log(user_id);
+"""
+
+
+async def _ensure_reminder_table() -> None:
+    """Create referral_reminder_log table if not exists."""
+    try:
+        async with get_session() as session:
+            await session.execute(text(REMINDER_TABLE_SQL))
+            await session.commit()
+    except Exception as exc:
+        logger.warning("referral_reminder_log migration (may already exist): %s", exc)
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -139,6 +168,185 @@ async def _get_user_by_telegram_id(telegram_id: int) -> tuple[int, str | None] |
         return None
 
 
+# ─── Referral Analytics ──────────────────────────────────────────────────────
+
+async def analyze_referral_performance() -> dict:
+    """วิเคราะห์ performance ของ Referral System.
+
+    Returns dict:
+    {
+        "total_codes": 10,
+        "total_referred": 5,
+        "total_completed": 3,
+        "conversion_rate": 0.6,
+        "total_reward_days": 21,
+        "top_referrers": [{"user_id": 1, "telegram_id": 123, "count": 3}, ...],
+    }
+    """
+    async with get_session() as session:
+        # Total unique referrers who have codes
+        codes_result = await session.execute(
+            text("SELECT COUNT(DISTINCT referrer_user_id) FROM referrals")
+        )
+        total_codes = codes_result.scalar() or 0
+
+        # Total referred (have referred_user_id)
+        referred_result = await session.execute(
+            text("SELECT COUNT(*) FROM referrals WHERE referred_user_id IS NOT NULL")
+        )
+        total_referred = referred_result.scalar() or 0
+
+        # Total completed
+        completed_result = await session.execute(
+            text("SELECT COUNT(*) FROM referrals WHERE status IN ('COMPLETED', 'REWARDED')")
+        )
+        total_completed = completed_result.scalar() or 0
+
+        # Total reward days
+        reward_result = await session.execute(
+            text("SELECT COALESCE(SUM(reward_days), 0) FROM referrals WHERE status IN ('COMPLETED', 'REWARDED')")
+        )
+        total_reward_days = reward_result.scalar() or 0
+
+        # Top referrers
+        top_result = await session.execute(
+            text("""
+                SELECT r.referrer_user_id, r.referrer_telegram_id, COUNT(*) as cnt
+                FROM referrals r
+                WHERE r.status IN ('COMPLETED', 'REWARDED')
+                GROUP BY r.referrer_user_id, r.referrer_telegram_id
+                ORDER BY cnt DESC
+                LIMIT 5
+            """)
+        )
+        top_rows = top_result.fetchall()
+
+    conversion_rate = total_completed / total_referred if total_referred > 0 else 0
+
+    return {
+        "total_codes": total_codes,
+        "total_referred": total_referred,
+        "total_completed": total_completed,
+        "conversion_rate": round(conversion_rate, 4),
+        "total_reward_days": total_reward_days,
+        "top_referrers": [
+            {"user_id": r.referrer_user_id, "telegram_id": r.referrer_telegram_id, "count": r.cnt}
+            for r in top_rows
+        ],
+    }
+
+
+# ─── Referral Reminder DM ───────────────────────────────────────────────────
+
+async def send_referral_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Scheduled job: ส่ง DM เตือน VIP ที่ยังไม่เคยชวนเพื่อน.
+
+    - ทุก 3 วัน
+    - ไม่ส่งซ้ำ (check referral_reminder_log: sent_at ใน 3 วันที่ผ่านมา)
+    - Rate limit: 20 DM/วัน, delay 3 วินาที
+    """
+    now_th = datetime.now(TH_TZ)
+    logger.info("🔄 Referral reminder job started at %s", now_th.strftime("%Y-%m-%d %H:%M"))
+
+    await _ensure_reminder_table()
+
+    cutoff_3d = datetime.utcnow() - timedelta(days=3)
+
+    async with get_session() as session:
+        # VIP Active ที่ยังไม่เคยชวนเพื่อน (ไม่มี record ใน referrals)
+        # + ไม่เคยส่ง reminder ใน 3 วันที่ผ่านมา
+        result = await session.execute(
+            text("""
+                SELECT u.id, u.telegram_id, u.first_name, u.username
+                FROM users u
+                JOIN subscriptions s ON s.user_id = u.id
+                WHERE s.status = 'active'
+                  AND s.end_date > NOW()
+                  AND u.is_banned = false
+                  AND u.id NOT IN (
+                      SELECT DISTINCT referrer_user_id FROM referrals
+                      WHERE status IN ('COMPLETED', 'REWARDED')
+                  )
+                  AND u.id NOT IN (
+                      SELECT user_id FROM referral_reminder_log
+                      WHERE sent_at > :cutoff
+                  )
+                ORDER BY s.start_date ASC
+                LIMIT :lim
+            """),
+            {"cutoff": cutoff_3d, "lim": MAX_REMINDER_PER_DAY},
+        )
+        rows = result.fetchall()
+
+    if not rows:
+        logger.info("No VIP users to send referral reminder")
+        return
+
+    sales_token = os.environ.get("SALES_BOT_TOKEN", "")
+    if not sales_token:
+        logger.error("SALES_BOT_TOKEN not set, cannot send referral reminders")
+        return
+
+    bot = Bot(token=sales_token)
+    await bot.initialize()
+
+    sent = 0
+    failed = 0
+
+    for row in rows:
+        first_name = row.first_name or row.username or "คุณ"
+        msg = (
+            f"รู้มั้ย {first_name}? ชวนเพื่อน 1 คน = ได้ VIP ฟรี 7 วัน! 🎁\n"
+            f"\n"
+            f"ชวนครบ 5 คน = ได้ VIP ฟรี 30 วัน!\n"
+            f"\n"
+            f"กด /invite เพื่อรับลิงก์ชวนเพื่อนได้เลยค่ะ 🔗"
+        )
+        try:
+            await bot.send_message(
+                chat_id=row.telegram_id,
+                text=msg,
+                parse_mode="HTML",
+            )
+            # Log reminder
+            async with get_session() as session:
+                await session.execute(
+                    text("INSERT INTO referral_reminder_log (user_id, telegram_id) VALUES (:uid, :tgid)"),
+                    {"uid": row.id, "tgid": row.telegram_id},
+                )
+                await session.commit()
+            sent += 1
+        except Forbidden:
+            logger.info("Cannot DM user %d for referral reminder — blocked", row.telegram_id)
+            failed += 1
+        except Exception as exc:
+            logger.error("Failed to send referral reminder to %d: %s", row.telegram_id, exc)
+            failed += 1
+
+        await asyncio.sleep(REMINDER_DELAY_SECONDS)
+
+    logger.info("Referral reminder sent: %d / failed: %d", sent, failed)
+
+    # Admin notification
+    if sent > 0:
+        admin_token = os.environ.get("ADMIN_BOT_TOKEN", "")
+        if admin_token:
+            try:
+                admin_bot = Bot(token=admin_token)
+                await admin_bot.initialize()
+                await admin_bot.send_message(
+                    chat_id=ADMIN_GROUP_ID,
+                    text=(
+                        f"🎁 <b>Referral Reminder Report</b>\n\n"
+                        f"ส่ง DM เตือนชวนเพื่อน: <b>{sent}</b> คน\n"
+                        f"ส่งไม่ได้: {failed} คน"
+                    ),
+                    parse_mode="HTML",
+                )
+            except Exception as exc:
+                logger.error("Failed to send referral reminder admin notification: %s", exc)
+
+
 # ─── /invite Command ─────────────────────────────────────────────────────────
 
 async def invite_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -182,13 +390,15 @@ async def invite_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     remaining_text = f"📋 โควตาเดือนนี้: เหลือ {stats['remaining_monthly']}/{MONTHLY_REFERRAL_LIMIT} คน"
 
+    ref_link = f"https://t.me/NamwarnJarern_bot?start=ref_{code}"
     text = (
         "🎁 <b>ชวนเพื่อนมา VIP เจริญพร!</b>\n\n"
         "ชวน 1 คน = ได้ VIP ฟรี 7 วัน\n"
         "ชวน 5 คน = ได้ VIP ฟรี 30 วัน!\n\n"
         "ลิงก์ชวนเพื่อนของคุณ:\n"
-        f'👉 <a href="https://t.me/NamwarnJarern_bot?start=ref_{code}">🔗 กดส่งลิงก์ให้เพื่อน</a>\n\n'
-        f"หรือคัดลอก: <code>https://t.me/NamwarnJarern_bot?start=ref_{code}</code>\n\n"
+        f'👉 <a href="{ref_link}">🔗 กดส่งลิงก์ให้เพื่อน</a>\n\n'
+        "📋 <b>ข้อความชวนเพื่อน (กดคัดลอกส่งได้เลย):</b>\n"
+        f"<code>มา VIP เจริญพร กัน! คลิปเต็มไม่เบลอ 10,000+ คลิป สมัครที่ {ref_link}</code>\n\n"
         "📊 <b>สถิติของคุณ:</b>\n"
         f"ชวนสำเร็จ: {completed} คน | ได้ฟรี: {stats['total_reward_days']} วัน\n"
     )
@@ -324,13 +534,15 @@ async def _get_invite_link_callback(update: Update, context: ContextTypes.DEFAUL
     else:
         next_reward_text = f"🎯 ชวนอีก 1 คน = ได้ VIP ฟรี {REWARD_PER_REFERRAL} วัน!"
 
+    ref_link = f"https://t.me/NamwarnJarern_bot?start=ref_{code}"
     text = (
         "🎁 <b>ชวนเพื่อนมา VIP เจริญพร!</b>\n\n"
         "ชวน 1 คน = ได้ VIP ฟรี 7 วัน\n"
         "ชวน 5 คน = ได้ VIP ฟรี 30 วัน!\n\n"
         "ลิงก์ชวนเพื่อนของคุณ:\n"
-        f'👉 <a href="https://t.me/NamwarnJarern_bot?start=ref_{code}">🔗 กดส่งลิงก์ให้เพื่อน</a>\n\n'
-        f"หรือคัดลอก: <code>https://t.me/NamwarnJarern_bot?start=ref_{code}</code>\n\n"
+        f'👉 <a href="{ref_link}">🔗 กดส่งลิงก์ให้เพื่อน</a>\n\n'
+        "📋 <b>ข้อความชวนเพื่อน (กดคัดลอกส่งได้เลย):</b>\n"
+        f"<code>มา VIP เจริญพร กัน! คลิปเต็มไม่เบลอ 10,000+ คลิป สมัครที่ {ref_link}</code>\n\n"
         "📊 <b>สถิติของคุณ:</b>\n"
         f"ชวนสำเร็จ: {completed} คน | ได้ฟรี: {stats['total_reward_days']} วัน\n\n"
         f"{next_reward_text}"
@@ -411,7 +623,7 @@ async def handle_referral_start(update: Update, context: ContextTypes.DEFAULT_TY
         # Create referral record
         await session.execute(
             text("""
-                INSERT INTO referrals (referrer_user_id, referrer_telegram_id, referral_code, 
+                INSERT INTO referrals (referrer_user_id, referrer_telegram_id, referral_code,
                                        referred_user_id, referred_telegram_id, status)
                 VALUES (:referrer_uid, :referrer_tgid, :code, :referred_uid, :referred_tgid, 'PENDING')
             """),
@@ -463,7 +675,7 @@ async def process_referral_reward(referred_telegram_id: int, bot) -> None:
         # Update referral status
         await session.execute(
             text("""
-                UPDATE referrals 
+                UPDATE referrals
                 SET status = 'COMPLETED', reward_days = :days, completed_at = NOW()
                 WHERE id = :ref_id
             """),
@@ -532,6 +744,7 @@ async def process_referral_reward(referred_telegram_id: int, bot) -> None:
     try:
         import telegram as tg
         admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
+        await admin_bot.initialize()
         admin_group = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
         await admin_bot.send_message(
             chat_id=admin_group,

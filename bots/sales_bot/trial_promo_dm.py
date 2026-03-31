@@ -217,6 +217,7 @@ async def run_trial_promo_dm_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     if admin_token and (total_sent > 0 or total_failed > 0):
         try:
             admin_bot = Bot(token=admin_token)
+            await admin_bot.initialize()
             admin_text = (
                 f"📬 <b>Trial Promo DM Report</b>\n"
                 f"📅 {now_th.strftime('%d/%m/%Y')}\n\n"

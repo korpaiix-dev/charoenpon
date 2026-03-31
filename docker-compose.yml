@@ -200,6 +200,15 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  fb-manager:
+    container_name: charoenpon-fb-manager
+    build:
+      context: ./fb-manager
+      dockerfile: Dockerfile
+    volumes:
+      - ./fb-manager/data:/app/data
+    restart: unless-stopped
+
 volumes:
   postgres_data:
     driver: local

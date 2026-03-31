@@ -78,6 +78,7 @@ async def _check_flash_sale_milestones(sold: int, total: int) -> None:
 
     try:
         admin_bot = tg.Bot(token=admin_token)
+        await admin_bot.initialize()
         remaining = total - sold
 
         if sold == total:

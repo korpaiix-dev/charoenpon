@@ -167,6 +167,7 @@ async def kick_expired_members(bot: Bot) -> dict[str, int]:
             import os
             from telegram import Bot as _Bot
             _sales = _Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+            await _sales.initialize()
             await _sales.send_message(
                 chat_id=user.telegram_id,
                 text=(

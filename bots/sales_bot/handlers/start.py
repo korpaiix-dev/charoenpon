@@ -240,7 +240,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # except Exception:
     #     pass
 
-    # เช็ค VIP Active สำหรับปุ่มชวนเพื่อน + อัพเกรด
+    # เช็ค VIP Active สำหรับปุ่มอัพเกรด
     try:
         from bots.sales_bot.handlers.referral import _is_vip_active
         is_vip = await _is_vip_active(tg_user.id)
@@ -248,11 +248,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             keyboard_rows.append(
                 [InlineKeyboardButton("🆙 อัพเกรด", callback_data="view_upgrade")]
             )
-            keyboard_rows.append(
-                [InlineKeyboardButton("🎁 ชวนเพื่อน", callback_data="get_invite_link")]
-            )
     except Exception:
         pass
+
+    # ปุ่มชวนเพื่อน — แสดงให้ทุกคนเห็น (VIP + non-VIP)
+    keyboard_rows.append(
+        [InlineKeyboardButton("🎁 ชวนเพื่อน ได้ VIP ฟรี!", callback_data="referral_menu")]
+    )
 
     keyboard_rows.extend([
         [InlineKeyboardButton("📦 ดูแพ็กเกจ", callback_data="view_packages")],
@@ -329,6 +331,35 @@ async def contact_admin_callback(
     await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
 
 
+async def referral_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Callback: referral menu — VIP goes to invite, non-VIP gets upsell."""
+    query = update.callback_query
+    if not query or not update.effective_user:
+        return
+    await query.answer()
+
+    from bots.sales_bot.handlers.referral import _is_vip_active
+    tg_user = update.effective_user
+
+    if await _is_vip_active(tg_user.id):
+        # VIP → show invite link via callback
+        from bots.sales_bot.handlers.referral import _get_invite_link_callback
+        await _get_invite_link_callback(update, context)
+    else:
+        # Non-VIP → prompt to subscribe first
+        text = (
+            "🎁 <b>ชวนเพื่อน ได้ VIP ฟรี!</b>\n\n"
+            "สมัคร VIP ก่อน แล้วชวนเพื่อนได้เลยค่ะ\n"
+            "ชวน 1 คน = ได้ VIP ฟรี 7 วัน!\n\n"
+            '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=packages">📦 ดูแพ็กเกจ VIP เจริญพร</a>'
+        )
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📦 ดูแพ็กเกจ", callback_data="view_packages")],
+            [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
+        ])
+        await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
+
+
 async def view_upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Callback: show GOD MODE upgrade info."""
     query = update.callback_query
@@ -357,4 +388,5 @@ def get_start_handlers() -> list:
         CallbackQueryHandler(free_room_callback, pattern="^free_room$"),
         CallbackQueryHandler(contact_admin_callback, pattern="^contact_admin$"),
         CallbackQueryHandler(view_upgrade_callback, pattern="^view_upgrade$"),
+        CallbackQueryHandler(referral_menu_callback, pattern="^referral_menu$"),
     ]
