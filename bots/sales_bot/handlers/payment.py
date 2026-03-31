@@ -72,14 +72,21 @@ TIER_PRICES: dict[str, Decimal] = {
 
 
 async def _get_effective_price(tier: str, context_user_data: dict) -> Decimal:
-    """Get effective price — comeback promo > flash sale > normal."""
-    # Check comeback promo first
+    """Get effective price — comeback promo > flash sale > normal.
+
+    Promo codes apply to ANY tier — discount_pct is applied to the tier's base price.
+    """
+    base_price = TIER_PRICES.get(tier, Decimal("0"))
+
+    # Check comeback promo first (applies to any tier)
     comeback_promo = context_user_data.get("comeback_promo")
-    if comeback_promo and tier == "300":
+    if comeback_promo:
         from bots.sales_bot.comeback_dm import validate_promo_code
         promo = await validate_promo_code(comeback_promo)
         if promo:
-            return Decimal(str(promo["discounted_price"]))
+            discount_pct = promo["discount_pct"]
+            discounted = int(base_price * (100 - discount_pct) / 100)
+            return Decimal(str(discounted))
 
     # Check flash sale
     flash_sale_id = context_user_data.get("flash_sale_id")
@@ -97,7 +104,48 @@ async def _get_effective_price(tier: str, context_user_data: dict) -> Decimal:
                 flash_price = await get_flash_sale_price(package.id)
                 if flash_price is not None:
                     return flash_price
-    return TIER_PRICES.get(tier, Decimal("0"))
+    return base_price
+
+async def _get_active_promo_for_user(telegram_id: int) -> dict | None:
+    """Look up active (unexpired, unpurchased) promo in comeback_dm_log for a user."""
+    from shared.models import ComebackDmLog
+    async with get_session() as session:
+        result = await session.execute(
+            select(ComebackDmLog).where(
+                ComebackDmLog.telegram_id == telegram_id,
+                ComebackDmLog.purchased == False,  # noqa: E712
+            ).order_by(ComebackDmLog.sent_at.desc()).limit(1)
+        )
+        dm_log = result.scalar_one_or_none()
+
+    if not dm_log:
+        return None
+
+    from datetime import timedelta
+    expiry = dm_log.sent_at + timedelta(hours=48)
+    if datetime.utcnow() > expiry:
+        return None
+
+    # Determine promo source label
+    variant = getattr(dm_log, "variant", "") or ""
+    dm_round = dm_log.round
+    if dm_round >= 200:
+        source = "Retention"
+    elif dm_round >= 100:
+        source = "Lead Followup"
+    else:
+        source = "Comeback"
+
+    from bots.sales_bot.comeback_dm import _calculate_discounted_price
+    discounted_price = _calculate_discounted_price(dm_log.discount_pct)
+
+    return {
+        "source": source,
+        "discount_pct": dm_log.discount_pct,
+        "discounted_price": discounted_price,
+        "promo_code": dm_log.promo_code,
+    }
+
 
 TRUEMONEY_PATTERN = re.compile(
     r"https?://gift\.truemoney\.com/campaign/??\?v=([a-zA-Z0-9]+)", re.IGNORECASE
@@ -435,6 +483,7 @@ async def _approve_payment(
     # ใช้ Guardian Bot (ที่เป็น admin ของกลุ่ม) สร้าง invite link
     guardian_token = os.environ.get("GUARDIAN_BOT_TOKEN", "")
     guardian_bot = tg.Bot(token=guardian_token) if guardian_token else bot
+    await guardian_bot.initialize()
     links_dict = await generate_invite_links_for_user(
         guardian_bot, user_telegram_id, package_id
     )
@@ -453,17 +502,12 @@ async def _approve_payment(
 
 
 WELCOME_REFERRAL_DM = (
-    '🎉 ยินดีต้อนรับสู่ VIP เจริญพร! 💕\n'
+    '✅ สมัครสำเร็จ! ชวนเพื่อน 1 คน ได้ VIP ฟรี 7 วัน\n'
     '\n'
-    '💡 รู้มั้ย? ชวนเพื่อนมาสมัคร = ได้ VIP ฟรีเพิ่ม!\n'
+    '👉 /invite\n'
     '\n'
-    '🎯 ชวน 1 คน = +7 วัน VIP ฟรี\n'
-    '🎯 ชวน 5 คน = +30 วัน VIP ฟรี!\n'
-    '\n'
-    '━━━━━━━━━━━━━━━━━━\n'
-    '📩 <b>รับลิงก์ชวนเพื่อนเลย 👇</b>\n'
-    '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=invite">🎁 กดรับลิงก์ชวนเพื่อน</a>\n'
-    '━━━━━━━━━━━━━━━━━━'
+    'ข้อความชวนเพื่อน (คัดลอกส่งได้เลย):\n'
+    '<code>มา VIP เจริญพร กัน! คลิปเต็มไม่เบลอทุกวัน 10,000+ คลิป สมัครที่ @NamwarnJarern_bot</code>'
 )
 
 
@@ -530,15 +574,17 @@ async def handle_photo_slip(
                 logger.warning("Spam/inappropriate image from user %s", user.id)
                 ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
                 try:
+                    import html as _html
                     import telegram as tg
                     admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
+                    await admin_bot.initialize()
                     await admin_bot.send_message(
                         chat_id=ADMIN_GROUP_ID,
-                        text=f"⚠️ <b>รูปไม่เหมาะสม</b> จาก <a href='tg://user?id={user.id}'>{user.first_name}</a> (ID: {user.id})\nAI: {screen_result[:200]}",
+                        text=f"⚠️ <b>รูปไม่เหมาะสม</b> จาก {_html.escape(str(user.first_name or 'ลูกค้า'))} (ID: <code>{user.id}</code>)\nAI: {screen_result[:200]}",
                         parse_mode="HTML",
                         reply_markup=tg.InlineKeyboardMarkup([
-                            [tg.InlineKeyboardButton(f"💬 @{user.username}" if user.username else f"💬 ID: {user.id}", callback_data=f"chat_{user.id}")],
-                            [tg.InlineKeyboardButton("🚫 แบน", callback_data=f"ban_{user.id}")],
+                            [tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", callback_data=f"chat_user_{user.id}", api_kwargs={"style": "primary"})],
+                            [tg.InlineKeyboardButton("🚫 แบน", callback_data=f"ban_{user.id}", api_kwargs={"style": "danger"})],
                         ]),
                     )
                 except Exception as e:
@@ -560,12 +606,13 @@ async def handle_photo_slip(
                     import html as _html
                     safe_name = _html.escape(str(user.first_name or "ลูกค้า"))
                     admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
+                    await admin_bot.initialize()
                     await admin_bot.send_message(
                         chat_id=ADMIN_GROUP_ID,
-                        text=f"💬 <b>ลูกค้าส่งรูป (ไม่ใช่สลิป)</b>\n👤 <a href='tg://user?id={user.id}'>{safe_name}</a>\nAI: {screen_result[:200]}",
+                        text=f"💬 <b>ลูกค้าส่งรูป (ไม่ใช่สลิป)</b>\n👤 {safe_name}\nAI: {screen_result[:200]}",
                         parse_mode="HTML",
                         reply_markup=tg.InlineKeyboardMarkup([
-                            [tg.InlineKeyboardButton(f"💬 @{user.username}" if user.username else f"💬 ID: {user.id}", callback_data=f"chat_{user.id}")],
+                            [tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", callback_data=f"chat_user_{user.id}", api_kwargs={"style": "primary"})],
                         ]),
                     )
                 except Exception as e:
@@ -719,41 +766,72 @@ async def handle_photo_slip(
     try:
         import telegram as tg
         admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
+        await admin_bot.initialize()
 
         import html as _html
         safe_name = _html.escape(str(user.first_name or user.username or "ลูกค้า"))
         now_th = datetime.now(timezone(timedelta(hours=7)))
 
+        # Check for active promo for this user
+        promo_info = None
+        promo_caption = ""
+        try:
+            promo_info = await _get_active_promo_for_user(user.id)
+            if promo_info:
+                promo_caption = (
+                    f"\n🎟 <b>โปรโมชั่น:</b> {promo_info['source']} "
+                    f"ลด {promo_info['discount_pct']}% (฿{promo_info['discounted_price']})"
+                )
+        except Exception as promo_exc:
+            logger.warning("Failed to check promo for user %d: %s", user.id, promo_exc)
+
         caption = (
             f"📩 <b>สลิปใหม่ (รอตรวจ)</b>\n"
             f"🕒 {now_th.strftime('%d/%m/%Y %H:%M')}\n"
             f"👤 <b>ข้อมูลลูกค้า</b>\n"
-            f"• ชื่อ: <a href='tg://user?id={user.id}'>{safe_name}</a>\n"
+            f"• ชื่อ: {safe_name}\n"
             f"• User: @{user.username or '-'}\n"
             f"• ID: <code>{user.id}</code>\n\n"
             f"💰 AI อ่านได้: <b>{ai_amount_str} บาท</b>\n"
             f"🤖 {ai_summary}"
+            f"{promo_caption}"
         )
 
-        keyboard = tg.InlineKeyboardMarkup([
+        # Build keyboard rows — add promo price button if active promo
+        kb_rows = [
             [
-                tg.InlineKeyboardButton("🆕 99 (Trial)", callback_data=f"approve_99_{user.id}"),
-                tg.InlineKeyboardButton("⚡ 199 (Flash)", callback_data=f"approve_199_{user.id}"),
-                tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}"),
+                tg.InlineKeyboardButton("🆕 99 (Trial)", callback_data=f"approve_99_{user.id}", api_kwargs={"style": "success"}),
+                tg.InlineKeyboardButton("⚡ 199 (Flash)", callback_data=f"approve_199_{user.id}", api_kwargs={"style": "success"}),
+                tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}", api_kwargs={"style": "success"}),
             ],
             [
-                tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{user.id}"),
-                tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{user.id}"),
+                tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{user.id}", api_kwargs={"style": "success"}),
+                tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{user.id}", api_kwargs={"style": "success"}),
             ],
             [
-                tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}"),
-                tg.InlineKeyboardButton("❌ ปฏิเสธ", callback_data=f"reject_{user.id}"),
+                tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}", api_kwargs={"style": "success"}),
+                tg.InlineKeyboardButton("❌ ปฏิเสธ", callback_data=f"reject_{user.id}", api_kwargs={"style": "danger"}),
             ],
-            [
-                tg.InlineKeyboardButton("🚫 แบน", callback_data=f"ban_{user.id}"),
-                tg.InlineKeyboardButton(f"💬 @{user.username}" if user.username else f"💬 ID: {user.id}", callback_data=f"chat_{user.id}"),
-            ],
+        ]
+
+        # Insert promo button row if active promo exists
+        if promo_info:
+            dp = promo_info["discounted_price"]
+            pct = promo_info["discount_pct"]
+            kb_rows.insert(0, [
+                tg.InlineKeyboardButton(
+                    f"🎟 {dp} (โปร{pct}%)",
+                    callback_data=f"approve_promo_{user.id}",
+                    api_kwargs={"style": "success"},
+                ),
+            ])
+
+        kb_rows.append([
+            tg.InlineKeyboardButton("🚫 แบน", callback_data=f"ban_{user.id}", api_kwargs={"style": "danger"}),
+            tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", callback_data=f"chat_user_{user.id}", api_kwargs={"style": "primary"}),
         ])
+
+        keyboard = tg.InlineKeyboardMarkup(kb_rows)
 
         # Download slip via Sales Bot, send as single post via Admin Bot
         slip_file = await context.bot.get_file(file_id)
@@ -933,27 +1011,28 @@ async def handle_truemoney_link(
             safe_name = _html.escape(str(user.first_name or "ลูกค้า"))
             ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
             admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
+            await admin_bot.initialize()
             keyboard = tg.InlineKeyboardMarkup([
                 [
-                    tg.InlineKeyboardButton("🆕 99 (Trial)", callback_data=f"approve_99_{user.id}"),
-                    tg.InlineKeyboardButton("⚡ 199 (Flash)", callback_data=f"approve_199_{user.id}"),
-                    tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}"),
+                    tg.InlineKeyboardButton("🆕 99 (Trial)", callback_data=f"approve_99_{user.id}", api_kwargs={"style": "success"}),
+                    tg.InlineKeyboardButton("⚡ 199 (Flash)", callback_data=f"approve_199_{user.id}", api_kwargs={"style": "success"}),
+                    tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}", api_kwargs={"style": "success"}),
                 ],
                 [
-                    tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{user.id}"),
-                    tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{user.id}"),
+                    tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{user.id}", api_kwargs={"style": "success"}),
+                    tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{user.id}", api_kwargs={"style": "success"}),
                 ],
                 [
-                    tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}"),
-                    tg.InlineKeyboardButton("❌ ซองเสีย", callback_data=f"reject_{user.id}"),
+                    tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}", api_kwargs={"style": "success"}),
+                    tg.InlineKeyboardButton("❌ ซองเสีย", callback_data=f"reject_{user.id}", api_kwargs={"style": "danger"}),
                 ],
-                [tg.InlineKeyboardButton(f"💬 @{user.username}" if user.username else f"💬 ID: {user.id}", callback_data=f"chat_{user.id}")],
+                [tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", callback_data=f"chat_user_{user.id}", api_kwargs={"style": "primary"})],
             ])
             await admin_bot.send_message(
                 chat_id=ADMIN_GROUP_ID,
                 text=(
                     f"🆘 <b>บอทเติมเองไม่ได้ (Timeout/Error)</b>\n"
-                    f"👤 ลูกค้า: <a href='tg://user?id={user.id}'>{safe_name}</a> (ID: <code>{user.id}</code>)\n"
+                    f"👤 ลูกค้า: {safe_name} (ID: <code>{user.id}</code>)\n"
                     f"🔗 <b>ลิ้งค์:</b> {link}\n\n"
                     f"👇 <b>แอดมินกดรับเอง แล้วมากดปุ่มยอดเงิน:</b>"
                 ),
@@ -1024,18 +1103,20 @@ async def handle_truemoney_link(
 
         # แจ้งเตือนกลุ่มแอดมิน
         try:
+            import html as _html
             safe_name = _html.escape(str(user.first_name or "ลูกค้า"))
             ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
             admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
+            await admin_bot.initialize()
             links_count = len(invite_links_raw)
             admin_keyboard = tg.InlineKeyboardMarkup([
-                [tg.InlineKeyboardButton(f"💬 @{user.username}" if user.username else f"💬 ID: {user.id}", callback_data=f"chat_{user.id}")],
+                [tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", callback_data=f"chat_user_{user.id}", api_kwargs={"style": "primary"})],
             ])
             await admin_bot.send_message(
                 chat_id=ADMIN_GROUP_ID,
                 text=(
                     f"✅ <b>TrueMoney อนุมัติอัตโนมัติ</b>\n\n"
-                    f"👤 ลูกค้า: <a href='tg://user?id={user.id}'>{safe_name}</a> (ID: <code>{user.id}</code>)\n"
+                    f"👤 ลูกค้า: {safe_name} (ID: <code>{user.id}</code>)\n"
                     f"💰 ยอด: {format_thb(expected_price)}\n"
                     f"📦 แพ็กเกจ: {pkg_name}\n"
                     f"🔗 ส่งลิงก์: {links_count} กลุ่ม\n"
@@ -1175,23 +1256,20 @@ async def handle_truemoney_link(
             reasons_tg = "\n".join(f"• {r}" for r in reasons)
             keyboard = tg.InlineKeyboardMarkup([
                 [
-                    tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}"),
-                    tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{user.id}"),
+                    tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}", api_kwargs={"style": "success"}),
+                    tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{user.id}", api_kwargs={"style": "success"}),
                 ],
                 [
-                    tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{user.id}"),
-                    tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}"),
+                    tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{user.id}", api_kwargs={"style": "success"}),
+                    tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}", api_kwargs={"style": "success"}),
                 ],
-                [tg.InlineKeyboardButton(
-                    f"💬 แชทลูกค้า @{user.username}" if user.username else f"💬 แชท ID: {user.id}",
-                    url=f"tg://user?id={user.id}"
-                )],
+                [tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", callback_data=f"chat_user_{user.id}", api_kwargs={"style": "primary"})],
             ])
             await admin_bot.send_message(
                 chat_id=ADMIN_GROUP_ID,
                 text=(
                     f"❌ <b>Payment Rejected (TrueMoney)</b>\n\n"
-                    f"👤 ลูกค้า: <a href='tg://user?id={user.id}'>{safe_name}</a>\n"
+                    f"👤 ลูกค้า: {safe_name}\n"
                     f"🆔 TG ID: <code>{user.id}</code>\n"
                     f"📦 แพ็กเกจ: {selected_tier} THB\n"
                     f"🔗 ลิงก์: {link}\n"

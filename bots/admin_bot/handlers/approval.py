@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, func
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -83,8 +83,8 @@ async def cmd_pending_payments(update: Update, context: ContextTypes.DEFAULT_TYP
 
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("✅ อนุมัติ", callback_data=f"pay_approve:{payment.id}"),
-                InlineKeyboardButton("❌ ไม่อนุมัติ", callback_data=f"pay_reject:{payment.id}"),
+                InlineKeyboardButton("✅ อนุมัติ", callback_data=f"pay_approve:{payment.id}", api_kwargs={"style": "success"}),
+                InlineKeyboardButton("❌ ไม่อนุมัติ", callback_data=f"pay_reject:{payment.id}", api_kwargs={"style": "danger"}),
             ]
         ])
 
@@ -387,8 +387,8 @@ async def cmd_pending_broadcasts(update: Update, context: ContextTypes.DEFAULT_T
 
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("✅ อนุมัติ", callback_data=f"bc_approve:{broadcast.id}"),
-                InlineKeyboardButton("❌ ไม่อนุมัติ", callback_data=f"bc_reject:{broadcast.id}"),
+                InlineKeyboardButton("✅ อนุมัติ", callback_data=f"bc_approve:{broadcast.id}", api_kwargs={"style": "success"}),
+                InlineKeyboardButton("❌ ไม่อนุมัติ", callback_data=f"bc_reject:{broadcast.id}", api_kwargs={"style": "danger"}),
             ]
         ])
 
@@ -532,6 +532,264 @@ async def inspect_payment_callback(update: Update, context: ContextTypes.DEFAULT
     info += f"สร้างเมื่อ: {str(payment.created_at)[:19]}"
 
     await query.answer(info[:200], show_alert=True)
+
+
+async def approve_promo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """อนุมัติสลิปด้วยราคาโปรโมชั่น — approve_promo_userid format.
+
+    ดึง active promo จาก comeback_dm_log แล้วใช้ discounted_price + package tier 300.
+    """
+    query = update.callback_query
+    await query.answer()
+
+    if not query.from_user or not _is_admin(query.from_user.id):
+        await query.answer("⛔ คุณไม่มีสิทธิ์", show_alert=True)
+        return
+
+    parts = query.data.split("_")  # approve_promo_12345
+    target_user_id = int(parts[2])
+
+    import os
+    import telegram as tg
+    from datetime import timedelta
+    from decimal import Decimal
+    from bots.guardian_bot.group_monitor import generate_invite_links_for_user
+    from shared.models import ComebackDmLog
+
+    try:
+        # Find active promo for this user
+        async with get_session() as session:
+            from sqlalchemy import select as sa_select
+            cb_result = await session.execute(
+                sa_select(ComebackDmLog).where(
+                    ComebackDmLog.telegram_id == target_user_id,
+                    ComebackDmLog.purchased == False,  # noqa: E712
+                ).order_by(ComebackDmLog.sent_at.desc()).limit(1)
+            )
+            cb_log = cb_result.scalar_one_or_none()
+
+        if not cb_log:
+            await query.answer("❌ ไม่พบโปรโมชั่นที่ใช้งานได้", show_alert=True)
+            return
+
+        # Check expiry (48 hours)
+        expiry = cb_log.sent_at + timedelta(hours=48)
+        if datetime.utcnow() > expiry:
+            await query.answer("❌ โปรโมชั่นหมดอายุแล้ว", show_alert=True)
+            return
+
+        discount_pct = cb_log.discount_pct
+        from bots.sales_bot.comeback_dm import _calculate_discounted_price
+        discounted_price = _calculate_discounted_price(discount_pct)
+        promo_code = cb_log.promo_code
+
+        # Determine source label
+        dm_round = cb_log.round
+        if dm_round >= 200:
+            source = "Retention"
+        elif dm_round >= 100:
+            source = "Lead Followup"
+        else:
+            source = "Comeback"
+
+        # Use the standard approve flow with discounted price
+        # Find package — default to tier 300 (VIP 30 วัน)
+        async with get_session() as session:
+            from shared.models import Package, PackageTier
+            pkg_result = await session.execute(
+                select(Package).where(Package.tier == PackageTier.TIER_300)
+            )
+            package = pkg_result.scalar_one_or_none()
+            if not package:
+                await query.answer("❌ ไม่พบแพ็กเกจ", show_alert=True)
+                return
+
+            # Find or create user
+            user_result = await session.execute(
+                select(User).where(User.telegram_id == target_user_id)
+            )
+            db_user = user_result.scalar_one_or_none()
+            if not db_user:
+                db_user = User(telegram_id=target_user_id, first_name="ลูกค้า")
+                session.add(db_user)
+                await session.flush()
+
+            # Expire existing active subscriptions
+            from sqlalchemy import update as sa_update_sub
+            await session.execute(
+                sa_update_sub(Subscription)
+                .where(Subscription.user_id == db_user.id, Subscription.status == SubscriptionStatus.ACTIVE)
+                .values(status=SubscriptionStatus.EXPIRED)
+            )
+
+            # Create subscription
+            now = datetime.utcnow()
+            end_date = now + timedelta(days=package.duration_days)
+            subscription = Subscription(
+                user_id=db_user.id,
+                package_id=package.id,
+                status=SubscriptionStatus.ACTIVE,
+                start_date=now,
+                end_date=end_date,
+            )
+            session.add(subscription)
+            db_user.total_spent = (db_user.total_spent or Decimal("0")) + Decimal(str(discounted_price))
+
+            # Mark teaser clicks as converted
+            from sqlalchemy import update as sa_update
+            from shared.models import TeaserClick
+            await session.execute(
+                sa_update(TeaserClick)
+                .where(TeaserClick.user_id == target_user_id, TeaserClick.converted == False)
+                .values(converted=True)
+            )
+
+            await session.flush()
+            pkg_name = package.name
+            duration = package.duration_days
+            pkg_id = package.id
+
+        # Mark promo as purchased
+        try:
+            async with get_session() as session:
+                cb_result2 = await session.execute(
+                    select(ComebackDmLog).where(ComebackDmLog.promo_code == promo_code)
+                )
+                cb_update = cb_result2.scalar_one_or_none()
+                if cb_update:
+                    cb_update.purchased = True
+                    cb_update.responded = True
+                    await session.flush()
+            logger.info("Promo %s marked purchased via admin approval", promo_code)
+        except Exception as exc_cb:
+            logger.warning("Promo mark purchased failed: %s", exc_cb)
+
+        # Generate invite links
+        guardian_bot = tg.Bot(token=os.environ.get("GUARDIAN_BOT_TOKEN", ""))
+        await guardian_bot.initialize()
+        sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+        await sales_bot.initialize()
+        invite_links = await generate_invite_links_for_user(guardian_bot, target_user_id, pkg_id)
+
+        links_list = []
+        async with get_session() as session:
+            from shared.models import GroupRegistry
+            for slug, link in invite_links.items():
+                grp_result = await session.execute(
+                    select(GroupRegistry).where(GroupRegistry.slug == slug)
+                )
+                group = grp_result.scalar_one_or_none()
+                title = group.title if group else slug
+                links_list.append({"text": f"🚀 {title}", "url": link})
+
+        # Send invite links to customer
+        link_buttons = [links_list[i:i+2] for i in range(0, len(links_list), 2)]
+        expire_date = (datetime.utcnow() + timedelta(days=duration)).strftime("%d/%m/%Y")
+        msg = (
+            f"✅ <b>อนุมัติยอด {discounted_price} บาท ({source} ลด {discount_pct}%) เรียบร้อยค่ะ</b>\n"
+            f"📦 แพ็กเกจ: {pkg_name}\n"
+            f"📅 หมดอายุ: {expire_date}\n\n"
+            f"👇 <b>กดเข้ากลุ่มที่ปุ่มด้านล่างได้เลย</b>\n\n"
+            f"🆓 <b>ห้องฟรี:</b> https://t.me/addlist/2xN-ag15W4U2MTNl"
+        )
+        invite_keyboard = tg.InlineKeyboardMarkup(
+            [[tg.InlineKeyboardButton(b["text"], url=b["url"]) for b in row]
+             for row in link_buttons]
+        )
+        await sales_bot.send_message(chat_id=target_user_id, text=msg, parse_mode="HTML", reply_markup=invite_keyboard)
+
+        # Update admin message
+        safe_admin = query.from_user.first_name or "Admin"
+        old_caption = query.message.caption or ""
+        new_caption = f"{old_caption}\n\n✅ <b>สถานะ: อนุมัติ โปร {discounted_price}บ. ({source} -{discount_pct}%) โดย {safe_admin}</b>"
+        chat_btn = (
+            tg.InlineKeyboardButton(f"💬 @{db_user.username}", url=f"https://t.me/{db_user.username}", api_kwargs={"style": "primary"})
+            if db_user and db_user.username
+            else tg.InlineKeyboardButton(f"💬 แชทลูกค้า", callback_data=f"chat_user_{target_user_id}", api_kwargs={"style": "primary"})
+        )
+        post_keyboard = tg.InlineKeyboardMarkup([[chat_btn]])
+        try:
+            await query.edit_message_caption(caption=new_caption[:1024], parse_mode="HTML", reply_markup=post_keyboard)
+        except Exception as e:
+            logger.error("Failed to edit promo approval caption: %s", e)
+
+        # Create Payment record
+        try:
+            async with get_session() as session:
+                from shared.models import PaymentMethod
+                new_payment = Payment(
+                    user_id=db_user.id,
+                    package_id=pkg_id,
+                    amount=Decimal(str(discounted_price)),
+                    method=PaymentMethod.SLIP,
+                    status=PaymentStatus.CONFIRMED,
+                    verified_by=query.from_user.id,
+                    verified_at=datetime.utcnow(),
+                )
+                session.add(new_payment)
+                await session.flush()
+                new_payment_id = new_payment.id
+        except Exception as exc_p:
+            logger.warning("Failed to create promo payment record: %s", exc_p)
+            new_payment_id = 0
+
+        # Sync Sheets
+        try:
+            from sheets.daily_revenue import DailyRevenueSheet
+            from sheets.members import MembersSheet
+            from sheets.income_log import IncomeLogSheet
+            await DailyRevenueSheet.update()
+            from sheets.daily_summary import DailySummarySheet
+            await DailySummarySheet.update()
+            await IncomeLogSheet.log_payment(new_payment_id, approved_by=safe_admin)
+            await MembersSheet.update_member(db_user.id)
+        except Exception as exc_s:
+            logger.warning("Sheets sync failed for promo approval: %s", exc_s)
+
+        # Process referral reward
+        try:
+            from bots.sales_bot.handlers.referral import process_referral_reward
+            await process_referral_reward(target_user_id, sales_bot)
+        except Exception as exc_ref:
+            logger.warning("Referral reward failed for promo user %d: %s", target_user_id, exc_ref)
+
+        # Welcome referral DM
+        try:
+            import asyncio
+            await asyncio.sleep(3)
+            await sales_bot.send_message(
+                chat_id=target_user_id,
+                text=(
+                    '🎉 ยินดีต้อนรับสู่ VIP เจริญพร! 💕\n'
+                    '\n'
+                    '💡 รู้มั้ย? ชวนเพื่อนมาสมัคร = ได้ VIP ฟรีเพิ่ม!\n'
+                    '\n'
+                    '🎯 ชวน 1 คน = +7 วัน VIP ฟรี\n'
+                    '🎯 ชวน 5 คน = +30 วัน VIP ฟรี!\n'
+                    '\n'
+                    '━━━━━━━━━━━━━━━━━━\n'
+                    '📩 <b>รับลิงก์ชวนเพื่อนเลย 👇</b>\n'
+                    '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=invite">🎁 กดรับลิงก์ชวนเพื่อน</a>\n'
+                    '━━━━━━━━━━━━━━━━━━'
+                ),
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+        except Exception as exc_w:
+            logger.warning("Welcome DM failed for promo user %d: %s", target_user_id, exc_w)
+
+        logger.info(
+            "[%s] [ADMIN_BOT] [APPROVE_PROMO] [%s] [user=%d promo=%s price=%d]",
+            datetime.now(timezone.utc).isoformat(),
+            query.from_user.id,
+            target_user_id,
+            promo_code,
+            discounted_price,
+        )
+
+    except Exception as exc:
+        logger.error("approve_promo error: %s", exc)
+        await query.answer(f"❌ Error: {str(exc)[:100]}", show_alert=True)
 
 
 async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -683,9 +941,12 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
         safe_admin = query.from_user.first_name or "Admin"
         old_caption = query.message.caption or ""
         new_caption = f"{old_caption}\n\n✅ <b>สถานะ: อนุมัติ ({price}บ.) โดย {safe_admin}</b>"
-        post_keyboard = tg.InlineKeyboardMarkup([
-            [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", callback_data=f"chat_user:{target_user_id}")],
-        ])
+        chat_btn = (
+            tg.InlineKeyboardButton(f"💬 @{db_user.username}", url=f"https://t.me/{db_user.username}", api_kwargs={"style": "primary"})
+            if db_user and db_user.username
+            else tg.InlineKeyboardButton(f"💬 แชทลูกค้า", callback_data=f"chat_user_{target_user_id}", api_kwargs={"style": "primary"})
+        )
+        post_keyboard = tg.InlineKeyboardMarkup([[chat_btn]])
         try:
             await query.edit_message_caption(caption=new_caption[:1024], parse_mode="HTML", reply_markup=post_keyboard)
         except Exception as e:
@@ -698,22 +959,36 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
             color=0x2ECC71,
         )
 
-        # ── Create Payment record for tracking ──
+        # ── Create Payment record for tracking (with dedup guard) ──
         try:
             async with get_session() as session:
                 from shared.models import PaymentMethod
-                new_payment = Payment(
-                    user_id=db_user.id,
-                    package_id=pkg_id,
-                    amount=package.price if package else Decimal(price),
-                    method=PaymentMethod.SLIP,
-                    status=PaymentStatus.CONFIRMED,
-                    verified_by=query.from_user.id,
-                    verified_at=datetime.utcnow(),
+                # Dedup: ห้ามสร้าง payment ซ้ำ (คน+ยอด+วันเดียวกัน ภายใน 5 นาที)
+                dedup_cutoff = datetime.utcnow() - timedelta(minutes=5)
+                dup_check = await session.execute(
+                    select(Payment).where(
+                        Payment.user_id == db_user.id,
+                        Payment.amount == (package.price if package else Decimal(price)),
+                        Payment.status == PaymentStatus.CONFIRMED,
+                        Payment.created_at >= dedup_cutoff,
+                    )
                 )
-                session.add(new_payment)
-                await session.flush()
-                new_payment_id = new_payment.id
+                if dup_check.scalar_one_or_none():
+                    logger.warning("Duplicate approval payment skipped: user_id=%s", db_user.id)
+                    new_payment_id = 0
+                else:
+                    new_payment = Payment(
+                        user_id=db_user.id,
+                        package_id=pkg_id,
+                        amount=package.price if package else Decimal(price),
+                        method=PaymentMethod.SLIP,
+                        status=PaymentStatus.CONFIRMED,
+                        verified_by=query.from_user.id,
+                        verified_at=datetime.utcnow(),
+                    )
+                    session.add(new_payment)
+                    await session.flush()
+                    new_payment_id = new_payment.id
         except Exception as exc_p:
             logger.warning("Failed to create payment record: %s", exc_p)
             new_payment_id = 0
@@ -817,9 +1092,21 @@ async def reject_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     new_caption = f"{old_caption}\n\n❌ <b>สถานะ: ปฏิเสธ โดย {safe_admin}</b>"
     await _notify_discord_alert(f"❌ ปฏิเสธสลิป", f"👤 TG ID {target_user_id}\n👮 โดย: {safe_admin}", color=0xE74C3C)
     import telegram as tg
-    post_keyboard = tg.InlineKeyboardMarkup([
-        [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", callback_data=f"chat_user:{target_user_id}")],
-    ])
+    # Look up user for chat button
+    try:
+        async with get_session() as session:
+            _rej_user_result = await session.execute(
+                select(User).where(User.telegram_id == target_user_id)
+            )
+            _rej_db_user = _rej_user_result.scalar_one_or_none()
+    except Exception:
+        _rej_db_user = None
+    chat_btn = (
+        tg.InlineKeyboardButton(f"💬 @{_rej_db_user.username}", url=f"https://t.me/{_rej_db_user.username}", api_kwargs={"style": "primary"})
+        if _rej_db_user and _rej_db_user.username
+        else tg.InlineKeyboardButton(f"💬 แชทลูกค้า", callback_data=f"chat_user_{target_user_id}", api_kwargs={"style": "primary"})
+    )
+    post_keyboard = tg.InlineKeyboardMarkup([[chat_btn]])
     try:
         await query.edit_message_caption(caption=new_caption[:1024], parse_mode="HTML", reply_markup=post_keyboard)
     except Exception as e:
@@ -838,15 +1125,16 @@ async def ban_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     target_user_id = int(query.data.split("_")[1])
 
     import os, telegram as tg
+    ban_db_user = None
     try:
         # Ban user in DB
         async with get_session() as session:
             user_result = await session.execute(
                 select(User).where(User.telegram_id == target_user_id)
             )
-            db_user = user_result.scalar_one_or_none()
-            if db_user:
-                db_user.is_banned = True
+            ban_db_user = user_result.scalar_one_or_none()
+            if ban_db_user:
+                ban_db_user.is_banned = True
 
         sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
         await sales_bot.initialize()
@@ -863,9 +1151,12 @@ async def ban_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     new_caption = f"{old_caption}\n\n🚫 <b>สถานะ: แบนถาวร โดย {safe_admin}</b>"
     await _notify_discord_alert(f"🚫 แบนลูกค้า", f"👤 TG ID {target_user_id}\n👮 โดย: {safe_admin}", color=0x992D22)
     import telegram as tg
-    post_keyboard = tg.InlineKeyboardMarkup([
-        [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", callback_data=f"chat_user:{target_user_id}")],
-    ])
+    chat_btn = (
+        tg.InlineKeyboardButton(f"💬 @{ban_db_user.username}", url=f"https://t.me/{ban_db_user.username}", api_kwargs={"style": "primary"})
+        if ban_db_user and ban_db_user.username
+        else tg.InlineKeyboardButton(f"💬 แชทลูกค้า", callback_data=f"chat_user_{target_user_id}", api_kwargs={"style": "primary"})
+    )
+    post_keyboard = tg.InlineKeyboardMarkup([[chat_btn]])
     try:
         await query.edit_message_caption(caption=new_caption[:1024], parse_mode="HTML", reply_markup=post_keyboard)
     except Exception as e:
@@ -932,14 +1223,14 @@ async def sos_resend_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 try:
                     approve_keyboard = tg.InlineKeyboardMarkup([
                         [
-                            tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{target_user_id}"),
-                            tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{target_user_id}"),
+                            tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{target_user_id}", api_kwargs={"style": "success"}),
+                            tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{target_user_id}", api_kwargs={"style": "success"}),
                         ],
                         [
-                            tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{target_user_id}"),
-                            tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{target_user_id}"),
+                            tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{target_user_id}", api_kwargs={"style": "success"}),
+                            tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{target_user_id}", api_kwargs={"style": "success"}),
                         ],
-                        [tg.InlineKeyboardButton("🔄 ส่งลิงก์ใหม่", callback_data=f"sos_resend_{target_user_id}")],
+                        [tg.InlineKeyboardButton("🔄 ส่งลิงก์ใหม่", callback_data=f"sos_resend_{target_user_id}", api_kwargs={"style": "primary"})],
                     ])
                     await query.edit_message_text(text=new_text[:4096], parse_mode="HTML", reply_markup=approve_keyboard)
                 except Exception as e:
@@ -1009,19 +1300,36 @@ async def sos_resend_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         except Exception:
             is_sent = False
 
+        # ดึงข้อมูล user สำหรับปุ่มแชท
+        db_user = None
+        try:
+            async with get_session() as session:
+                user_result = await session.execute(
+                    select(User).where(User.telegram_id == target_user_id)
+                )
+                db_user = user_result.scalar_one_or_none()
+        except Exception:
+            pass
+
         # Update admin message
         safe_admin = query.from_user.first_name or "Admin"
         old_text = query.message.text or ""
+        
+        # สร้างปุ่มแชทลูกค้า
+        chat_btn = (
+            tg.InlineKeyboardButton(f"💬 @{db_user.username}", url=f"https://t.me/{db_user.username}", api_kwargs={"style": "primary"})
+            if db_user and db_user.username
+            else tg.InlineKeyboardButton(f"💬 แชทลูกค้า", callback_data=f"chat_user_{target_user_id}", api_kwargs={"style": "primary"})
+        )
+
         if is_sent:
-            new_text = f"{old_text}\n\n✅ <b>สถานะ: ส่งลิงก์สำรองสำเร็จ โดย {safe_admin}</b>"
-            new_keyboard = tg.InlineKeyboardMarkup([
-                [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", callback_data=f"chat_user:{target_user_id}")],
-            ])
+            new_text = f"{old_text}\n\n✅ <b>ส่งลิงก์สำเร็จแล้ว ✓ โดย {safe_admin}</b>"
+            new_keyboard = tg.InlineKeyboardMarkup([[chat_btn]])
         else:
             new_text = f"{old_text}\n\n❌ <b>ส่งไม่สำเร็จ (ลูกค้าบล็อกบอท)</b>"
             new_keyboard = tg.InlineKeyboardMarkup([
-                [tg.InlineKeyboardButton("🔄 ส่งลิงก์ใหม่", callback_data=f"sos_resend_{target_user_id}")],
-                [tg.InlineKeyboardButton("💬 แชทกับลูกค้า", callback_data=f"chat_user:{target_user_id}")],
+                [tg.InlineKeyboardButton("🔄 ลองส่งอีกครั้ง", callback_data=f"sos_resend_{target_user_id}", api_kwargs={"style": "primary"})],
+                [chat_btn],
             ])
 
         try:
@@ -1031,6 +1339,128 @@ async def sos_resend_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     except Exception as exc:
         logger.error("SOS resend error: %s", exc)
+        await query.answer(f"❌ Error: {str(exc)[:100]}", show_alert=True)
+
+
+async def sos_deny_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """SOS: ไม่อนุมัติ — แจ้งลูกค้าว่าไม่พบสิทธิ์."""
+    query = update.callback_query
+    await query.answer()
+
+    if not query.from_user or not _is_admin(query.from_user.id):
+        await query.answer("⛔ คุณไม่มีสิทธิ์", show_alert=True)
+        return
+
+    target_user_id = int(query.data.split("_")[2])
+    admin_name = query.from_user.first_name or "Admin"
+
+    import os, html as _html
+    import telegram as tg
+
+    try:
+        # Send denial to user via sales bot
+        sales_token = os.environ.get("SALES_BOT_TOKEN", "")
+        if sales_token:
+            sales_bot = tg.Bot(token=sales_token)
+            await sales_bot.initialize()
+            await sales_bot.send_message(
+                chat_id=target_user_id,
+                text=(
+                    "❌ ขออภัยค่ะ ตรวจสอบแล้วไม่พบสิทธิ์การเข้ากลุ่ม\n\n"
+                    "หากคิดว่ามีข้อผิดพลาด กรุณาติดต่อแอดมิน:\n"
+                    "→ https://t.me/zeinju_bunker"
+                ),
+            )
+
+        # Update admin message
+        old_text = query.message.text_html or query.message.text or ""
+        safe_admin = _html.escape(str(admin_name))
+        new_text = f"{old_text}\n\n❌ <b>ไม่อนุมัติ โดย {safe_admin}</b>"
+        await query.edit_message_text(text=new_text[:4096], parse_mode="HTML", reply_markup=None)
+
+    except Exception as exc:
+        logger.error("SOS deny error: %s", exc)
+        await query.answer(f"❌ Error: {str(exc)[:100]}", show_alert=True)
+
+
+async def sos_ban_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """SOS: แบนลูกค้า — เตะออกจากทุกกลุ่ม + ยกเลิก subscription."""
+    query = update.callback_query
+
+    if not query.from_user or not _is_admin(query.from_user.id):
+        await query.answer("⛔ คุณไม่มีสิทธิ์", show_alert=True)
+        return
+
+    # Confirm
+    await query.answer("⚠️ กำลังแบนลูกค้า...", show_alert=False)
+
+    target_user_id = int(query.data.split("_")[2])
+    admin_name = query.from_user.first_name or "Admin"
+
+    import os, html as _html
+    import telegram as tg
+
+    try:
+        # 1. Cancel subscription in DB
+        async with get_session() as session:
+            user_result = await session.execute(
+                select(User).where(User.telegram_id == target_user_id)
+            )
+            db_user = user_result.scalar_one_or_none()
+
+            if db_user:
+                sub_result = await session.execute(
+                    select(Subscription).where(
+                        Subscription.user_id == db_user.id,
+                        Subscription.status == SubscriptionStatus.ACTIVE,
+                    )
+                )
+                for sub in sub_result.scalars().all():
+                    sub.status = SubscriptionStatus.EXPIRED
+                await session.commit()
+
+        # 2. Kick from all VIP groups
+        guardian_token = os.environ.get("GUARDIAN_BOT_TOKEN", "")
+        if guardian_token:
+            guardian_bot = tg.Bot(token=guardian_token)
+            await guardian_bot.initialize()
+            async with get_session() as session:
+                from shared.models import GroupRegistry
+                groups_result = await session.execute(select(GroupRegistry))
+                groups = groups_result.scalars().all()
+            
+            kicked_count = 0
+            for g in groups:
+                try:
+                    await guardian_bot.ban_chat_member(chat_id=g.group_id, user_id=target_user_id)
+                    await guardian_bot.unban_chat_member(chat_id=g.group_id, user_id=target_user_id)  # unban so they're just kicked, not permanently banned
+                    kicked_count += 1
+                except Exception:
+                    pass
+
+        # 3. Notify user
+        sales_token = os.environ.get("SALES_BOT_TOKEN", "")
+        if sales_token:
+            sales_bot = tg.Bot(token=sales_token)
+            await sales_bot.initialize()
+            try:
+                await sales_bot.send_message(
+                    chat_id=target_user_id,
+                    text="🚫 บัญชีของคุณถูกระงับการใช้งาน\nหากมีข้อสงสัย ติดต่อแอดมิน → https://t.me/zeinju_bunker",
+                )
+            except Exception:
+                pass
+
+        # 4. Update admin message
+        old_text = query.message.text_html or query.message.text or ""
+        safe_admin = _html.escape(str(admin_name))
+        new_text = f"{old_text}\n\n🚫 <b>แบนแล้ว โดย {safe_admin}</b> (เตะ {kicked_count} กลุ่ม, ยกเลิก subscription)"
+        await query.edit_message_text(text=new_text[:4096], parse_mode="HTML", reply_markup=None)
+
+        logger.info("SOS ban: user %s banned by %s, kicked from %d groups", target_user_id, admin_name, kicked_count)
+
+    except Exception as exc:
+        logger.error("SOS ban error: %s", exc)
         await query.answer(f"❌ Error: {str(exc)[:100]}", show_alert=True)
 
 
@@ -1060,38 +1490,3 @@ async def _notify_discord_alert(title: str, details: str, color: int = 0x3498DB)
         logger.warning("Discord notify failed: %s", exc)
 
 
-async def chat_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """เปิดแชทกับลูกค้า — ดึง username จาก DB แล้วส่งลิงก์ให้ admin."""
-    query = update.callback_query
-    await query.answer()
-
-    target_user_id = int(query.data.split(":")[1])
-
-    # ดึงข้อมูล user จาก DB
-    async with get_session() as session:
-        result = await session.execute(
-            select(User).where(User.telegram_id == target_user_id)
-        )
-        user = result.scalar_one_or_none()
-
-    if user and user.username:
-        # มี username → ส่งลิงก์ตรงไปหา profile
-        await query.message.reply_text(
-            f"💬 <b>แชทกับลูกค้า</b>\n\n"
-            f"👤 @{user.username}\n"
-            f"👉 <a href=\"https://t.me/{user.username}\">กดที่นี่เพื่อเปิดแชท</a>",
-            parse_mode="HTML",
-        )
-    else:
-        # ไม่มี username → แจ้ง admin พร้อม user ID + mention link
-        name = (user.first_name if user else None) or f"User {target_user_id}"
-        await query.message.reply_text(
-            f"💬 <b>แชทกับลูกค้า</b>\n\n"
-            f"⚠️ ลูกค้าไม่มี username\n"
-            f"👤 ชื่อ: {name}\n"
-            f"🆔 Telegram ID: <code>{target_user_id}</code>\n\n"
-            f"👉 <a href=\"tg://user?id={target_user_id}\">กดที่นี่เพื่อเปิดแชท</a>\n"
-            f"(ใช้ได้เฉพาะบน Telegram app, ไม่รองรับ Desktop บางเวอร์ชัน)",
-            parse_mode="HTML",
-        )
-    logger.info("Admin %s requested chat link for user %s", query.from_user.id, target_user_id)
