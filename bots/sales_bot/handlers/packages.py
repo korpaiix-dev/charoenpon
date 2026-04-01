@@ -20,21 +20,24 @@ PACKAGES = [
         "name": "💎 2,499.- | GOD MODE (ถาวร)",
         "price": "2,499",
         "duration": "ถาวร",
-        "groups": ["VIP", "SSS", "OnlyFans", "นานาชาติ", "V GOD", "หนังซีรีส์", "สายซุ่ม"],
+        "groups": ["VIP", "SSS", "OnlyFans", "นานาชาติ", "V GOD", "หนังซีรีส์", "สายซุ่ม", "Summer Fest 🌊"],
         "details": (
             "💎 <b>2,499.- | GOD MODE (ถาวร)</b>\n"
             "━━━━━━━━━━━━━━━━━━\n"
             "ตัวจบของจริง จ่ายครั้งเดียว ดูได้ตลอดชีพ!\n\n"
-            "✅ เข้าครบทุกกลุ่ม (6 ห้อง + หนัง):\n"
+            "✅ เข้าครบทุกกลุ่ม (7 ห้อง + หนัง):\n"
             "• VIP (งานทางบ้าน/แอบถ่าย/นักเรียน)\n"
             "• SSS (งานแรร์กว่า หายากกว่า VIP ทีเด็ด)\n"
             "• OnlyFans (รวมงานแรร์ 50 คน++)\n"
             "• นานาชาติ VIP (คลิปต่างชาติ ยุโรป เอเชีย)\n"
             "• V GOD (งานหลุดทางบ้าน เซฟได้) ✨\n"
             "• สายซุ่ม (llอU ถ่าe) 🎲\n"
+            "• 🌊 Summer Fest (งานแรร์90/สาวอ้วน/เลสเบี้ยน/สาวน้อยตกน้ำ) 🔥 NEW!\n"
             "• หนังซีรีส์ ไทย ฝรั่ง จีน เกาหลี\n\n"
             "✅ สถานะ Lifetime ไม่ต้องต่ออายุ\n"
-            "✅ คุ้มที่สุดในระยะยาว"
+            "✅ คุ้มที่สุดในระยะยาว\n\n"
+            '📋 <a href="https://t.me/+hv7uXYj4bxFhODZl">ดูรีวิวจากลูกค้าจริง</a>\n'
+            '👀 <a href="https://t.me/+Q0Qf-4t8TQo3YTBl">ดูตัวอย่างงาน</a>'
         ),
     },
     {
@@ -55,7 +58,8 @@ PACKAGES = [
             "• นานาชาติ VIP (คลิปต่างชาติ ยุโรป เอเชีย)\n"
             "• สายซุ่ม (llอU ถ่าe) 🎲\n"
             "• หนังซีรีส์ ไทย ฝรั่ง จีน เกาหลี\n\n"
-            "✅ 90 วัน (เฉลี่ยวันละ 14 บาท)"
+            "✅ 90 วัน (เฉลี่ยวันละ 14 บาท)\n\n"
+            "💡 <b>อยากได้ครบกว่านี้?</b> GOD MODE ถาวร 2,499.- ได้เพิ่ม Summer Fest + ไม่มีหมดอายุ!"
         ),
     },
     {
@@ -262,10 +266,53 @@ async def buy_package_callback(
         logger.warning("Failed to send QR: %s", exc)
 
 
+async def summer_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """/summer — ซื้อ Summer Fest add-on ฿500 (สำหรับ GOD MODE เก่า)."""
+    if not update.message:
+        return
+
+    context.user_data["selected_tier"] = "ADD500"
+    context.user_data["selected_price"] = "500"
+
+    text = (
+        "🌊 <b>Summer Fest — Add-on ฿500</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "สำหรับลูกค้า GOD MODE เก่าที่ต้องการเข้ากลุ่มใหม่\n\n"
+        "📋 <b>ห้องที่ได้:</b>\n"
+        "• งานแรร์90\n"
+        "• สาวอ้วน\n"
+        "• เลสเบี้ยน\n"
+        "• สาวน้อยตกน้ำ (สงกรานต์) 💦\n\n"
+        "💰 <b>จ่ายเพิ่ม ฿500 เข้าถาวร!</b>\n\n"
+        "📌 <b>วิธีชำระเงิน:</b>\n"
+        "1️⃣ สแกน QR PromptPay ด้านล่าง\n"
+        "2️⃣ ส่งสลิปโอนเงิน หรือลิงก์ซอง TrueMoney\n"
+        "3️⃣ รอแอดมินตรวจสอบ\n\n"
+        "⚠️ กรุณาโอน <b>500 บาท</b> ตามยอดที่แจ้งเท่านั้นค่ะ"
+    )
+
+    await update.message.reply_text(text, parse_mode="HTML")
+
+    # Send QR
+    QR_URL = "https://img2.pic.in.th/-2026-03-15-143743.png"
+    try:
+        await context.bot.send_photo(
+            chat_id=update.message.chat_id,
+            photo=QR_URL,
+            caption="📱 สแกน QR PromptPay เพื่อโอน <b>500 บาท</b>\nแล้วส่งสลิปมาที่แชทนี้เลยค่ะ 🙏",
+            parse_mode="HTML",
+        )
+    except Exception as exc:
+        logger.warning("Failed to send QR: %s", exc)
+
+
 def get_package_handlers() -> list:
     """Return all handlers for the packages module."""
     return [
         CommandHandler("packages", view_packages_command),
+        CommandHandler("summer", summer_command),
         CallbackQueryHandler(view_packages_callback, pattern="^view_packages$"),
         CallbackQueryHandler(package_detail_callback, pattern=r"^pkg_(300|500|1299|2499)$"),
         CallbackQueryHandler(buy_package_callback, pattern=r"^buy_(300|500|1299|2499)$"),

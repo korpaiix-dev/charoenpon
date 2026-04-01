@@ -215,7 +215,7 @@ def main() -> None:
 
     # New-style approval buttons (approve_promo_userid, approve_300_userid, reject_userid, ban_userid)
     application.add_handler(CallbackQueryHandler(approve_promo_callback, pattern=r"^approve_promo_\d+$"))
-    application.add_handler(CallbackQueryHandler(approve_by_price_callback, pattern=r"^approve_\d+_\d+$"))
+    application.add_handler(CallbackQueryHandler(approve_by_price_callback, pattern=r"^approve_[\w]+_\d+$"))
     application.add_handler(CallbackQueryHandler(reject_user_callback, pattern=r"^reject_\d+$"))
     application.add_handler(CallbackQueryHandler(ban_user_callback, pattern=r"^ban_\d+$"))
     application.add_handler(CallbackQueryHandler(sos_resend_callback, pattern=r"^sos_resend_\d+$"))

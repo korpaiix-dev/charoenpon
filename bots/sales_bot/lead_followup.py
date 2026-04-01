@@ -120,10 +120,13 @@ def _hot_variant_a(first_name: str, promo_text: str) -> str:
     return (
         f"เห็นว่าสนใจแพ็กเกจอยู่ {first_name} 👀\n"
         f"\n"
-        f"ตอนนี้มีส่วนลดพิเศษ {promo_text}\n"
-        f"คลิปเต็มไม่เบลอ 10,000+ ชิ้น\n"
+        f"💎 GOD MODE ถาวร 2,499.- จ่ายครั้งเดียว ดูตลอดชีพ!\n"
+        f"ครบ 8 กลุ่ม รวม Summer Fest 🌊 ห้องใหม่!\n"
+        f"{promo_text}\n"
         f"\n"
-        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=packages">สมัคร VIP เลย</a>'
+        f'📋 <a href="https://t.me/+hv7uXYj4bxFhODZl">ดูรีวิวลูกค้าจริง</a>\n'
+        f'👀 <a href="https://t.me/+Q0Qf-4t8TQo3YTBl">ดูตัวอย่างงาน</a>\n'
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=packages">สมัครเลย</a>'
     )
 
 
@@ -131,9 +134,11 @@ def _hot_variant_b(first_name: str, promo_text: str) -> str:
     return (
         f"{first_name} ยังไม่ตัดสินใจเหรอ? 🔥\n"
         f"\n"
-        f"แพ็กเกจที่ดูอยู่ ตอนนี้ลดพิเศษ!\n"
+        f"GOD MODE ถาวร 2,499.- ได้ครบทุกห้อง 8 กลุ่ม!\n"
+        f"🌊 + Summer Fest ห้องใหม่ (งานแรร์90/สาวอ้วน/เลสเบี้ยน/สาวน้อยตกน้ำ)\n"
         f"{promo_text}\n"
         f"\n"
+        f'👀 <a href="https://t.me/+Q0Qf-4t8TQo3YTBl">ดูตัวอย่างงาน</a>\n'
         f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=packages">ดูแพ็กเกจ</a>'
     )
 
@@ -142,9 +147,11 @@ def _warm_variant_a(first_name: str, promo_text: str) -> str:
     return (
         f"VIP เจริญพร คลิปใหม่ทุกวัน 🎬 {first_name}\n"
         f"\n"
-        f"สมาชิก 10,000+ คลิปเต็มไม่เบลอ\n"
+        f"💎 GOD MODE ถาวร 2,499.- ครบ 8 กลุ่ม + Summer Fest 🌊\n"
+        f"จ่ายครั้งเดียว ไม่ต้องต่ออายุ!\n"
         f"{promo_text}\n"
         f"\n"
+        f'📋 <a href="https://t.me/+hv7uXYj4bxFhODZl">รีวิวลูกค้าจริง</a>\n'
         f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=packages">ดูแพ็กเกจ VIP</a>'
     )
 
@@ -153,8 +160,11 @@ def _warm_variant_b(first_name: str, promo_text: str) -> str:
     return (
         f"สนใจ VIP อยู่ไหมคะ? {first_name} 😊\n"
         f"\n"
-        f"ตอนนี้มีโปร {promo_text}\n"
+        f"แนะนำ GOD MODE ถาวร 2,499.- คุ้มสุด!\n"
+        f"ได้ครบ 8 กลุ่ม รวม 🌊 Summer Fest ห้องใหม่\n"
+        f"{promo_text}\n"
         f"\n"
+        f'👀 <a href="https://t.me/+Q0Qf-4t8TQo3YTBl">ดูตัวอย่างงาน</a>\n'
         f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=packages">ดูแพ็กเกจ</a>'
     )
 
@@ -163,9 +173,11 @@ def _cold_variant_a(first_name: str, promo_text: str) -> str:
     return (
         f"คิดถึงจัง! {first_name} กลับมาดูไหม? 🥺\n"
         f"\n"
-        f"คลิปใหม่เพียบ ไม่อยากให้พลาด\n"
+        f"คลิปใหม่เพียบ + เปิดห้องใหม่ 🌊 Summer Fest!\n"
+        f"GOD MODE ถาวร 2,499.- จ่ายครั้งเดียว ดูได้ตลอดชีพ\n"
         f"{promo_text}\n"
         f"\n"
+        f'📋 <a href="https://t.me/+hv7uXYj4bxFhODZl">รีวิวลูกค้าจริง</a>\n'
         f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=packages">ดูแพ็กเกจ VIP</a>'
     )
 
@@ -174,9 +186,11 @@ def _cold_variant_b(first_name: str, promo_text: str) -> str:
     return (
         f"ว่างไหมคะ {first_name}? มีคลิปใหม่เยอะมาก! 🎁\n"
         f"\n"
-        f"VIP 30 วัน ดูได้ทุกคลิป\n"
+        f"💎 GOD MODE ถาวร 2,499.- ครบ 8 กลุ่ม!\n"
+        f"+ 🌊 Summer Fest ห้องใหม่ล่าสุด\n"
         f"{promo_text}\n"
         f"\n"
+        f'👀 <a href="https://t.me/+Q0Qf-4t8TQo3YTBl">ดูตัวอย่างงาน</a>\n'
         f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=packages">สมัคร VIP</a>'
     )
 
