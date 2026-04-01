@@ -36,6 +36,7 @@ class PackageTier(str, enum.Enum):
     TIER_500 = "500"
     TIER_1299 = "1299"
     TIER_2499 = "2499"
+    TIER_ADD500 = "ADD500"
 
 
 class GroupSlug(str, enum.Enum):
@@ -47,6 +48,7 @@ class GroupSlug(str, enum.Enum):
     INTER = "INTER"
     SERIES = "SERIES"
     RANDOM = "RANDOM"
+    SUMMER = "SUMMER"
     FREE1 = "FREE1"
     FREE2 = "FREE2"
     FREE3 = "FREE3"

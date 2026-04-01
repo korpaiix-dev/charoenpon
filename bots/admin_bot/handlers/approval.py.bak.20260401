@@ -713,54 +713,24 @@ async def approve_promo_callback(update: Update, context: ContextTypes.DEFAULT_T
         except Exception as e:
             logger.error("Failed to edit promo approval caption: %s", e)
 
-        # ── Confirm existing PENDING payment (ไม่สร้างใหม่ — แก้ duplicate bug) ──
+        # Create Payment record
         try:
             async with get_session() as session:
                 from shared.models import PaymentMethod
-                pending_result = await session.execute(
-                    select(Payment).where(
-                        Payment.user_id == db_user.id,
-                        Payment.status == PaymentStatus.PENDING,
-                    ).order_by(Payment.created_at.desc()).limit(1)
+                new_payment = Payment(
+                    user_id=db_user.id,
+                    package_id=pkg_id,
+                    amount=Decimal(str(discounted_price)),
+                    method=PaymentMethod.SLIP,
+                    status=PaymentStatus.CONFIRMED,
+                    verified_by=query.from_user.id,
+                    verified_at=datetime.utcnow(),
                 )
-                pending_payment = pending_result.scalar_one_or_none()
-                if pending_payment:
-                    pending_payment.status = PaymentStatus.CONFIRMED
-                    pending_payment.verified_by = query.from_user.id
-                    pending_payment.verified_at = datetime.utcnow()
-                    pending_payment.amount = Decimal(str(discounted_price))
-                    pending_payment.package_id = pkg_id
-                    await session.flush()
-                    new_payment_id = pending_payment.id
-                    logger.info("Existing PENDING payment #%d confirmed (promo) for user %d", new_payment_id, target_user_id)
-                else:
-                    dedup_cutoff = datetime.utcnow() - timedelta(minutes=10)
-                    dup_check = await session.execute(
-                        select(Payment).where(
-                            Payment.user_id == db_user.id,
-                            Payment.amount == Decimal(str(discounted_price)),
-                            Payment.status == PaymentStatus.CONFIRMED,
-                            Payment.created_at >= dedup_cutoff,
-                        )
-                    )
-                    if dup_check.scalar_one_or_none():
-                        logger.warning("Duplicate promo payment skipped: user_id=%s", db_user.id)
-                        new_payment_id = 0
-                    else:
-                        new_payment = Payment(
-                            user_id=db_user.id,
-                            package_id=pkg_id,
-                            amount=Decimal(str(discounted_price)),
-                            method=PaymentMethod.SLIP,
-                            status=PaymentStatus.CONFIRMED,
-                            verified_by=query.from_user.id,
-                            verified_at=datetime.utcnow(),
-                        )
-                        session.add(new_payment)
-                        await session.flush()
-                        new_payment_id = new_payment.id
+                session.add(new_payment)
+                await session.flush()
+                new_payment_id = new_payment.id
         except Exception as exc_p:
-            logger.warning("Failed to confirm/create promo payment record: %s", exc_p)
+            logger.warning("Failed to create promo payment record: %s", exc_p)
             new_payment_id = 0
 
         # Sync Sheets
@@ -844,7 +814,7 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
         # Find package by price
         async with get_session() as session:
             from shared.models import Package, PackageTier
-            tier_map = {"99": "99", "199": "300", "300": "300", "500": "500", "1299": "1299", "2499": "2499", "ADD500": "ADD500"}
+            tier_map = {"99": "99", "199": "300", "300": "300", "500": "500", "1299": "1299", "2499": "2499"}
             tier = tier_map.get(price)
             if not tier:
                 await query.answer(f"❌ ราคา {price} ไม่ถูกต้อง", show_alert=True)
@@ -989,57 +959,38 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
             color=0x2ECC71,
         )
 
-        # ── Confirm existing PENDING payment (ไม่สร้างใหม่ — แก้ duplicate bug) ──
+        # ── Create Payment record for tracking (with dedup guard) ──
         try:
             async with get_session() as session:
                 from shared.models import PaymentMethod
-                # หา PENDING payment ล่าสุดของ user นี้ (ตัวที่ Sales Bot สร้างตอนรับสลิป)
-                pending_result = await session.execute(
+                # Dedup: ห้ามสร้าง payment ซ้ำ (คน+ยอด+วันเดียวกัน ภายใน 5 นาที)
+                dedup_cutoff = datetime.utcnow() - timedelta(minutes=5)
+                dup_check = await session.execute(
                     select(Payment).where(
                         Payment.user_id == db_user.id,
-                        Payment.status == PaymentStatus.PENDING,
-                    ).order_by(Payment.created_at.desc()).limit(1)
-                )
-                pending_payment = pending_result.scalar_one_or_none()
-                if pending_payment:
-                    # Update ตัว PENDING เดิมเป็น CONFIRMED
-                    pending_payment.status = PaymentStatus.CONFIRMED
-                    pending_payment.verified_by = query.from_user.id
-                    pending_payment.verified_at = datetime.utcnow()
-                    pending_payment.amount = package.price if package else Decimal(price)
-                    pending_payment.package_id = pkg_id
-                    await session.flush()
-                    new_payment_id = pending_payment.id
-                    logger.info("Existing PENDING payment #%d confirmed for user %d", new_payment_id, target_user_id)
-                else:
-                    # ไม่มี PENDING (edge case) — เช็ค CONFIRMED ซ้ำก่อนสร้างใหม่
-                    dedup_cutoff = datetime.utcnow() - timedelta(minutes=10)
-                    dup_check = await session.execute(
-                        select(Payment).where(
-                            Payment.user_id == db_user.id,
-                            Payment.amount == (package.price if package else Decimal(price)),
-                            Payment.status == PaymentStatus.CONFIRMED,
-                            Payment.created_at >= dedup_cutoff,
-                        )
+                        Payment.amount == (package.price if package else Decimal(price)),
+                        Payment.status == PaymentStatus.CONFIRMED,
+                        Payment.created_at >= dedup_cutoff,
                     )
-                    if dup_check.scalar_one_or_none():
-                        logger.warning("Duplicate approval payment skipped: user_id=%s", db_user.id)
-                        new_payment_id = 0
-                    else:
-                        new_payment = Payment(
-                            user_id=db_user.id,
-                            package_id=pkg_id,
-                            amount=package.price if package else Decimal(price),
-                            method=PaymentMethod.SLIP,
-                            status=PaymentStatus.CONFIRMED,
-                            verified_by=query.from_user.id,
-                            verified_at=datetime.utcnow(),
-                        )
-                        session.add(new_payment)
-                        await session.flush()
-                        new_payment_id = new_payment.id
+                )
+                if dup_check.scalar_one_or_none():
+                    logger.warning("Duplicate approval payment skipped: user_id=%s", db_user.id)
+                    new_payment_id = 0
+                else:
+                    new_payment = Payment(
+                        user_id=db_user.id,
+                        package_id=pkg_id,
+                        amount=package.price if package else Decimal(price),
+                        method=PaymentMethod.SLIP,
+                        status=PaymentStatus.CONFIRMED,
+                        verified_by=query.from_user.id,
+                        verified_at=datetime.utcnow(),
+                    )
+                    session.add(new_payment)
+                    await session.flush()
+                    new_payment_id = new_payment.id
         except Exception as exc_p:
-            logger.warning("Failed to confirm/create payment record: %s", exc_p)
+            logger.warning("Failed to create payment record: %s", exc_p)
             new_payment_id = 0
 
         # ── Sync Google Sheets ──
@@ -1282,9 +1233,6 @@ async def sos_resend_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                         [
                             tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{target_user_id}", api_kwargs={"style": "success"}),
                             tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{target_user_id}", api_kwargs={"style": "success"}),
-                        ],
-                        [
-                            tg.InlineKeyboardButton("🌊 500 (Summer)", callback_data=f"approve_ADD500_{target_user_id}", api_kwargs={"style": "success"}),
                         ],
                         [tg.InlineKeyboardButton("🔄 ส่งลิงก์ใหม่", callback_data=f"sos_resend_{target_user_id}", api_kwargs={"style": "primary"})],
                     ])

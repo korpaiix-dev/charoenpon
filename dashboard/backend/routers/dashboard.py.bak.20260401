@@ -72,8 +72,8 @@ async def summary(request: Request, admin=Depends(get_current_admin)):
     """Revenue summary: today, week, month with comparison."""
     row = await pool.fetchrow("""
         SELECT
-            COALESCE(SUM(CASE WHEN p.created_at::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date THEN p.amount END), 0) as today,
-            COALESCE(SUM(CASE WHEN p.created_at::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date - 1 THEN p.amount END), 0) as yesterday,
+            COALESCE(SUM(CASE WHEN (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date THEN p.amount END), 0) as today,
+            COALESCE(SUM(CASE WHEN (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date - 1 THEN p.amount END), 0) as yesterday,
             COALESCE(SUM(CASE WHEN p.created_at >= date_trunc('week', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN p.amount END), 0) as week,
             COALESCE(SUM(CASE WHEN p.created_at >= date_trunc('week', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) - interval '7 days'
                               AND p.created_at < date_trunc('week', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN p.amount END), 0) as last_week,
@@ -98,10 +98,10 @@ async def summary(request: Request, admin=Depends(get_current_admin)):
 @router.get("/revenue-chart")
 async def revenue_chart(days: int = 30, admin=Depends(get_current_admin)):
     rows = await pool.fetch("""
-        SELECT p.created_at::date as date, COALESCE(SUM(p.amount), 0) as revenue
+        SELECT (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date as date, COALESCE(SUM(p.amount), 0) as revenue
         FROM payments p
         WHERE p.status = 'CONFIRMED' AND p.created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day'
-        GROUP BY p.created_at::date ORDER BY date
+        GROUP BY (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date ORDER BY date
     """, days)
     return [{"date": str(r["date"]), "revenue": float(r["revenue"])} for r in rows]
 
@@ -111,7 +111,7 @@ async def members_stats(admin=Depends(get_current_admin)):
         SELECT
             (SELECT COUNT(*) FROM subscriptions WHERE status = 'ACTIVE') as active,
             (SELECT COUNT(*) FROM subscriptions WHERE status = 'EXPIRED') as expired,
-            (SELECT COUNT(*) FROM users WHERE created_at::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date) as new_today,
+            (SELECT COUNT(*) FROM users WHERE (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date) as new_today,
             (SELECT COUNT(*) FROM users) as total_users
     """)
     return dict(row)
@@ -151,7 +151,7 @@ async def dm_stats(admin=Depends(require_role("admin"))):
 async def content_stats(admin=Depends(require_role("admin"))):
     row = await pool.fetchrow("""
         SELECT
-            (SELECT COUNT(*) FROM teaser_clicks WHERE created_at::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date) as teaser_clicks_today,
+            (SELECT COUNT(*) FROM teaser_clicks WHERE (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date) as teaser_clicks_today,
             (SELECT COUNT(*) FROM content_queue WHERE is_used = FALSE) as queue_remaining,
             (SELECT COUNT(*) FROM content_schedule WHERE is_sent = TRUE AND sent_at::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date) as teasers_sent_today
     """)

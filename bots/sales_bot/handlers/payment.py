@@ -68,6 +68,7 @@ TIER_PRICES: dict[str, Decimal] = {
     "500": Decimal("500"),
     "1299": Decimal("1299"),
     "2499": Decimal("2499"),
+    "ADD500": Decimal("500"),
 }
 
 
@@ -810,6 +811,9 @@ async def handle_photo_slip(
             ],
             [
                 tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}", api_kwargs={"style": "success"}),
+                tg.InlineKeyboardButton("🌊 500 (Summer)", callback_data=f"approve_ADD500_{user.id}", api_kwargs={"style": "success"}),
+            ],
+            [
                 tg.InlineKeyboardButton("❌ ปฏิเสธ", callback_data=f"reject_{user.id}", api_kwargs={"style": "danger"}),
             ],
         ]
@@ -1024,6 +1028,9 @@ async def handle_truemoney_link(
                 ],
                 [
                     tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}", api_kwargs={"style": "success"}),
+                    tg.InlineKeyboardButton("🌊 500 (Summer)", callback_data=f"approve_ADD500_{user.id}", api_kwargs={"style": "success"}),
+                ],
+                [
                     tg.InlineKeyboardButton("❌ ซองเสีย", callback_data=f"reject_{user.id}", api_kwargs={"style": "danger"}),
                 ],
                 [tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", callback_data=f"chat_user_{user.id}", api_kwargs={"style": "primary"})],
@@ -1262,6 +1269,9 @@ async def handle_truemoney_link(
                 [
                     tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{user.id}", api_kwargs={"style": "success"}),
                     tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}", api_kwargs={"style": "success"}),
+                ],
+                [
+                    tg.InlineKeyboardButton("🌊 500 (Summer)", callback_data=f"approve_ADD500_{user.id}", api_kwargs={"style": "success"}),
                 ],
                 [tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", callback_data=f"chat_user_{user.id}", api_kwargs={"style": "primary"})],
             ])
