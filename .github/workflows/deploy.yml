@@ -20,11 +20,16 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
+          # Long timeout because docker rebuild can take minutes
+          command_timeout: 15m
           script: |
             set -e
             cd /root/charoenpon
             git fetch origin
             git reset --hard origin/master
-            # NOTE: bot processes (sales/admin/content/guardian/discord) are not auto-restarted.
-            # Add explicit restart commands here if you wire them to systemd later.
-            echo 'Charoenpon deploy: code synced. Manual bot restart may be needed.'
+            # Restart docker-compose stack (postgres, sales-bot, admin-bot,
+            # content-bot, guardian-bot, discord-bot, finance-scheduler,
+            # monitor, backup-cron, manager-agent, dashboard).
+            # --build picks up Dockerfile changes; -d runs detached.
+            docker compose up -d --build
+            echo 'Charoenpon deploy OK — docker compose stack updated.'
