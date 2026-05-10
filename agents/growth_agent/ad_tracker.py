@@ -96,6 +96,8 @@ async def get_campaign_metrics(campaign_id: int) -> dict[str, Any] | None:
     first_date = perf.first_date
     running_hours = 0.0
     if first_date:
+        if first_date.tzinfo is None:
+            first_date = first_date.replace(tzinfo=timezone.utc)
         running_hours = (datetime.now(timezone.utc) - first_date).total_seconds() / 3600
 
     return {

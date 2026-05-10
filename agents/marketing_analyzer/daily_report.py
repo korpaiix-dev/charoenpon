@@ -22,6 +22,7 @@ from typing import Any
 import httpx
 from sqlalchemy import Integer, func, select, and_, cast
 
+from shared.api_cost_tracker import call_openrouter, normalize_model
 from shared.database import get_session
 from shared.models import (
     ComebackDmLog,
@@ -49,7 +50,7 @@ FB_POST_LOG_FILE = "/root/charoenpon/fb-manager/data/post_log.json"
 
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-AI_MODEL = "anthropic/claude-sonnet-4-20250514"
+AI_MODEL = normalize_model("anthropic/claude-sonnet-4-20250514")
 
 DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 DISCORD_CH_DAILY_REPORT = os.environ.get("DISCORD_CH_DAILY_REPORT", "")
@@ -478,22 +479,15 @@ async def _ai_analyze(data: dict) -> dict[str, str]:
 ตอบสั้นกระชับ ใช้ภาษาไทย"""
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                OPENROUTER_API_URL,
-                headers={
-                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": AI_MODEL,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 1024,
-                    "temperature": 0.3,
-                },
-            )
-            resp.raise_for_status()
-            ai_text = resp.json()["choices"][0]["message"]["content"]
+        data = await call_openrouter(
+            model=AI_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            caller="marketing_analyzer/daily_report",
+            temperature=0.3,
+            max_tokens=1024,
+            metadata={"report_type": "daily_marketing_analysis"},
+        )
+        ai_text = data["choices"][0]["message"]["content"]
     except Exception as exc:
         logger.error("AI analysis failed: %s", exc)
         return {
