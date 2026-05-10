@@ -730,5 +730,6 @@ def _extract_payment_id(interaction: discord.Interaction) -> int | None:
 
 async def setup(bot: commands.Bot) -> None:
     """Add the commands cog and persistent views to the bot."""
-    await bot.add_cog(CharoenponCommands(bot))
+    if bot.get_cog("CharoenponCommands") is None:
+        await bot.add_cog(CharoenponCommands(bot))
     bot.add_view(PaymentApprovalView())

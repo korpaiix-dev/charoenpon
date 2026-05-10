@@ -19,6 +19,8 @@ from datetime import datetime, timedelta, timezone
 from telegram import Bot
 from telegram.ext import ContextTypes
 
+from shared.songkran_promo import is_songkran_promo_window
+
 logger = logging.getLogger(__name__)
 
 TH_TZ = timezone(timedelta(hours=7))
@@ -33,9 +35,9 @@ FREE_GROUPS = [
     -1003740382332,
     -1003861673687,
     -1003841389411,
-    -1003876840312,
+    -1003793295291,
     -1003723154612,
-    -1003789621076,
+    -1003805660760,
 ]
 
 TRIAL_PROMO_TEXT = (
@@ -70,6 +72,24 @@ REFERRAL_PROMO_TEXT = (
     '📩 <b>สมัคร VIP แล้วชวนเพื่อนเลย 👇</b>\n'
     '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=packages">⚡ สมัคร VIP เจริญพร ⚡</a>\n'
     '━━━━━━━━━━━━━━━━━━'
+)
+
+SONGKRAN_PROMO_TEXT = (
+    '💦 <b>โปรโมชั่นสงกรานต์ 7 วันเท่านั้น!</b>\n'
+    '\n'
+    'ซื้อ GOD MODE 3 เดือน ฿1,299 ในช่วงโปรนี้\n'
+    'รับสิทธิ์เข้ากลุ่ม <b>โปรโมชั่นสงกรานต์</b> เพิ่มทันที\n'
+    '\n'
+    '✅ ครบ 7 ห้องหลัก + หนังซีรีส์\n'
+    '✅ แถมกลุ่มโปรโมชั่นสงกรานต์สำหรับคนซื้อช่วงนี้\n'
+    '✅ สิทธิ์ปกติ 90 วัน\n'
+    '\n'
+    '━━━━━━━━━━━━━━━━━━\n'
+    '📩 <b>สมัครเลย 👇</b>\n'
+    '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=packages">💎 สมัคร GOD MODE 1,299</a>\n'
+    '━━━━━━━━━━━━━━━━━━\n'
+    '\n'
+    '⚠️ โปรนี้เฉพาะคนที่ซื้อในช่วง 7 วันโปรเท่านั้น'
 )
 
 
@@ -244,3 +264,23 @@ async def broadcast_referral_promo(context: ContextTypes.DEFAULT_TYPE) -> None:
 
     success, failed = await _broadcast_to_free_groups(bot, REFERRAL_PROMO_TEXT, image)
     logger.info("Referral promo broadcast: %d success, %d failed", success, failed)
+
+
+async def broadcast_songkran_promo(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Scheduled job: Broadcast Songkran 1299 promo to free groups during promo window only."""
+    if not is_songkran_promo_window():
+        logger.info("Songkran promo window inactive, skipping broadcast")
+        return
+
+    token = CONTENT_BOT_TOKEN
+    if not token:
+        logger.error("CONTENT_BOT_TOKEN not set")
+        return
+
+    logger.info("Broadcasting Songkran promo to free groups...")
+    bot = Bot(token=token)
+    await bot.initialize()
+    image = await _create_promo_image(bot, "SONGKRAN 1299", "แถมกลุ่มโปรสงกรานต์ 7 วัน")
+
+    success, failed = await _broadcast_to_free_groups(bot, SONGKRAN_PROMO_TEXT, image)
+    logger.info("Songkran promo broadcast: %d success, %d failed", success, failed)

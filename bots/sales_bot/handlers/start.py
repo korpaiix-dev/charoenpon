@@ -272,11 +272,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     dynamic_keyboard = InlineKeyboardMarkup(keyboard_rows)
 
-    await update.message.reply_text(
-        WELCOME_TEXT,
-        parse_mode="HTML",
-        reply_markup=dynamic_keyboard,
-    )
+    from bots.sales_bot.handlers.packages import view_packages_command
+    await view_packages_command(update, context)
 
 
 async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

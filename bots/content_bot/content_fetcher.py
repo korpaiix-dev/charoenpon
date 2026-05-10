@@ -279,8 +279,7 @@ class ContentFetcher:
         self.bot_token = bot_token or CONTENT_BOT_TOKEN
         self._bot: Bot | None = None
 
-    @property
-    def bot(self) -> Bot:
+    async def get_bot(self) -> Bot:
         if self._bot is None:
             self._bot = Bot(token=self.bot_token)
             await self._bot.initialize()
@@ -579,7 +578,7 @@ class ContentFetcher:
             await _send_discord_log("📭 **Content Fetch: ไม่พบรูปใหม่จากทุกแหล่ง**")
             return 0
 
-        bot = self.bot
+        bot = await self.get_bot()
         for filepath, source in all_files:
             try:
                 file_id = await _upload_to_telegram(bot, filepath)

@@ -96,7 +96,7 @@ async def _get_expiring_subscriptions(days_from: int, days_to: int) -> list[dict
                 FROM subscriptions s
                 JOIN users u ON u.id = s.user_id
                 JOIN packages p ON p.id = s.package_id
-                WHERE s.status = 'active'
+                WHERE s.status = 'ACTIVE'
                   AND s.end_date >= :start
                   AND s.end_date < :end
                   AND u.is_banned = false

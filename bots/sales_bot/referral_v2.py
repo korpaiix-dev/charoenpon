@@ -97,7 +97,7 @@ async def check_and_grant_referral_reward(referrer_user_id: int) -> int | None:
             text("""
                 UPDATE subscriptions
                 SET end_date = end_date + INTERVAL '1 day' * :days
-                WHERE user_id = :uid AND status = 'active'
+                WHERE user_id = :uid AND status = 'ACTIVE'
                   AND end_date > NOW()
                 RETURNING id
             """),
@@ -147,7 +147,7 @@ async def _get_active_vip_users() -> list[dict]:
                 SELECT DISTINCT u.id as user_id, u.telegram_id, u.first_name, u.username, u.referral_code
                 FROM users u
                 JOIN subscriptions s ON s.user_id = u.id
-                WHERE s.status = 'active'
+                WHERE s.status = 'ACTIVE'
                   AND s.end_date > NOW()
                   AND u.is_banned = false
                 ORDER BY u.id

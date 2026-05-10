@@ -21,7 +21,9 @@ from telegram.ext import (
     filters,
 )
 
-from shared.database import close_db, init_db
+from shared.database import close_db, get_session, init_db
+from shared.models import User
+from sqlalchemy import select
 
 from bots.sales_bot.handlers.flash_sale import get_flash_sale_handlers
 from bots.sales_bot.handlers.packages import get_package_handlers
@@ -34,14 +36,19 @@ from bots.sales_bot.handlers.upsell import get_upsell_handlers, run_upsell_dm_jo
 from bots.sales_bot.comeback_dm import run_comeback_dm_job
 from bots.sales_bot.trial_promo_dm import run_trial_promo_dm_job
 from bots.sales_bot.flash_sale_scheduler import start_flash_sale, end_flash_sale, remind_flash_sale
-from bots.sales_bot.promo_scheduler import broadcast_trial_promo, broadcast_referral_promo
+from bots.sales_bot.promo_scheduler import (
+    broadcast_referral_promo,
+    broadcast_songkran_promo,
+    broadcast_trial_promo,
+)
 from bots.sales_bot.trial_upsell import check_trial_upsell
-from bots.sales_bot.lead_followup import run_lead_followup_job
-from bots.sales_bot.lead_followup_v2 import run_lead_followup_v2_job
+# Lead follow-up DM jobs disabled by boss request (2026-04-26): too noisy / repeated admin alerts.
+# from bots.sales_bot.lead_followup import run_lead_followup_job
+# from bots.sales_bot.lead_followup_v2 import run_lead_followup_v2_job
 from bots.sales_bot.spam_filter import spam_filter_middleware
 from bots.sales_bot.handlers.referral import send_referral_reminder
 from bots.sales_bot.daily_report import send_daily_report
-from bots.sales_bot.preview_generator import run_preview_generator_job
+from bots.sales_bot.preview_generator import run_preview_generator_job, ensure_tables as ensure_preview_tables
 from bots.sales_bot.free_group_poster import post_to_free_groups
 from bots.sales_bot.retention_alert import run_retention_alert_job
 from bots.sales_bot.referral_v2 import send_referral_reminder_v2
@@ -59,6 +66,28 @@ async def _spam_filter_wrapper(update: Update, context: ContextTypes.DEFAULT_TYP
     blocked = await spam_filter_middleware(update, context)
     if blocked:
         # Raise ApplicationHandlerStop to prevent further processing
+        from telegram.ext import ApplicationHandlerStop
+        raise ApplicationHandlerStop()
+
+
+async def _banned_user_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Stop all Sales Bot interactions from users marked as banned."""
+    user = update.effective_user
+    if not user:
+        return
+
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                select(User.is_banned).where(User.telegram_id == user.id)
+            )
+            is_banned = bool(result.scalar_one_or_none())
+    except Exception as exc:
+        logger.warning("Banned user guard failed open for user=%s: %s", user.id, exc)
+        return
+
+    if is_banned:
+        logger.info("Blocked banned user interaction: telegram_id=%s username=%s", user.id, user.username)
         from telegram.ext import ApplicationHandlerStop
         raise ApplicationHandlerStop()
 
@@ -135,6 +164,7 @@ async def _request_expiring_list(context: ContextTypes.DEFAULT_TYPE) -> None:
 async def post_init(application: Application) -> None:
     """Post-init hook — initialize database."""
     await init_db()
+    await ensure_preview_tables()
     logger.info("Sales Bot (แพร) initialized — database ready")
 
 
@@ -155,6 +185,10 @@ def create_application() -> Application:
     # --- Group 0: Spam filter middleware (runs first) ---
     app.add_handler(
         TypeHandler(Update, _spam_filter_wrapper),
+        group=-1,
+    )
+    app.add_handler(
+        TypeHandler(Update, _banned_user_guard),
         group=-1,
     )
 
@@ -267,6 +301,18 @@ def create_application() -> Application:
         name="referral_promo_broadcast_sunday_1400",
     )
 
+    # --- Scheduler: Songkran 1299 promo via @jarern4_bot every day 12:00 และ 20:00 ไทย ---
+    app.job_queue.run_daily(
+        broadcast_songkran_promo,
+        time=dt_time(hour=12, minute=0, tzinfo=TH_TZ),
+        name="songkran_promo_broadcast_daily_1200",
+    )
+    app.job_queue.run_daily(
+        broadcast_songkran_promo,
+        time=dt_time(hour=20, minute=0, tzinfo=TH_TZ),
+        name="songkran_promo_broadcast_daily_2000",
+    )
+
     # --- Scheduler: Lead Follow-up DM ทุก 1 ชม. (v1 — replaced by v2) ---
     # app.job_queue.run_repeating(
     #     run_lead_followup_job,
@@ -276,12 +322,13 @@ def create_application() -> Application:
     # )
 
     # --- Scheduler: Lead Follow-up v2 DM ทุก 1 ชม. ---
-    app.job_queue.run_repeating(
-        run_lead_followup_v2_job,
-        interval=3600,
-        first=120,
-        name="lead_followup_v2_hourly",
-    )
+    # Disabled by boss request (2026-04-26): ขึ้นแจ้งเตือนบ่อยและยิงหา lead ที่ DM ไม่ได้ซ้ำ ๆ
+    # app.job_queue.run_repeating(
+    #     run_lead_followup_v2_job,
+    #     interval=3600,
+    #     first=120,
+    #     name="lead_followup_v2_hourly",
+    # )
 
     # --- Scheduler: Referral Reminder DM ทุกวัน 15:00 ไทย ---
     app.job_queue.run_daily(

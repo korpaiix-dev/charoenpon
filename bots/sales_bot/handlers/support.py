@@ -108,7 +108,7 @@ async def handle_support_text(
             chat_btn = (
                 tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"})
                 if user.username
-                else tg.InlineKeyboardButton(f"💬 แชทลูกค้า", callback_data=f"chat_user_{user.id}", api_kwargs={"style": "primary"})
+                else tg.InlineKeyboardButton("💬 เปิดข้อมูลลูกค้า", callback_data=f"chat_user_{user.id}", api_kwargs={"style": "primary"})
             )
             keyboard = tg.InlineKeyboardMarkup([
                 [tg.InlineKeyboardButton("✅ ส่งลิงก์ใหม่", callback_data=f"sos_resend_{user.id}", api_kwargs={"style": "success"})],

@@ -31,8 +31,10 @@ from bots.admin_bot.handlers.approval import (
     reject_user_callback,
     ban_user_callback,
     sos_resend_callback,
+    copy_invites_callback,
     sos_deny_callback,
     sos_ban_callback,
+    chat_user_callback,
 )
 from bots.admin_bot.handlers.broadcast import get_broadcast_handlers
 from bots.admin_bot.handlers.reports import (
@@ -219,8 +221,10 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(reject_user_callback, pattern=r"^reject_\d+$"))
     application.add_handler(CallbackQueryHandler(ban_user_callback, pattern=r"^ban_\d+$"))
     application.add_handler(CallbackQueryHandler(sos_resend_callback, pattern=r"^sos_resend_\d+$"))
+    application.add_handler(CallbackQueryHandler(copy_invites_callback, pattern=r"^copy_invites_\d+$"))
     application.add_handler(CallbackQueryHandler(sos_deny_callback, pattern=r"^sos_deny_\d+$"))
     application.add_handler(CallbackQueryHandler(sos_ban_callback, pattern=r"^sos_ban_\d+$"))
+    application.add_handler(CallbackQueryHandler(chat_user_callback, pattern=r"^chat_user_\d+$"))
 
 
     # Unknown command handler
