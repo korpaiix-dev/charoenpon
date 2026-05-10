@@ -23,6 +23,11 @@ from telegram import Bot, InputMediaPhoto, Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from shared.database import get_session, init_db
+from shared.endmonth_vip_promo import (
+    PROMO_2499_IMAGE_PATH,
+    get_group_2499_promo_caption,
+    is_endmonth_vip_promo_active,
+)
 from shared.models import ContentQueue
 
 logging.basicConfig(
@@ -51,9 +56,10 @@ FREE_GROUPS = [
     -1003740382332,  # นักตำแตก
     -1003861673687,  # ตรงนี้มีกี
     -1003841389411,  # มาดูไรกัน
-    -1003876840312,  # หลุมหลบภัยบิน
+    -1003793295291,  # หลุมหลบภัยบิน
     -1003723154612,  # โห่โห่ซ้อ
-    -1003789621076,  # เจริญพร
+    -1003981084328,  # กลุ่มกลางแจ้งข่าว
+    -1003805660760,  # กลุ่มน้ำหมักเจ๊หอย กลุ่มพูดคุย
 ]
 
 AI_MODEL = "anthropic/claude-haiku-3-5"
@@ -456,7 +462,7 @@ async def fetch_multiple_content(limit: int = 5) -> list[dict]:
             result = await session.execute(
                 select(ContentQueue)
                 .where(ContentQueue.is_used == False)
-                .order_by(ContentQueue.created_at.asc())
+                .order_by(ContentQueue.created_at.desc())
                 .limit(limit)
             )
             rows = result.scalars().all()
@@ -584,6 +590,49 @@ def build_caption(base_caption: str, round_time: str, group_index: int) -> str:
     )
 
 
+async def post_endmonth_god_promo_to_free_groups(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Post end-month GOD MODE promo (2499 -> 2000) via Content Bot until promo expires."""
+    if not is_endmonth_vip_promo_active():
+        logger.info("GOD MODE end-month promo inactive; skip scheduled promo")
+        return
+
+    bot = context.bot
+    success = 0
+    failed = 0
+    logger.info("Starting GOD MODE 2499->2000 promo post to %d groups", len(FREE_GROUPS))
+
+    for group_index, group_id in enumerate(FREE_GROUPS):
+        caption = get_group_2499_promo_caption(group_index)
+        try:
+            if os.path.exists(PROMO_2499_IMAGE_PATH):
+                with open(PROMO_2499_IMAGE_PATH, "rb") as image:
+                    await bot.send_photo(
+                        chat_id=group_id,
+                        photo=image,
+                        caption=caption,
+                        parse_mode="HTML",
+                    )
+            else:
+                await bot.send_message(
+                    chat_id=group_id,
+                    text=caption,
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                )
+            success += 1
+            await asyncio.sleep(1.2)
+        except Exception as exc:
+            failed += 1
+            logger.error("Failed to post GOD MODE promo to group %d: %s", group_id, exc)
+
+    logger.info("GOD MODE promo round done: %d success, %d failed", success, failed)
+    await _send_discord_content_log(
+        f"💎 **Content Bot: GOD MODE Promo Round Complete**\n"
+        f"โปร 2,499 เหลือ 2,000 ถึงสิ้นเดือน\n"
+        f"✅ Success: {success} / ❌ Failed: {failed} / Total: {len(FREE_GROUPS)} groups"
+    )
+
+
 async def post_teaser_to_free_groups(context: ContextTypes.DEFAULT_TYPE) -> None:
     """โพสต์ teaser (ข้อความอย่างเดียว) ไปทุกกลุ่มฟรี."""
     bot = context.bot
@@ -633,6 +682,9 @@ async def post_teaser_with_image(context: ContextTypes.DEFAULT_TYPE, content_id:
         blurred_buf = await blur_image(bot, file_id)
     except Exception as exc:
         logger.error("Failed to blur image: %s", exc)
+        # file_id ที่ Telegram ดึงไม่ได้ไม่ควรถูกหยิบซ้ำทุก schedule
+        await mark_content_used(content_id)
+        logger.warning("Marked bad content_id=%d as used after blur failure", content_id)
         await post_teaser_to_free_groups(context)
         return
 
@@ -687,12 +739,19 @@ async def post_teaser_album(context: ContextTypes.DEFAULT_TYPE, contents: list[d
             blurred_items.append((c["id"], blurred_buf))
         except Exception as exc:
             logger.error("Failed to blur image content_id=%d: %s", c["id"], exc)
+            # กันรูปเสียวนกลับมาใช้ซ้ำ
+            await mark_content_used(c["id"])
+            logger.warning("Marked bad content_id=%d as used after blur failure", c["id"])
 
     if len(blurred_items) < 2:
-        # ถ้าเบลอได้น้อยกว่า 2 รูป → fallback เป็นทีละรูป
+        # ถ้าเบลอได้น้อยกว่า 2 รูป → fallback เป็นทีละรูป โดยใช้รูปที่เบลอผ่านจริง
         if blurred_items:
-            c = contents[0]
-            await post_teaser_with_image(context, c["id"], c["file_id"])
+            content_id, _ = blurred_items[0]
+            matched = next((c for c in contents if c["id"] == content_id), None)
+            if matched:
+                await post_teaser_with_image(context, matched["id"], matched["file_id"])
+            else:
+                await post_teaser_to_free_groups(context)
         else:
             await post_teaser_to_free_groups(context)
         return
@@ -1151,6 +1210,18 @@ def main() -> None:
         time=dt_time(hour=1, minute=0, tzinfo=TH_TZ),
         name="teaser_late",
     )
+
+    # โปรสิ้นเดือน GOD MODE 2,499 -> 2,000
+    # ปิดไว้ก่อนจนกว่าบอสจะอนุมัติ creative ใหม่ (2026-04-28)
+    if os.environ.get("ENABLE_ENDMONTH_GOD_PROMO_SCHEDULE", "true").lower() == "true":
+        god_promo_times = [
+            dt_time(hour=8, minute=0, tzinfo=TH_TZ),
+            dt_time(hour=14, minute=0, tzinfo=TH_TZ),
+            dt_time(hour=20, minute=0, tzinfo=TH_TZ),
+            dt_time(hour=23, minute=45, tzinfo=TH_TZ),
+        ]
+        for i, t in enumerate(god_promo_times):
+            job_queue.run_daily(post_endmonth_god_promo_to_free_groups, time=t, name=f"endmonth_god_promo_{i}")
 
     # Schedule daily report ทุกวัน 23:30 ไทย
     job_queue.run_daily(

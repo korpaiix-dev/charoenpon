@@ -84,7 +84,7 @@ async def run_upsell_dm_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                     SELECT u.telegram_id
                     FROM subscriptions s
                     JOIN users u ON s.user_id = u.id
-                    WHERE s.status = 'active'
+                    WHERE s.status = 'ACTIVE'
                       AND s.start_date <= :cutoff
                       AND u.telegram_id NOT IN (
                           SELECT user_id FROM upsell_dm_log

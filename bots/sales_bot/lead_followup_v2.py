@@ -78,7 +78,7 @@ async def _has_purchased(user_id: int) -> bool:
     """Check if user has any confirmed payment."""
     async with get_session() as session:
         result = await session.execute(
-            text("SELECT 1 FROM payments WHERE user_id = :uid AND status = 'confirmed' LIMIT 1"),
+            text("SELECT 1 FROM payments WHERE user_id = :uid AND status = 'CONFIRMED' LIMIT 1"),
             {"uid": user_id},
         )
         return result.fetchone() is not None
@@ -121,11 +121,11 @@ async def _get_round_leads(dm_round: int, wait_hours: int, limit: int) -> list[d
                     SELECT u.id as user_id, u.telegram_id, u.first_name, u.username
                     FROM leads l
                     JOIN users u ON u.id = l.user_id
-                    WHERE l.status = 'new'
+                    WHERE l.status = 'NEW'
                       AND l.created_at < :cutoff
                       AND u.is_banned = false
                       AND u.id NOT IN (SELECT user_id FROM lead_followup_log WHERE round = :round)
-                      AND u.id NOT IN (SELECT user_id FROM payments WHERE status = 'confirmed')
+                      AND u.id NOT IN (SELECT user_id FROM payments WHERE status = 'CONFIRMED')
                     ORDER BY l.created_at ASC
                     LIMIT :lim
                 """),
@@ -146,7 +146,7 @@ async def _get_round_leads(dm_round: int, wait_hours: int, limit: int) -> list[d
                       AND lf.sent_at < :cutoff
                       AND u.is_banned = false
                       AND u.id NOT IN (SELECT user_id FROM lead_followup_log WHERE round = :round)
-                      AND u.id NOT IN (SELECT user_id FROM payments WHERE status = 'confirmed')
+                      AND u.id NOT IN (SELECT user_id FROM payments WHERE status = 'CONFIRMED')
                     ORDER BY lf.sent_at ASC
                     LIMIT :lim
                 """),

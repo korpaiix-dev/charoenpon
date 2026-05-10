@@ -49,7 +49,16 @@ from shared.models import (
     PaymentStatus,
     Subscription,
     SubscriptionStatus,
+    User,
 )
+from shared.endmonth_vip_promo import (
+    PROMO_2499_PRICE,
+    PROMO_DATE_TEXT,
+    PROMO_PRICE,
+    get_effective_price_for_tier,
+    is_endmonth_vip_promo_active,
+)
+from shared.songkran_promo import get_group_display_title
 from shared.utils import (
     check_duplicate_slip,
     compute_slip_hash,
@@ -61,6 +70,34 @@ from shared.utils import (
 logger = logging.getLogger(__name__)
 
 DISCORD_WEBHOOK_URL: str = os.environ.get("DISCORD_WEBHOOK_URL", "")
+
+NON_SLIP_AD_KEYWORDS = (
+    "เครดิตฟรี",
+    "เครดิตฟรี",
+    "เว็บพนัน",
+    "คาสิโน",
+    "บาคาร่า",
+    "สล็อต",
+    "ufa",
+    "ufabet",
+    "casino",
+    "เครดิตฟรี50",
+    "เครดิต ฟรี",
+    "ปั่นหมุน",
+    "ฝากรับ",
+    "รับฟรี",
+    "โปรโมชันแนะนำ",
+    "โปรโมชั่นแนะนำ",
+)
+
+
+def _looks_like_non_slip_ad(text: str | None) -> bool:
+    """Detect gambling/promo creatives that OCR can mistake for payment slips."""
+    if not text:
+        return False
+    normalized = re.sub(r"\s+", "", text.casefold())
+    return any(keyword.casefold().replace(" ", "") in normalized for keyword in NON_SLIP_AD_KEYWORDS)
+
 
 TIER_PRICES: dict[str, Decimal] = {
     "99": Decimal("99"),
@@ -88,6 +125,11 @@ async def _get_effective_price(tier: str, context_user_data: dict) -> Decimal:
             discount_pct = promo["discount_pct"]
             discounted = int(base_price * (100 - discount_pct) / 100)
             return Decimal(str(discounted))
+
+    # End-month VIP/G300 promo (boss request): 300 -> 200 until 2026-05-01 00:00 TH
+    endmonth_price = get_effective_price_for_tier(tier, base_price)
+    if endmonth_price != base_price:
+        return endmonth_price
 
     # Check flash sale
     flash_sale_id = context_user_data.get("flash_sale_id")
@@ -206,29 +248,32 @@ def _extract_amount_from_ocr(text: str) -> Decimal | None:
 
 
 def _check_date_within_24h(text: str) -> bool:
-    """Check if any date found in OCR text is within 24 hours.
+    """Check whether OCR date looks current in Thai time.
 
-    Returns True if date is recent or no date found (benefit of doubt for OCR).
+    OCR often reads only date from Thai slips, so do not compare against midnight UTC.
+    Treat today or yesterday in Thailand as valid.
     """
-    now = datetime.now(timezone.utc)
+    thai_tz = timezone(timedelta(hours=7))
+    now_th = datetime.now(thai_tz)
+    valid_dates = {now_th.date(), (now_th - timedelta(days=1)).date()}
+
     for pattern in DATE_PATTERNS:
         match = pattern.search(text)
-        if match:
-            try:
-                groups = match.groups()
-                if len(groups) == 3:
-                    day, month, year = int(groups[0]), int(groups[1]), int(groups[2])
-                    if year < 100:
-                        year += 2500 if year > 40 else 2000
-                    if year > 2500:
-                        year -= 543  # Buddhist era
-                    slip_date = datetime(year, month, day, tzinfo=timezone.utc)
-                    if (now - slip_date).total_seconds() <= 86400:
-                        return True
-                    return False
-            except (ValueError, OverflowError):
+        if not match:
+            continue
+        try:
+            groups = match.groups()
+            if len(groups) != 3:
                 continue
-    # No date found — give benefit of doubt
+            day, month, year = int(groups[0]), int(groups[1]), int(groups[2])
+            if year < 100:
+                year = 2500 + year if year >= 50 else 2000 + year
+            if year > 2400:
+                year -= 543
+            slip_date = datetime(year, month, day, tzinfo=thai_tz).date()
+            return slip_date in valid_dates
+        except (ValueError, OverflowError):
+            continue
     return True
 
 
@@ -323,12 +368,13 @@ async def _ai_screen_image(b64_image: str) -> str | None:
 
     prompt = (
         "ดูรูปนี้แล้วตอบสั้นๆ 1 คำ:\n"
-        "- SLIP ถ้าเป็นสลิปโอนเงิน/หลักฐานการจ่ายเงิน\n"
+        "- SLIP เฉพาะรูปสลิปโอนเงิน/หลักฐานการจ่ายเงินจากธนาคารหรือวอลเล็ทจริงเท่านั้น\n"
         "- NOT_SLIP_QUESTION ถ้าเป็นรูปทั่วไปหรือคำถาม (screenshot แชท, รูปแพ็กเกจ)\n"
         "- NOT_SLIP_SUPPORT ถ้าเป็น screenshot ปัญหา (เข้ากลุ่มไม่ได้, error)\n"
-        "- SPAM ถ้าเป็นโฆษณา/โปรโมทเว็บ\n"
-        "- GAMBLING ถ้าเป็นเว็บพนัน/คาสิโน\n"
+        "- GAMBLING ถ้าเป็นภาพโฆษณาพนัน/คาสิโน/สล็อต/บาคาร่า/เครดิตฟรี/UFABET/UFA แม้มีตัวเลขหรือคำว่าเงิน\n"
+        "- SPAM ถ้าเป็นโฆษณาหรือโปรโมทเว็บอื่นที่ไม่ใช่สลิป\n"
         "- INAPPROPRIATE ถ้าเป็นรูปอนาจาร/ไม่เหมาะสม\n\n"
+        "ถ้าไม่แน่ใจว่าเป็นสลิปจริง ให้ตอบ NOT_SLIP_QUESTION ห้ามเดาเป็น SLIP\n"
         "ตอบแค่คำเดียว ไม่ต้องอธิบาย"
     )
 
@@ -349,7 +395,7 @@ async def _ai_screen_image(b64_image: str) -> str | None:
             ],
             caller="sales_bot/ai_screen_image",
             max_tokens=20,
-            temperature=0.7,
+            temperature=0.0,
         )
         result = data["choices"][0]["message"]["content"].strip()
         logger.info("AI screen result: %s", result)
@@ -455,12 +501,25 @@ async def _approve_payment(
         package_id = package.id
 
         # Expire existing active subscriptions (prevent duplicates)
+        # BUT skip lifetime subs when buying add-on packages
         from sqlalchemy import update as sa_update_dup
-        await session.execute(
-            sa_update_dup(Subscription)
-            .where(Subscription.user_id == db_payment.user_id, Subscription.status == SubscriptionStatus.ACTIVE)
-            .values(status=SubscriptionStatus.EXPIRED)
-        )
+        is_addon = package and package.tier == PackageTier.TIER_ADD500 if hasattr(PackageTier, 'TIER_ADD500') else (package and package.tier.value == 'ADD500')
+        if is_addon:
+            await session.execute(
+                sa_update_dup(Subscription)
+                .where(
+                    Subscription.user_id == db_payment.user_id,
+                    Subscription.status == SubscriptionStatus.ACTIVE,
+                    Subscription.package_id == db_payment.package_id,
+                )
+                .values(status=SubscriptionStatus.EXPIRED)
+            )
+        else:
+            await session.execute(
+                sa_update_dup(Subscription)
+                .where(Subscription.user_id == db_payment.user_id, Subscription.status == SubscriptionStatus.ACTIVE)
+                .values(status=SubscriptionStatus.EXPIRED)
+            )
 
         # Create subscription
         now = datetime.utcnow()
@@ -496,7 +555,7 @@ async def _approve_payment(
                 select(GroupRegistry).where(GroupRegistry.slug == slug)
             )
             group = grp_result.scalar_one_or_none()
-            title = group.title if group else slug
+            title = group.title if group else get_group_display_title(slug)
         invite_links.append(f"• {title}: {link}")
 
     return invite_links
@@ -530,6 +589,8 @@ async def handle_photo_slip(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Handle photo message — OCR slip verification."""
+    import telegram as tg
+
     if not update.message or not update.message.photo:
         return
 
@@ -537,26 +598,38 @@ async def handle_photo_slip(
     if not user:
         return
 
-    # Check if user has selected a package
-    selected_tier = context.user_data.get("selected_tier")
-    if not selected_tier:
-        await update.message.reply_text(
-            "กรุณาเลือกแพ็กเกจก่อนส่งสลิปนะคะ 📦\n"
-            "พิมพ์ /packages เพื่อดูแพ็กเกจค่ะ",
-        )
-        return
-
-    expected_price = await _get_effective_price(selected_tier, context.user_data)
-    if not expected_price:
-        await update.message.reply_text("แพ็กเกจไม่ถูกต้องค่ะ กรุณาเลือกใหม่นะคะ")
-        return
-
-    await update.message.reply_text("🔍 กำลังตรวจสอบสลิปค่ะ กรุณารอสักครู่...")
-    logger.info("Slip received from user %s, selected_tier=%s", user.id, selected_tier)
-
-    # Get the largest photo
     photo = update.message.photo[-1]
     file_id = photo.file_id
+
+    # Check if user has selected a package
+    selected_tier = context.user_data.get("selected_tier")
+    missing_context = not selected_tier
+    expected_price = Decimal("0")
+
+    if missing_context:
+        logger.warning("Slip received without selected_tier: user=%s", user.id)
+        await update.message.reply_text(
+            "📩 ได้รับรูปแล้วค่ะ\n\n"
+            "ระบบกำลังตรวจสอบว่าเป็นสลิปหรือไม่ กรุณารอสักครู่นะคะ 🙏",
+        )
+    else:
+        expected_price = await _get_effective_price(selected_tier, context.user_data)
+        if not expected_price:
+            logger.warning("Slip received with invalid selected_tier: user=%s tier=%s", user.id, selected_tier)
+            missing_context = True
+            await update.message.reply_text(
+                "📩 ได้รับรูปแล้วค่ะ\n\n"
+                "ระบบกำลังตรวจสอบว่าเป็นสลิปหรือไม่ กรุณารอสักครู่นะคะ 🙏",
+            )
+        else:
+            await update.message.reply_text("🔍 กำลังตรวจสอบสลิปค่ะ กรุณารอสักครู่...")
+
+    logger.info(
+        "Slip received from user %s, selected_tier=%s missing_context=%s",
+        user.id,
+        selected_tier,
+        missing_context,
+    )
 
     # AI screen: check if this is actually a payment slip
     try:
@@ -570,54 +643,48 @@ async def handle_photo_slip(
         screen_result = await _ai_screen_image(b64_img)
         if screen_result:
             screen_lower = screen_result.lower()
-            if "spam" in screen_lower or "gambling" in screen_lower or "porn" in screen_lower or "inappropriate" in screen_lower:
-                # Spam/gambling/inappropriate → ignore silently, notify admin
-                logger.warning("Spam/inappropriate image from user %s", user.id)
-                ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
-                try:
-                    import html as _html
-                    import telegram as tg
-                    admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
-                    await admin_bot.initialize()
-                    await admin_bot.send_message(
-                        chat_id=ADMIN_GROUP_ID,
-                        text=f"⚠️ <b>รูปไม่เหมาะสม</b> จาก {_html.escape(str(user.first_name or 'ลูกค้า'))} (ID: <code>{user.id}</code>)\nAI: {screen_result[:200]}",
-                        parse_mode="HTML",
-                        reply_markup=tg.InlineKeyboardMarkup([
-                            [tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", callback_data=f"chat_user_{user.id}", api_kwargs={"style": "primary"})],
-                            [tg.InlineKeyboardButton("🚫 แบน", callback_data=f"ban_{user.id}", api_kwargs={"style": "danger"})],
-                        ]),
-                    )
-                except Exception as e:
-                    logger.error("Failed to forward inappropriate image to admin: %s", e)
+            admin_contact_button = [
+                tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", url=f"tg://user?id={user.id}", api_kwargs={"style": "primary"})
+            ]
+            admin_reason = screen_result[:300]
+
+            if "spam" in screen_lower and not any(x in screen_lower for x in ("gambling", "porn", "inappropriate")):
+                # Generic spam/non-slip images should not clutter admin alerts.
+                logger.info(
+                    "Generic spam/non-slip image ignored for admin forwarding: user=%s ai=%s",
+                    user.id,
+                    admin_reason,
+                )
+                await update.message.reply_text(
+                    "📩 ได้รับรูปแล้วค่า แต่ดูเหมือนไม่ใช่สลิปนะ\n\n"
+                    "ถ้าต้องการสมัคร กรุณาส่งรูปสลิปโอนเงินเท่านั้นนะคะ 🙏\n"
+                    "ถ้ามีคำถามหรือมีปัญหา พิมพ์บอกได้เลยค่ะ"
+                )
+                return
+
+            if "gambling" in screen_lower or "porn" in screen_lower or "inappropriate" in screen_lower:
+                # Do not clutter the admin room with obvious ad/gambling creatives.
+                logger.warning("Blocked inappropriate/non-slip image before admin forwarding: user=%s ai=%s", user.id, admin_reason)
+                await update.message.reply_text(
+                    "📩 ได้รับรูปแล้วค่า แต่รูปนี้ไม่ใช่สลิปโอนเงินนะ\n\n"
+                    "ถ้าต้องการสมัคร กรุณาส่งเฉพาะรูปสลิปโอนเงินจากธนาคาร/วอลเล็ทค่ะ 🙏"
+                )
                 return
 
             if "not_slip" in screen_lower or "question" in screen_lower or "support" in screen_lower:
-                # Customer has a question / sent non-slip image
+                # Customer likely sent a normal/support image. Do NOT forward to admin group;
+                # boss requested non-slip photos must not clutter the admin room (2026-04-26).
+                logger.info(
+                    "Non-slip image ignored for admin forwarding: user=%s ai=%s",
+                    user.id,
+                    admin_reason,
+                )
                 await update.message.reply_text(
                     "📩 ได้รับรูปแล้วค่า แต่ดูเหมือนไม่ใช่สลิปนะ\n\n"
-                    "ถ้ามีคำถามหรือปัญหา พิมพ์บอกได้เลยค่า แพรช่วยได้! 😊\n"
-                    "หรือถ้าเข้ากลุ่มไม่ได้ กลุ่มหาย พิมพ์บอกเลยนะ\n\n"
-                    f"ติดต่อแอดมินโดยตรง: https://t.me/zeinju_bunker"
+                    "ถ้ามีคำถามหรือมีปัญหา พิมพ์บอกได้เลยค่ะ เดี๋ยวแอดมินช่วยดูให้ 🙏\n"
+                    "ถ้าเข้ากลุ่มไม่ได้ กลุ่มหาย หรือลิงก์มีปัญหา พิมพ์บอกได้เลยนะคะ\n\n"
+                    "ติดต่อแอดมินโดยตรง: https://t.me/zeinju_bunker"
                 )
-                # Forward to admin group
-                ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
-                try:
-                    import telegram as tg
-                    import html as _html
-                    safe_name = _html.escape(str(user.first_name or "ลูกค้า"))
-                    admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
-                    await admin_bot.initialize()
-                    await admin_bot.send_message(
-                        chat_id=ADMIN_GROUP_ID,
-                        text=f"💬 <b>ลูกค้าส่งรูป (ไม่ใช่สลิป)</b>\n👤 {safe_name}\nAI: {screen_result[:200]}",
-                        parse_mode="HTML",
-                        reply_markup=tg.InlineKeyboardMarkup([
-                            [tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", callback_data=f"chat_user_{user.id}", api_kwargs={"style": "primary"})],
-                        ]),
-                    )
-                except Exception as e:
-                    logger.error("Failed to forward non-slip image to admin: %s", e)
                 return
     except Exception as exc:
         logger.warning("AI screen failed, proceeding with OCR: %s", exc)
@@ -629,6 +696,15 @@ async def handle_photo_slip(
         logger.error("OCR failed: %s", exc)
         await update.message.reply_text(
             "⚠️ ไม่สามารถอ่านสลิปได้ค่ะ กรุณาส่งรูปที่ชัดขึ้น หรือติดต่อแอดมิน (https://t.me/zeinju_bunker)ค่ะ"
+        )
+        return
+
+    # Block gambling/ad creatives that OCR can mistake for payment slips.
+    if _looks_like_non_slip_ad(ocr_text):
+        logger.warning("Blocked non-slip ad image after OCR: user=%s ocr=%s", user.id, ocr_text[:300])
+        await update.message.reply_text(
+            "📩 ได้รับรูปแล้วค่า แต่รูปนี้ไม่ใช่สลิปโอนเงินนะ\n\n"
+            "ถ้าต้องการสมัคร กรุณาส่งเฉพาะรูปสลิปโอนเงินจากธนาคาร/วอลเล็ทค่ะ 🙏"
         )
         return
 
@@ -646,14 +722,17 @@ async def handle_photo_slip(
     # 1. Amount matches
     amount_ok = False
     if ocr_amount is not None:
-        # Allow small tolerance for OCR errors (±1 baht)
-        if abs(ocr_amount - expected_price) <= Decimal("1"):
-            amount_ok = True
+        if missing_context:
+            reasons.append(f"ไม่มีแพ็กเกจใน context, OCR อ่านได้ {format_thb(ocr_amount)}")
         else:
-            reasons.append(
-                f"ยอดไม่ตรง: อ่านได้ {format_thb(ocr_amount)} "
-                f"แต่ต้องการ {format_thb(expected_price)}"
-            )
+            # Allow small tolerance for OCR errors (±1 baht)
+            if abs(ocr_amount - expected_price) <= Decimal("1"):
+                amount_ok = True
+            else:
+                reasons.append(
+                    f"ยอดไม่ตรง: อ่านได้ {format_thb(ocr_amount)} "
+                    f"แต่ต้องการ {format_thb(expected_price)}"
+                )
     else:
         reasons.append("ไม่สามารถอ่านยอดเงินจากสลิปได้")
 
@@ -667,8 +746,6 @@ async def handle_photo_slip(
 
     # Create user if needed and get user_id
     async with get_session() as session:
-        from shared.models import User
-
         user_result = await session.execute(
             select(User).where(User.telegram_id == user.id)
         )
@@ -678,49 +755,74 @@ async def handle_photo_slip(
                 telegram_id=user.id,
                 username=user.username,
                 first_name=user.first_name,
+                last_name=user.last_name,
             )
             session.add(db_user)
             await session.flush()
+        else:
+            updated = False
+            if user.first_name and user.first_name != db_user.first_name:
+                db_user.first_name = user.first_name
+                updated = True
+            if user.last_name and user.last_name != db_user.last_name:
+                db_user.last_name = user.last_name
+                updated = True
+            if user.username != db_user.username:
+                db_user.username = user.username
+                updated = True
+            if updated:
+                await session.flush()
 
-        # Find package
-        pkg_result = await session.execute(
-            select(Package).where(Package.tier == PackageTier(selected_tier))
-        )
-        package = pkg_result.scalar_one_or_none()
-        if not package:
-            await update.message.reply_text("ไม่พบแพ็กเกจในระบบค่ะ ติดต่อแอดมิน (https://t.me/zeinju_bunker)นะคะ")
-            return
-
-        # Duplicate payment guard: same user + same amount within 60 seconds
-        dedup_cutoff = datetime.utcnow() - timedelta(seconds=60)
-        dup_check = await session.execute(
-            select(Payment).where(
-                Payment.user_id == db_user.id,
-                Payment.amount == expected_price,
-                Payment.method == PaymentMethod.SLIP,
-                Payment.created_at >= dedup_cutoff,
+        package = None
+        if not missing_context:
+            pkg_result = await session.execute(
+                select(Package).where(Package.tier == PackageTier(selected_tier))
             )
-        )
-        if dup_check.scalar_one_or_none():
-            logger.warning("Duplicate SLIP payment skipped: user_id=%s amount=%s", db_user.id, expected_price)
-            await update.message.reply_text("⚠️ คุณเพิ่งส่งสลิปยอดนี้ไปแล้วค่ะ กรุณารอแอดมินตรวจสอบ 🙏")
-            return
+            package = pkg_result.scalar_one_or_none()
+            if not package:
+                logger.warning("Package not found for selected_tier: user=%s tier=%s", user.id, selected_tier)
+                missing_context = True
 
-        # Create payment record
-        payment = Payment(
-            user_id=db_user.id,
-            package_id=package.id,
-            amount=expected_price,
-            method=PaymentMethod.SLIP,
-            status=PaymentStatus.PENDING,
-            slip_file_id=file_id,
-            slip_hash=slip_hash,
-        )
-        session.add(payment)
-        await session.flush()
-        payment_id = payment.id
+        payment_id = None
+        if not missing_context:
+            # Duplicate payment guard: same user + same amount within 60 seconds
+            dedup_cutoff = datetime.utcnow() - timedelta(seconds=60)
+            dup_check = await session.execute(
+                select(Payment).where(
+                    Payment.user_id == db_user.id,
+                    Payment.amount == expected_price,
+                    Payment.method == PaymentMethod.SLIP,
+                    Payment.created_at >= dedup_cutoff,
+                )
+            )
+            if dup_check.scalar_one_or_none():
+                logger.warning("Duplicate SLIP payment skipped: user_id=%s amount=%s", db_user.id, expected_price)
+                await update.message.reply_text("⚠️ คุณเพิ่งส่งสลิปยอดนี้ไปแล้วค่ะ กรุณารอแอดมินตรวจสอบ 🙏")
+                return
+
+            # Create payment record
+            payment = Payment(
+                user_id=db_user.id,
+                package_id=package.id,
+                amount=expected_price,
+                method=PaymentMethod.SLIP,
+                status=PaymentStatus.PENDING,
+                slip_file_id=file_id,
+                slip_hash=slip_hash,
+            )
+            session.add(payment)
+            await session.flush()
+            payment_id = payment.id
+            logger.info("Payment created: id=%s user=%s amount=%s", payment_id, user.id, expected_price)
+        else:
+            logger.warning(
+                "Slip routed to admin fallback without payment record: user=%s ocr_amount=%s selected_tier=%s",
+                user.id,
+                ocr_amount,
+                selected_tier,
+            )
+
         user_db_id = db_user.id
-        logger.info("Payment created: id=%s user=%s amount=%s", payment_id, user.id, expected_price)
 
     # Decision — ALL slips go to admin for manual review
     # AI info is stored for admin reference
@@ -732,14 +834,15 @@ async def handle_photo_slip(
     if reasons:
         ai_info += f" | หมายเหตุ: {', '.join(reasons)}"
 
-    await update.message.reply_text(
-        f"📩 <b>ได้รับสลิปแล้วค่ะ</b>\n\n"
-        f"💰 แพ็กเกจ: {format_thb(expected_price)}\n"
-        f"📋 หมายเลข: #PAY{payment_id}\n\n"
-        f"แอดมินจะตรวจสอบและแจ้งผลให้เร็วที่สุดค่ะ\n"
-        f"ขอบคุณที่รอนะคะ 🙏",
-        parse_mode="HTML",
-    )
+    if payment_id is not None:
+        await update.message.reply_text(
+            f"📩 <b>ได้รับสลิปแล้วค่ะ</b>\n\n"
+            f"💰 แพ็กเกจ: {format_thb(expected_price)}\n"
+            f"📋 หมายเลข: #PAY{payment_id}\n\n"
+            f"แอดมินจะตรวจสอบและแจ้งผลให้เร็วที่สุดค่ะ\n"
+            f"ขอบคุณที่รอนะคะ 🙏",
+            parse_mode="HTML",
+        )
 
     # Parse AI result for structured info
     ai_amount_str = str(ocr_amount) if ocr_amount else "อ่านไม่ได้"
@@ -748,7 +851,7 @@ async def handle_photo_slip(
 
     if ocr_text:
         for line in ocr_text.split("\n"):
-            line_s = line.strip().lstrip("* ").strip()
+            line_s = line.strip().lstrip("-*• ").strip()
             if not line_s:
                 continue
             if "SUSPICIOUS" in line_s.upper():
@@ -758,7 +861,7 @@ async def handle_photo_slip(
             elif ":" in line_s and len(line_s) < 200:
                 ai_details.append(line_s)
 
-    ai_summary = "\n".join(f"- {d}" for d in ai_details[:8]) if ai_details else "AI อ่านไม่ได้"
+    ai_summary = "\n".join(f"• {d}" for d in ai_details[:8]) if ai_details else "AI อ่านไม่ได้"
     if ai_suspicious:
         ai_summary += f"\n⚠️ สงสัยปลอม: {ai_suspicious}"
 
@@ -786,16 +889,78 @@ async def handle_photo_slip(
         except Exception as promo_exc:
             logger.warning("Failed to check promo for user %d: %s", user.id, promo_exc)
 
+        if is_endmonth_vip_promo_active() and selected_tier == "300":
+            promo_caption += f"\n🔥 <b>โปรสิ้นเดือน VIP:</b> 300 เหลือ {int(PROMO_PRICE)} บาท ({PROMO_DATE_TEXT})"
+        if is_endmonth_vip_promo_active() and selected_tier == "2499":
+            promo_caption += f"\n💎 <b>โปรสิ้นเดือน GOD:</b> 2,499 เหลือ {int(PROMO_2499_PRICE):,} บาท ({PROMO_DATE_TEXT})"
+
+        # ── ดึงประวัติลูกค้าสำหรับแจ้งแอดมิน ──
+        customer_tag = ""
+        try:
+            async with get_session() as _hist_session:
+                from sqlalchemy import func as sa_func
+                _pay_count_result = await _hist_session.execute(
+                    select(sa_func.count(Payment.id)).where(
+                        Payment.user_id == user_db_id,
+                        Payment.status == PaymentStatus.CONFIRMED,
+                    )
+                )
+                _pay_count = _pay_count_result.scalar() or 0
+
+                _prev_pkgs = []
+                if _pay_count > 0:
+                    _prev_result = await _hist_session.execute(
+                        select(Package.name).join(Payment, Payment.package_id == Package.id).where(
+                            Payment.user_id == user_db_id,
+                            Payment.status == PaymentStatus.CONFIRMED,
+                        ).distinct()
+                    )
+                    _prev_pkgs = [r[0] for r in _prev_result.all()]
+
+                # เช็ค subscription ที่ active อยู่
+                _active_sub_result = await _hist_session.execute(
+                    select(Subscription).where(
+                        Subscription.user_id == user_db_id,
+                        Subscription.status == SubscriptionStatus.ACTIVE,
+                    )
+                )
+                _has_active_sub = _active_sub_result.scalar_one_or_none() is not None
+
+            if _pay_count == 0:
+                customer_tag = "\n🆕 <b>ลูกค้าใหม่</b> (ยังไม่เคยซื้อ)"
+            else:
+                _pkgs_str = ", ".join(_prev_pkgs) if _prev_pkgs else "-"
+                _status_str = "✅ สมาชิกอยู่" if _has_active_sub else "⏰ หมดอายุแล้ว"
+                customer_tag = (
+                    f"\n🔄 <b>ลูกค้าเก่า</b> (ซื้อมาแล้ว {_pay_count} ครั้ง)\n"
+                    f"• สถานะ: {_status_str}\n"
+                    f"• เคยซื้อ: {_pkgs_str}"
+                )
+        except Exception as _hist_exc:
+            logger.warning("Failed to fetch customer history: %s", _hist_exc)
+
+        # ชื่อแพ็กเกจที่ลูกค้าเลือก
+        _selected_pkg_name = package.name if package else (selected_tier or "ไม่พบแพ็กเกจใน context")
+
+        full_name = " ".join(part for part in [user.first_name, user.last_name] if part).strip() or safe_name
+        selected_pkg_price_label = f" ({format_thb(expected_price)})" if not missing_context else ""
+        fallback_caption = "\n⚠️ <b>Fallback:</b> ไม่พบ package context, ต้องตรวจมือ" if missing_context else ""
+
         caption = (
             f"📩 <b>สลิปใหม่ (รอตรวจ)</b>\n"
-            f"🕒 {now_th.strftime('%d/%m/%Y %H:%M')}\n"
-            f"👤 <b>ข้อมูลลูกค้า</b>\n"
-            f"• ชื่อ: {safe_name}\n"
+            f"🕒 {now_th.strftime('%d/%m/%Y %H:%M')}\n\n"
+            f"👤 <b>ลูกค้า</b>\n"
+            f"• ชื่อ: {full_name}\n"
             f"• User: @{user.username or '-'}\n"
-            f"• ID: <code>{user.id}</code>\n\n"
-            f"💰 AI อ่านได้: <b>{ai_amount_str} บาท</b>\n"
-            f"🤖 {ai_summary}"
+            f"• ID: <code>{user.id}</code>"
+            f"{customer_tag}\n\n"
+            f"📦 <b>แพ็กเกจ</b>\n"
+            f"• {_selected_pkg_name}{selected_pkg_price_label}\n\n"
+            f"💳 <b>ผลอ่านสลิปจาก AI</b>\n"
+            f"• ยอดเงิน: <b>{ai_amount_str} บาท</b>\n"
+            f"{ai_summary}"
             f"{promo_caption}"
+            f"{fallback_caption}"
         )
 
         # Build keyboard rows — add promo price button if active promo
@@ -803,14 +968,14 @@ async def handle_photo_slip(
             [
                 tg.InlineKeyboardButton("🆕 99 (Trial)", callback_data=f"approve_99_{user.id}", api_kwargs={"style": "success"}),
                 tg.InlineKeyboardButton("⚡ 199 (Flash)", callback_data=f"approve_199_{user.id}", api_kwargs={"style": "success"}),
-                tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}", api_kwargs={"style": "success"}),
+                tg.InlineKeyboardButton("🔥 200 (VIP โปร)", callback_data=f"approve_200_{user.id}", api_kwargs={"style": "success"}) if is_endmonth_vip_promo_active() else tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}", api_kwargs={"style": "success"}),
             ],
             [
                 tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{user.id}", api_kwargs={"style": "success"}),
                 tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{user.id}", api_kwargs={"style": "success"}),
             ],
             [
-                tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}", api_kwargs={"style": "success"}),
+                tg.InlineKeyboardButton("💎 2000 (GOD โปร)", callback_data=f"approve_2000_{user.id}", api_kwargs={"style": "success"}) if is_endmonth_vip_promo_active() else tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}", api_kwargs={"style": "success"}),
                 tg.InlineKeyboardButton("🌊 500 (Summer)", callback_data=f"approve_ADD500_{user.id}", api_kwargs={"style": "success"}),
             ],
             [
@@ -832,7 +997,7 @@ async def handle_photo_slip(
 
         kb_rows.append([
             tg.InlineKeyboardButton("🚫 แบน", callback_data=f"ban_{user.id}", api_kwargs={"style": "danger"}),
-            tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", callback_data=f"chat_user_{user.id}", api_kwargs={"style": "primary"}),
+            tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton("💬 เปิดข้อมูลลูกค้า", callback_data=f"chat_user_{user.id}", api_kwargs={"style": "primary"}),
         ])
 
         keyboard = tg.InlineKeyboardMarkup(kb_rows)
@@ -854,30 +1019,31 @@ async def handle_photo_slip(
     except Exception as exc:
         logger.error("CRITICAL: Failed to notify admin for payment %s: %s", payment_id, exc)
 
-    await log_admin_action(
-        admin_id=0,
-        action="payment_pending_review",
-        target_type="payment",
-        target_id=payment_id,
-        details=f"user_tg={user.id} amount={expected_price} ai_info={ai_info}",
-    )
+    if payment_id is not None:
+        await log_admin_action(
+            admin_id=0,
+            action="payment_pending_review",
+            target_type="payment",
+            target_id=payment_id,
+            details=f"user_tg={user.id} amount={expected_price} ai_info={ai_info}",
+        )
 
-    # ── Log pending payment to Sheets ──
-    try:
-        from sheets.income_log import IncomeLogSheet
-        await IncomeLogSheet.log_payment(payment_id, approved_by="-")
-    except Exception as exc_s:
-        logger.warning("Sheets log failed for pending payment #%d: %s", payment_id, exc_s)
+        # ── Log pending payment to Sheets ──
+        try:
+            from sheets.income_log import IncomeLogSheet
+            await IncomeLogSheet.log_payment(payment_id, approved_by="-")
+        except Exception as exc_s:
+            logger.warning("Sheets log failed for pending payment #%d: %s", payment_id, exc_s)
 
     await _notify_discord(
         "⏸ PAYMENT HOLD — รอตรวจสอบ",
-        f"**#PAY{payment_id}**",
+        f"**#{'PAY' + str(payment_id) if payment_id is not None else 'NO-PAYMENT-RECORD'}**",
         color=0xFFA500,
         fields=[
             {"name": "👤 ลูกค้า", "value": f"@{user.username or user.first_name} (ID: {user.id})", "inline": True},
-            {"name": "📦 แพ็กเกจ", "value": f"{format_thb(expected_price)}", "inline": True},
+            {"name": "📦 แพ็กเกจ", "value": f"{format_thb(expected_price)}" if not missing_context else (selected_tier or "ไม่พบแพ็กเกจใน context"), "inline": True},
             {"name": "💰 ยอด OCR", "value": f"{ai_amount_str} บาท", "inline": True},
-        ] + ([{"name": "⚠️ เหตุผลที่ hold", "value": ai_suspicious or "รอแอดมินตรวจสอบ", "inline": False}]),
+        ] + ([{"name": "⚠️ เหตุผลที่ hold", "value": ai_suspicious or ("ไม่มี package context, ต้องตรวจมือ" if missing_context else "รอแอดมินตรวจสอบ"), "inline": False}]),
     )
 
     # Clear selection (including comeback promo data)
@@ -1020,20 +1186,20 @@ async def handle_truemoney_link(
                 [
                     tg.InlineKeyboardButton("🆕 99 (Trial)", callback_data=f"approve_99_{user.id}", api_kwargs={"style": "success"}),
                     tg.InlineKeyboardButton("⚡ 199 (Flash)", callback_data=f"approve_199_{user.id}", api_kwargs={"style": "success"}),
-                    tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}", api_kwargs={"style": "success"}),
+                    tg.InlineKeyboardButton("🔥 200 (VIP โปร)", callback_data=f"approve_200_{user.id}", api_kwargs={"style": "success"}) if is_endmonth_vip_promo_active() else tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}", api_kwargs={"style": "success"}),
                 ],
                 [
                     tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{user.id}", api_kwargs={"style": "success"}),
                     tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{user.id}", api_kwargs={"style": "success"}),
                 ],
                 [
-                    tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}", api_kwargs={"style": "success"}),
+                    tg.InlineKeyboardButton("💎 2000 (GOD โปร)", callback_data=f"approve_2000_{user.id}", api_kwargs={"style": "success"}) if is_endmonth_vip_promo_active() else tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}", api_kwargs={"style": "success"}),
                     tg.InlineKeyboardButton("🌊 500 (Summer)", callback_data=f"approve_ADD500_{user.id}", api_kwargs={"style": "success"}),
                 ],
                 [
                     tg.InlineKeyboardButton("❌ ซองเสีย", callback_data=f"reject_{user.id}", api_kwargs={"style": "danger"}),
                 ],
-                [tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", callback_data=f"chat_user_{user.id}", api_kwargs={"style": "primary"})],
+                [tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", url=f"tg://user?id={user.id}", api_kwargs={"style": "primary"})],
             ])
             await admin_bot.send_message(
                 chat_id=ADMIN_GROUP_ID,
@@ -1117,7 +1283,7 @@ async def handle_truemoney_link(
             await admin_bot.initialize()
             links_count = len(invite_links_raw)
             admin_keyboard = tg.InlineKeyboardMarkup([
-                [tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", callback_data=f"chat_user_{user.id}", api_kwargs={"style": "primary"})],
+                [tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", url=f"tg://user?id={user.id}", api_kwargs={"style": "primary"})],
             ])
             await admin_bot.send_message(
                 chat_id=ADMIN_GROUP_ID,
@@ -1263,17 +1429,17 @@ async def handle_truemoney_link(
             reasons_tg = "\n".join(f"• {r}" for r in reasons)
             keyboard = tg.InlineKeyboardMarkup([
                 [
-                    tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}", api_kwargs={"style": "success"}),
+                    tg.InlineKeyboardButton("🔥 200 (VIP โปร)", callback_data=f"approve_200_{user.id}", api_kwargs={"style": "success"}) if is_endmonth_vip_promo_active() else tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}", api_kwargs={"style": "success"}),
                     tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{user.id}", api_kwargs={"style": "success"}),
                 ],
                 [
                     tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{user.id}", api_kwargs={"style": "success"}),
-                    tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}", api_kwargs={"style": "success"}),
+                    tg.InlineKeyboardButton("💎 2000 (GOD โปร)", callback_data=f"approve_2000_{user.id}", api_kwargs={"style": "success"}) if is_endmonth_vip_promo_active() else tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}", api_kwargs={"style": "success"}),
                 ],
                 [
                     tg.InlineKeyboardButton("🌊 500 (Summer)", callback_data=f"approve_ADD500_{user.id}", api_kwargs={"style": "success"}),
                 ],
-                [tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", callback_data=f"chat_user_{user.id}", api_kwargs={"style": "primary"})],
+                [tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", url=f"tg://user?id={user.id}", api_kwargs={"style": "primary"})],
             ])
             await admin_bot.send_message(
                 chat_id=ADMIN_GROUP_ID,

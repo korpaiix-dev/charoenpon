@@ -10,9 +10,20 @@ import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
+from shared.endmonth_vip_promo import (
+    PROMO_2499_PRICE,
+    PROMO_DATE_TEXT,
+    PROMO_PRICE,
+    get_promo_badge_for_tier,
+    is_endmonth_vip_promo_active,
+)
+from shared.songkran_promo import is_songkran_promo_window
+
 logger = logging.getLogger(__name__)
 
 # ---- Package definitions ----
+
+SONGKRAN_PACKAGE_BONUS_LINE = "🎁 ช่วงโปร 7 วันนี้ ซื้อแพ็กนี้แถมกลุ่ม โปรโมชั่นสงกรานต์"
 
 PACKAGES = [
     {
@@ -81,12 +92,12 @@ PACKAGES = [
     },
     {
         "tier": "300",
-        "name": "🥉 300.- | VIP (30 วัน)",
+        "name": "🥉 VIP เจริญพร 18+ | VIP (30 วัน)",
         "price": "300",
         "duration": "30 วัน",
         "groups": ["VIP"],
         "details": (
-            "🥉 <b>300.- | VIP (30 วัน)</b>\n"
+            "🥉 <b>VIP เจริญพร 18+ | VIP (30 วัน)</b>\n"
             "━━━━━━━━━━━━━━━━━━\n"
             "แพ็กเกจเริ่มต้น สำหรับสายทดลอง\n\n"
             "✅ เข้าได้ 1 ห้อง:\n"
@@ -100,32 +111,67 @@ PACKAGES = [
 
 def _build_package_list_text() -> str:
     """Build the text for the package overview."""
-    lines = [
-        "<b>📦 แพ็กเกจ VIP ทั้งหมด</b>\n",
-        "เลือกแพ็กเกจที่สนใจได้เลยค่ะ 👇\n",
-    ]
-    for pkg in PACKAGES:
-        groups_str = ", ".join(pkg["groups"])
-        lines.append(
-            f"{'─' * 20}\n"
-            f"{pkg['name']}\n"
-            f"💰 ราคา: <b>{pkg['price']} บาท</b> / {pkg['duration']}\n"
-            f"🏠 ห้อง: {groups_str}\n"
-        )
-    lines.append(
-        f"{'─' * 20}\n"
+    songkran_bonus = "- โปรโมชั่นสงกรานต์ (โบนัสเฉพาะคนซื้อช่วงโปร)\n" if is_songkran_promo_window() else ""
+    songkran_note = "🎁 ซื้อช่วงโปร 7 วันนี้ แถมกลุ่ม โปรโมชั่นสงกรานต์\n\n" if is_songkran_promo_window() else ""
+    vip_price_line = "💰 ราคา: <s>300</s> 200 บาท / 30 วัน 🔥 โปรถึง 30 เม.ย.\n" if is_endmonth_vip_promo_active() else "💰 ราคา: 300 บาท / 30 วัน\n"
+    god_price_line = "💰 ราคา: <s>2,499</s> 2,000 บาท / ถาวร 🔥 โปรถึง 30 เม.ย.\n" if is_endmonth_vip_promo_active() else "💰 ราคา: 2,499 บาท / ถาวร\n"
+    vip_promo_note = f"🔥 <b>โปรสิ้นเดือน:</b> VIP เจริญพร 18+ จาก 300 เหลือ 200 บาท — {PROMO_DATE_TEXT}\n\n" if is_endmonth_vip_promo_active() else ""
+    god_promo_note = f"💎 <b>โปรสิ้นเดือน:</b> GOD MODE ถาวร จาก 2,499 เหลือ 2,000 บาท — {PROMO_DATE_TEXT}\n\n" if is_endmonth_vip_promo_active() else ""
+    return (
+        "<b>📦 แพ็กเกจ VIP ทั้งหมด</b>\n\n"
+        "เลือกแพ็กเกจที่สนใจได้เลยค่ะ 👇\n\n"
+        "────────────────────\n"
+        "💎 2,499.- | GOD MODE (ถาวร)\n"
+        f"{god_price_line}"
+        "🏠 ห้อง\n"
+        "- VIP ( ถาวร )\n"
+        "- SSS ( ถาวร )\n"
+        "- OnlyFans ( ถาวร )\n"
+        "- นานาชาติ ( ถาวร )\n"
+        "- V GOD ( เซฟได้/ถาวร )\n"
+        "- หนังซีรีส์ ( ถาวร )\n"
+        "- สายซุ่ม ( ถาวร )\n"
+        "- Summer Fest ( ถาวร )\n\n"
+        f"{god_promo_note}"
+        "────────────────────\n"
+        "🥈 1,299.- | GOD MODE (3 เดือน)\n"
+        "💰 ราคา: 1,299 บาท / 90 วัน\n"
+        "🏠 ห้อง\n"
+        "- VIP ( 90 วัน )\n"
+        "- SSS ( 90 วัน )\n"
+        "- OnlyFans ( 90 วัน )\n"
+        "- นานาชาติ ( 90 วัน )\n"
+        "- V GOD ( เซฟได้/90 วัน )\n"
+        "- หนังซีรีส์ ( 90 วัน )\n"
+        "- สายซุ่ม ( 90 วัน )\n"
+        f"{songkran_bonus}\n"
+        f"{songkran_note}"
+        "────────────────────\n"
+        "👙 500.- | OnlyFans + VIP (30 วัน)\n"
+        "💰 ราคา: 500 บาท / 30 วัน\n"
+        "🏠 ห้อง\n"
+        "- VIP ( 30 วัน )\n"
+        "- OnlyFans ( 30 วัน )\n\n"
+        "────────────────────\n"
+        "🥉 VIP เจริญพร 18+ | VIP (30 วัน)\n"
+        f"{vip_price_line}"
+        "🏠 ห้อง\n"
+        "- VIP ( 30 วัน )\n\n"
+        f"{vip_promo_note}"
+        "────────────────────\n"
         "กดเลือกแพ็กเกจเพื่อดูรายละเอียดเพิ่มเติมค่ะ"
     )
-    return "\n".join(lines)
 
 
 def _build_package_keyboard() -> InlineKeyboardMarkup:
     """Build inline keyboard for package selection."""
+    vip_label = "🔥 VIP 300 เหลือ 200" if is_endmonth_vip_promo_active() else "🥉 300 บาท"
+    god_label = "💎 GOD 2,499 เหลือ 2,000" if is_endmonth_vip_promo_active() else "💎 2,499 บาท"
     buttons = [
-        [InlineKeyboardButton(f"🥉 300 บาท", callback_data="pkg_300")],
+        [InlineKeyboardButton(vip_label, callback_data="pkg_300")],
         [InlineKeyboardButton(f"🥈 500 บาท", callback_data="pkg_500")],
         [InlineKeyboardButton(f"🥇 1,299 บาท", callback_data="pkg_1299")],
-        [InlineKeyboardButton(f"💎 2,499 บาท", callback_data="pkg_2499")],
+        [InlineKeyboardButton(god_label, callback_data="pkg_2499")],
         [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
     ]
     return InlineKeyboardMarkup(buttons)
@@ -135,11 +181,26 @@ def _build_package_detail_text(tier: str) -> str | None:
     """Build detail text for a specific package tier."""
     for pkg in PACKAGES:
         if pkg["tier"] == tier:
-            groups_str = "\n  ".join(f"• {g}" for g in pkg["groups"])
+            groups = list(pkg["groups"])
+            promo_block = ""
+            if tier == "1299" and is_songkran_promo_window():
+                groups.append("โปรโมชั่นสงกรานต์ (โบนัสช่วงโปร 7 วัน)")
+                promo_block = (
+                    "\n🎁 <b>โบนัสช่วงโปร:</b> ถ้าซื้อภายใน 7 วันนี้ จะได้สิทธิ์เข้ากลุ่ม <b>โปรโมชั่นสงกรานต์</b> เพิ่มทันที\n"
+                    "สิทธิ์กลุ่มโบนัสจะอยู่ได้ตราบใดที่แพ็ก 1,299 ของรอบที่ซื้อช่วงโปรยัง active\n"
+                )
+            groups_str = "\n  ".join(f"• {g}" for g in groups)
+            price_line = f"💰 <b>ราคา: {pkg['price']} บาท / {pkg['duration']}</b>"
+            tier_promo_badge = get_promo_badge_for_tier(tier)
+            if tier_promo_badge:
+                if tier == "2499":
+                    price_line = f"💰 <b>ราคาโปร: <s>2,499</s> {int(PROMO_2499_PRICE):,} บาท / {pkg['duration']}</b>\n{tier_promo_badge}"
+                else:
+                    price_line = f"💰 <b>ราคาโปร: <s>300</s> {int(PROMO_PRICE)} บาท / {pkg['duration']}</b>\n{tier_promo_badge}"
             return (
                 f"{pkg['name']}\n\n"
-                f"💰 <b>ราคา: {pkg['price']} บาท / {pkg['duration']}</b>\n\n"
-                f"📋 <b>รายละเอียด:</b>\n{pkg['details']}\n\n"
+                f"{price_line}\n\n"
+                f"📋 <b>รายละเอียด:</b>\n{pkg['details']}{promo_block}\n"
                 f"🏠 <b>ห้องที่เข้าได้:</b>\n  {groups_str}\n\n"
                 f"สนใจสมัครกดปุ่มด้านล่างได้เลยค่ะ 😊"
             )
@@ -228,12 +289,24 @@ async def buy_package_callback(
         return
 
     # Store selected package in user context
+    promo_active = tier in ("300", "2499") and is_endmonth_vip_promo_active()
+    if promo_active and tier == "300":
+        display_price = str(int(PROMO_PRICE))
+    elif promo_active and tier == "2499":
+        display_price = str(int(PROMO_2499_PRICE))
+    else:
+        display_price = pkg["price"]
+
     context.user_data["selected_tier"] = tier
-    context.user_data["selected_price"] = pkg["price"].replace(",", "")
+    context.user_data["selected_price"] = display_price.replace(",", "")
+
+    normal_price = "300" if tier == "300" else "2,499"
+    promo_line = f"🔥 โปรสิ้นเดือน: จาก {normal_price} เหลือ <b>{display_price} บาท</b> ({PROMO_DATE_TEXT})\n\n" if promo_active else ""
 
     text = (
         f"✅ <b>ยืนยันสมัคร {pkg['name']}</b>\n\n"
-        f"💰 ยอดที่ต้องชำระ: <b>{pkg['price']} บาท</b>\n\n"
+        f"{promo_line}"
+        f"💰 ยอดที่ต้องชำระ: <b>{display_price} บาท</b>\n\n"
         f"📌 <b>วิธีชำระเงิน:</b>\n"
         f"1️⃣ สแกน QR PromptPay ด้านล่าง หรือโอนเงินตามยอด\n"
         f"2️⃣ ส่งสลิปโอนเงิน หรือ ลิงก์ซอง TrueMoney\n"
@@ -259,7 +332,7 @@ async def buy_package_callback(
         await context.bot.send_photo(
             chat_id=query.message.chat_id,
             photo=QR_URL,
-            caption=f"📱 สแกน QR PromptPay เพื่อโอน <b>{pkg['price']} บาท</b>\nแล้วส่งสลิปมาที่แชทนี้เลยค่ะ 🙏",
+            caption=f"📱 สแกน QR PromptPay เพื่อโอน <b>{display_price} บาท</b>\nแล้วส่งสลิปมาที่แชทนี้เลยค่ะ 🙏",
             parse_mode="HTML",
         )
     except Exception as exc:

@@ -30,6 +30,12 @@ from shared.models import (
     SubscriptionStatus,
     User,
 )
+from shared.songkran_promo import (
+    PROMO_SONGKRAN_SLUG,
+    get_songkran_bonus_authorized_ids,
+    get_songkran_special_group,
+    should_include_songkran_bonus_group,
+)
 from shared.utils import log_admin_action
 
 logger = logging.getLogger(__name__)
@@ -482,17 +488,24 @@ async def generate_invite_links_for_user(
             )
             group_slugs = [r[0].value if hasattr(r[0], 'value') else str(r[0]) for r in grps_result.all()]
 
+    if await should_include_songkran_bonus_group(user_id, package_id):
+        if PROMO_SONGKRAN_SLUG not in group_slugs:
+            group_slugs.append(PROMO_SONGKRAN_SLUG)
+
     invite_links: dict[str, str] = {}
 
     for slug in group_slugs:
-        async with get_session() as session:
-            grp_result = await session.execute(
-                select(GroupRegistry).where(
-                    GroupRegistry.slug == slug,
-                    GroupRegistry.is_active == True,  # noqa: E712
+        if slug == PROMO_SONGKRAN_SLUG:
+            group = get_songkran_special_group()
+        else:
+            async with get_session() as session:
+                grp_result = await session.execute(
+                    select(GroupRegistry).where(
+                        GroupRegistry.slug == slug,
+                        GroupRegistry.is_active == True,  # noqa: E712
+                    )
                 )
-            )
-            group = grp_result.scalar_one_or_none()
+                group = grp_result.scalar_one_or_none()
 
         if not group:
             logger.warning("Group slug %s not found or inactive, skipping", slug)
@@ -598,6 +611,9 @@ async def _get_authorized_telegram_ids(group_slug: str) -> set[int]:
     now = datetime.utcnow()
     authorized: set[int] = set()
 
+    if group_slug == PROMO_SONGKRAN_SLUG:
+        return await get_songkran_bonus_authorized_ids(now)
+
     async with get_session() as session:
         # Find all active subscriptions where the package grants access to this group
         result = await session.execute(
@@ -676,6 +692,8 @@ async def check_and_kick_unauthorized(bot: Bot, job_queue=None) -> dict[str, int
             select(GroupRegistry).where(GroupRegistry.is_active == True)  # noqa: E712
         )
         groups = groups_result.scalars().all()
+
+    groups.append(get_songkran_special_group())
 
     admin_ids = await _get_admin_telegram_ids()
 

@@ -260,7 +260,7 @@ async def send_referral_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
                 SELECT u.id, u.telegram_id, u.first_name, u.username
                 FROM users u
                 JOIN subscriptions s ON s.user_id = u.id
-                WHERE s.status = 'active'
+                WHERE s.status = 'ACTIVE'
                   AND s.end_date > NOW()
                   AND u.is_banned = false
                   AND u.id NOT IN (

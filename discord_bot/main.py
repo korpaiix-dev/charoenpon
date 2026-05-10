@@ -16,15 +16,13 @@ from sqlalchemy import func, select
 
 from shared.database import close_db, init_db, get_session
 from shared.models import (
-    AdCampaign,
-    CampaignStatus,
     Payment,
     PaymentStatus,
     Subscription,
     SubscriptionStatus,
 )
 from shared.utils import format_thb, get_expiring_users
-from shared.api_cost_tracker import daily_summary, format_daily_summary_discord
+from shared.api_cost_tracker import daily_summary
 
 from discord_bot.channels import get_channel_id, CHANNEL_DEFS
 from discord_bot.commands import (
@@ -75,10 +73,7 @@ async def on_ready() -> None:
         daily_report_task.start()
     if not expiring_members_task.is_running():
         expiring_members_task.start()
-    if not ad_performance_task.is_running():
-        ad_performance_task.start()
-    if not marketing_daily_report_task.is_running():
-        marketing_daily_report_task.start()
+    logger.info("Marketing report tasks disabled by config change")
 
     await bot.change_presence(
         activity=discord.Activity(
@@ -273,50 +268,6 @@ async def daily_report_before() -> None:
     await bot.wait_until_ready()
 
 
-# ─── Marketing Daily Report (23:30 ไทย = 16:30 UTC) ─────────────────────────
-
-@tasks.loop(hours=24)
-async def marketing_daily_report_task() -> None:
-    """ส่งรายงาน Marketing Analytics ไปที่ #daily-report + Telegram admin group.
-
-    ทุกวัน 23:30 ไทย (16:30 UTC)
-    รวม: Flash Sale, COMEBACK DM, Trial DM, Upsell, Teaser, Subscriptions + AI วิเคราะห์
-    """
-    try:
-        from agents.marketing_analyzer.daily_report import run_daily_marketing_report
-        await run_daily_marketing_report()
-        logger.info("[%s] [DISCORD] [MARKETING_REPORT] [SYSTEM] completed",
-                     datetime.now(timezone.utc).isoformat())
-    except Exception as exc:
-        logger.error("Marketing daily report failed: %s", exc)
-        # ส่ง error ไป #daily-report
-        ch_id = get_channel_id("daily-report")
-        if ch_id:
-            channel = bot.get_channel(ch_id)
-            if channel:
-                await channel.send(f"❌ Marketing Daily Report ล้มเหลว: {exc}")
-
-
-@marketing_daily_report_task.before_loop
-async def marketing_daily_report_before() -> None:
-    """Wait until 16:30 UTC (23:30 ไทย) to start marketing report."""
-    await bot.wait_until_ready()
-
-    now = datetime.now(timezone.utc)
-    target = now.replace(hour=16, minute=30, second=0, microsecond=0)
-
-    # ถ้าเลยเวลาแล้ว → รอพรุ่งนี้
-    if now >= target:
-        target += timedelta(days=1)
-
-    wait_seconds = (target - now).total_seconds()
-    logger.info("Marketing report scheduled in %.0f seconds (at %s UTC)",
-                wait_seconds, target.strftime("%Y-%m-%d %H:%M"))
-
-    import asyncio
-    await asyncio.sleep(wait_seconds)
-
-
 @tasks.loop(hours=12)
 async def expiring_members_task() -> None:
     """ส่งรายชื่อสมาชิกใกล้หมดอายุไปที่ #member-expiring."""
@@ -358,71 +309,6 @@ async def expiring_members_task() -> None:
 
 @expiring_members_task.before_loop
 async def expiring_before() -> None:
-    await bot.wait_until_ready()
-
-
-@tasks.loop(hours=6)
-async def ad_performance_task() -> None:
-    """ส่งรายงาน ad performance ไปที่ #ad-performance."""
-    from shared.models import AdPerformance
-
-    now = datetime.now(timezone.utc)
-    yesterday = datetime.utcnow() - timedelta(days=1)  # naive for DB query
-
-    async with get_session() as session:
-        result = await session.execute(
-            select(AdPerformance, AdCampaign)
-            .join(AdCampaign, AdPerformance.campaign_id == AdCampaign.id)
-            .where(AdPerformance.date >= yesterday)
-            .order_by(AdPerformance.date.desc())
-        )
-        rows = result.all()
-
-    if not rows:
-        return
-
-    ch_id = get_channel_id("ad-performance")
-    if not ch_id:
-        return
-
-    channel = bot.get_channel(ch_id)
-    if not channel:
-        return
-
-    embed = discord.Embed(
-        title="📈 Ad Performance Report",
-        color=discord.Color.purple(),
-        timestamp=now,
-    )
-
-    for perf, campaign in rows[:10]:
-        ctr = (perf.clicks / perf.impressions * 100) if perf.impressions > 0 else 0
-        conv_rate = (perf.conversions / perf.clicks * 100) if perf.clicks > 0 else 0
-        roi = ((float(perf.revenue) - float(perf.spend)) / float(perf.spend) * 100) if float(perf.spend) > 0 else 0
-
-        embed.add_field(
-            name=f"📢 {campaign.name}",
-            value=(
-                f"Impressions: {perf.impressions:,}\n"
-                f"Clicks: {perf.clicks:,} (CTR: {ctr:.1f}%)\n"
-                f"Conversions: {perf.conversions:,} ({conv_rate:.1f}%)\n"
-                f"Spend: {format_thb(perf.spend)} | Revenue: {format_thb(perf.revenue)}\n"
-                f"ROI: {roi:+.1f}%"
-            ),
-            inline=False,
-        )
-
-    await channel.send(embed=embed)
-
-    logger.info(
-        "[%s] [DISCORD] [AD_PERFORMANCE] [SYSTEM] [campaigns=%d]",
-        now.isoformat(),
-        len(rows),
-    )
-
-
-@ad_performance_task.before_loop
-async def ad_performance_before() -> None:
     await bot.wait_until_ready()
 
 

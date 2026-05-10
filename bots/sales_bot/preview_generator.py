@@ -36,8 +36,11 @@ CREATE TABLE IF NOT EXISTS content_previews (
     content_id INTEGER NOT NULL REFERENCES content_queue(id),
     preview_file_id TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS ix_content_previews_content_id ON content_previews(content_id);
+)
+"""
+
+CREATE_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS ix_content_previews_content_id ON content_previews(content_id)
 """
 
 
@@ -45,6 +48,7 @@ async def ensure_tables() -> None:
     """Create content_previews table if not exists."""
     async with get_session() as session:
         await session.execute(text(CREATE_TABLE_SQL))
+        await session.execute(text(CREATE_INDEX_SQL))
         await session.commit()
 
 
