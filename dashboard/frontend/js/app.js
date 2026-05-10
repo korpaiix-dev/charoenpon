@@ -382,6 +382,53 @@ function statusBadge(status) {
     return `<span class="status-badge status-${s}">${status}</span>`;
 }
 function hasRole(minRole) { return (ROLE_LEVELS[admin.role] || 0) >= (ROLE_LEVELS[minRole] || 999); }
+function isoDate(d) {
+    const dt = new Date(d);
+    dt.setMinutes(dt.getMinutes() - dt.getTimezoneOffset());
+    return dt.toISOString().slice(0, 10);
+}
+function isoMonth(d) { return isoDate(d).slice(0, 7); }
+function thRange(from, to) {
+    if (from === to) return fmtDate(from);
+    return `${fmtDate(from)} - ${fmtDate(to)}`;
+}
+let dashboardPeriod = 'month';
+let dashboardDateFrom = isoDate(new Date());
+let dashboardDateTo = isoDate(new Date());
+let dashboardMonth = isoMonth(new Date());
+
+function setDashboardQuick(type) {
+    const now = new Date();
+    if (type === 'today') {
+        dashboardPeriod = 'day'; dashboardDateFrom = isoDate(now); dashboardDateTo = dashboardDateFrom;
+    } else if (type === 'yesterday') {
+        const y = new Date(now); y.setDate(y.getDate() - 1);
+        dashboardPeriod = 'day'; dashboardDateFrom = isoDate(y); dashboardDateTo = dashboardDateFrom;
+    } else if (type === 'this-month') {
+        dashboardPeriod = 'month'; dashboardMonth = isoMonth(now);
+    } else if (type === 'last-month') {
+        const m = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        dashboardPeriod = 'month'; dashboardMonth = isoMonth(m);
+    }
+    renderDashboard();
+}
+
+function dashboardPeriodChanged(value) {
+    dashboardPeriod = value;
+    const monthGroup = document.getElementById('dashboard-month-group');
+    const rangeGroup = document.getElementById('dashboard-range-group');
+    if (monthGroup) monthGroup.classList.toggle('hidden', value !== 'month');
+    if (rangeGroup) rangeGroup.classList.toggle('hidden', value === 'month');
+}
+
+function applyDashboardAnalytics() {
+    dashboardPeriod = document.getElementById('dashboard-period')?.value || dashboardPeriod;
+    dashboardMonth = document.getElementById('dashboard-month')?.value || dashboardMonth;
+    dashboardDateFrom = document.getElementById('dashboard-date-from')?.value || dashboardDateFrom;
+    dashboardDateTo = document.getElementById('dashboard-date-to')?.value || dashboardDateFrom;
+    if (dashboardPeriod === 'day') dashboardDateTo = dashboardDateFrom;
+    renderDashboard();
+}
 function paginationHtml(page, pages, fn) {
     if (pages <= 1) return '';
     let html = '<div class="pagination">';
@@ -398,12 +445,22 @@ function paginationHtml(page, pages, fn) {
 async function renderDashboard() {
     const content = document.getElementById('page-content');
     try {
-        const [summary, members, flashSale, alerts] = await Promise.all([
+        const analyticsParams = dashboardPeriod === 'month'
+            ? `period=month&date_from=${encodeURIComponent(dashboardMonth)}`
+            : dashboardPeriod === 'day'
+                ? `period=day&date_from=${encodeURIComponent(dashboardDateFrom)}`
+                : `period=custom&date_from=${encodeURIComponent(dashboardDateFrom)}&date_to=${encodeURIComponent(dashboardDateTo)}`;
+
+        const [summary, members, flashSale, alerts, analytics] = await Promise.all([
             api('/dashboard/summary'),
             api('/dashboard/members-stats'),
             api('/dashboard/flash-sale-status'),
             api('/dashboard/alerts'),
+            api(`/dashboard/sales-analytics?${analyticsParams}`),
         ]);
+        dashboardDateFrom = analytics.date_from;
+        dashboardDateTo = analytics.date_to;
+        dashboardMonth = analytics.date_from.slice(0, 7);
         
         let dmHtml = '', contentHtml = '';
         if (hasRole('admin')) {
@@ -442,13 +499,63 @@ async function renderDashboard() {
         if ((alerts.sos_count || 0) > 0) alertItems += `<div class="alert-box-item">🆘 ${alerts.sos_count} SOS แจ้งปัญหา</div>`;
         if (!alertItems) alertItems = '<div class="alert-box-item" style="color:var(--success);">✅ ไม่มี alert</div>';
 
+        const packageRows = analytics.packages.length
+            ? analytics.packages.map(p => `<tr><td>${p.package_name}</td><td>${fmtBaht(p.revenue)}</td><td>${fmt(p.buyers)}</td><td>${fmt(p.orders)}</td></tr>`).join('')
+            : `<tr><td colspan="4" style="color:var(--text-muted);text-align:center;">ไม่มียอดขายในช่วงนี้</td></tr>`;
+        const monthRows = analytics.months.length
+            ? analytics.months.map(m => `<tr><td>${m.month}</td><td>${fmtBaht(m.revenue)}</td><td>${fmt(m.buyers)}</td><td>${fmt(m.orders)}</td></tr>`).join('')
+            : `<tr><td colspan="4" style="color:var(--text-muted);text-align:center;">ยังไม่มีข้อมูลรายเดือน</td></tr>`;
+
         content.innerHTML = `
-            <div class="cards-grid">
+            <div class="dashboard-hero">
+                <div>
+                    <div class="hero-kicker">ภาพรวมยอดขายย้อนหลัง</div>
+                    <div class="hero-title">${thRange(analytics.date_from, analytics.date_to)}</div>
+                    <div class="hero-subtitle">เทียบกับช่วงก่อนหน้า ${thRange(analytics.previous_from, analytics.previous_to)}</div>
+                </div>
+                <div class="dashboard-filter-panel">
+                    <div class="quick-filters">
+                        <button class="filter-btn ${dashboardPeriod === 'day' && dashboardDateFrom === isoDate(new Date()) ? 'active' : ''}" onclick="setDashboardQuick('today')">วันนี้</button>
+                        <button class="filter-btn" onclick="setDashboardQuick('yesterday')">เมื่อวาน</button>
+                        <button class="filter-btn ${dashboardPeriod === 'month' && dashboardMonth === isoMonth(new Date()) ? 'active' : ''}" onclick="setDashboardQuick('this-month')">เดือนนี้</button>
+                        <button class="filter-btn" onclick="setDashboardQuick('last-month')">เดือนที่แล้ว</button>
+                    </div>
+                    <div class="filters dashboard-filters">
+                        <select id="dashboard-period" onchange="dashboardPeriodChanged(this.value)">
+                            <option value="day" ${dashboardPeriod === 'day' ? 'selected' : ''}>ดูรายวัน</option>
+                            <option value="month" ${dashboardPeriod === 'month' ? 'selected' : ''}>ดูรายเดือน</option>
+                            <option value="custom" ${dashboardPeriod === 'custom' ? 'selected' : ''}>เลือกช่วงเอง</option>
+                        </select>
+                        <div id="dashboard-month-group" class="filter-inline ${dashboardPeriod !== 'month' ? 'hidden' : ''}"><input type="month" id="dashboard-month" value="${dashboardMonth}"></div>
+                        <div id="dashboard-range-group" class="filter-inline ${dashboardPeriod === 'month' ? 'hidden' : ''}">
+                            <input type="date" id="dashboard-date-from" value="${dashboardDateFrom}">
+                            <input type="date" id="dashboard-date-to" value="${dashboardDateTo}">
+                        </div>
+                        <button class="btn btn-primary" onclick="applyDashboardAnalytics()">ดูข้อมูล</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cards-grid metric-grid">
+                <div class="card metric-card primary"><div class="card-label">รายได้ช่วงที่เลือก</div><div class="card-value">${fmtBaht(analytics.summary.revenue)}</div>${changeArrow(analytics.summary.revenue_change)}</div>
+                <div class="card metric-card success"><div class="card-label">ลูกค้าที่ซื้อ</div><div class="card-value">${fmt(analytics.summary.buyers)} คน</div>${changeArrow(analytics.summary.buyers_change)}</div>
+                <div class="card metric-card"><div class="card-label">ออเดอร์ทั้งหมด</div><div class="card-value">${fmt(analytics.summary.orders)}</div><div class="card-change">เฉลี่ย ${fmtBaht(Math.round(analytics.summary.avg_order))}/ออเดอร์</div></div>
+                <div class="card metric-card"><div class="card-label">ลูกค้าใหม่ที่ซื้อครั้งแรก</div><div class="card-value">${fmt(analytics.summary.new_buyers)} คน</div><div class="card-change">นับจากยอด CONFIRMED</div></div>
+            </div>
+
+            <div class="cards-grid compact-overview">
                 <div class="card"><div class="card-label">วันนี้</div><div class="card-value">${fmtBaht(summary.today)}</div>${changeArrow(summary.today_change)}</div>
                 <div class="card"><div class="card-label">สัปดาห์นี้</div><div class="card-value">${fmtBaht(summary.week)}</div>${changeArrow(summary.week_change)}</div>
                 <div class="card"><div class="card-label">เดือนนี้</div><div class="card-value">${fmtBaht(summary.month)}</div>${changeArrow(summary.month_change)}</div>
             </div>
-            <div class="card card-full"><div class="card-label">📈 กราฟรายได้ 30 วัน</div><div class="chart-container"><canvas id="revenue-chart"></canvas></div></div>
+
+            <div class="dashboard-grid-2">
+                <div class="card card-full"><div class="card-label">📈 รายได้ + จำนวนลูกค้าตามวันที่เลือก</div><div class="chart-container chart-tall"><canvas id="sales-analytics-chart"></canvas></div></div>
+                <div class="card card-full"><div class="card-label">📦 แพ็กเกจขายดีในช่วงนี้</div><div class="table-wrap"><table><thead><tr><th>แพ็กเกจ</th><th>รายได้</th><th>ลูกค้า</th><th>ออเดอร์</th></tr></thead><tbody>${packageRows}</tbody></table></div></div>
+            </div>
+
+            <div class="card card-full"><div class="card-label">🗓️ ยอดรายเดือนย้อนหลัง 12 เดือน</div><div class="table-wrap"><table><thead><tr><th>เดือน</th><th>รายได้</th><th>ลูกค้า</th><th>ออเดอร์</th></tr></thead><tbody>${monthRows}</tbody></table></div></div>
+
             <div class="cards-grid" style="margin-top:1rem;">
                 <div class="card"><div class="card-label">Active Members</div><div class="card-value" style="color:var(--success);">${fmt(members.active)}</div></div>
                 <div class="card"><div class="card-label">Expired</div><div class="card-value" style="color:var(--error);">${fmt(members.expired)}</div></div>
@@ -464,34 +571,45 @@ async function renderDashboard() {
             <div id="sos-section"></div>
         `;
 
-        // Load pending slips on dashboard
         loadDashboardPendingSlips();
-        // Load SOS alerts
         loadSOSAlerts();
         
-        // Revenue chart
-        const chartData = await api('/dashboard/revenue-chart?days=30');
-        if (chartData.length > 0) {
-            const ctx = document.getElementById('revenue-chart');
-            charts.revenue = new Chart(ctx, {
-                type: 'line',
+        const ctx = document.getElementById('sales-analytics-chart');
+        if (ctx) {
+            charts.salesAnalytics = new Chart(ctx, {
+                type: 'bar',
                 data: {
-                    labels: chartData.map(d => d.date.slice(5)),
-                    datasets: [{
-                        label: 'รายได้ (฿)',
-                        data: chartData.map(d => d.revenue),
-                        borderColor: '#00d4ff',
-                        backgroundColor: 'rgba(0, 212, 255, 0.1)',
-                        fill: true, tension: 0.4, pointRadius: 3,
-                    }]
+                    labels: analytics.chart.map(d => d.date.slice(5)),
+                    datasets: [
+                        {
+                            type: 'bar',
+                            label: 'รายได้ (฿)',
+                            data: analytics.chart.map(d => d.revenue),
+                            backgroundColor: 'rgba(247, 176, 69, 0.7)',
+                            borderColor: '#f7b045',
+                            borderWidth: 1,
+                            yAxisID: 'y',
+                        },
+                        {
+                            type: 'line',
+                            label: 'ลูกค้าที่ซื้อ (คน)',
+                            data: analytics.chart.map(d => d.buyers),
+                            borderColor: '#4fd1c5',
+                            backgroundColor: 'rgba(79, 209, 197, 0.18)',
+                            tension: 0.35,
+                            pointRadius: 3,
+                            yAxisID: 'buyers',
+                        }
+                    ]
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false,
                     scales: {
-                        x: { ticks: { color: '#8892b0' }, grid: { color: 'rgba(35,53,84,0.3)' } },
-                        y: { ticks: { color: '#8892b0', callback: v => '฿' + fmt(v) }, grid: { color: 'rgba(35,53,84,0.3)' } },
+                        x: { ticks: { color: '#a8b3cf' }, grid: { color: 'rgba(60,72,107,0.22)' } },
+                        y: { position: 'left', ticks: { color: '#a8b3cf', callback: v => '฿' + fmt(v) }, grid: { color: 'rgba(60,72,107,0.22)' } },
+                        buyers: { position: 'right', ticks: { color: '#a8b3cf', callback: v => fmt(v) }, grid: { drawOnChartArea: false } },
                     },
-                    plugins: { legend: { labels: { color: '#e0e6f0' } } },
+                    plugins: { legend: { labels: { color: '#f5f1e8' } } },
                 }
             });
         }
@@ -1112,7 +1230,7 @@ async function loadFinanceCharts() {
 }
 
 // ========== PAGE: PROMOTIONS ==========
-let promoTab = 'flash';
+let promoTab = 'campaigns';
 async function renderPromotions() {
     const content = document.getElementById('page-content');
     let statsHtml = '';
@@ -1127,15 +1245,186 @@ async function renderPromotions() {
     } catch {}
     content.innerHTML = `${statsHtml}
         <div class="tabs">
+            <div class="tab ${promoTab==='campaigns'?'active':''}" onclick="promoTab='campaigns';renderPromotions()">🎯 Campaign Center</div>
+            <div class="tab ${promoTab==='performance'?'active':''}" onclick="promoTab='performance';renderPromotions()">📊 ผลลัพธ์โปร</div>
             <div class="tab ${promoTab==='flash'?'active':''}" onclick="promoTab='flash';renderPromotions()">⚡ Flash Sale</div>
             <div class="tab ${promoTab==='code'?'active':''}" onclick="promoTab='code';renderPromotions()">🎟 Promo Code</div>
             <div class="tab ${promoTab==='scheduled'?'active':''}" onclick="promoTab='scheduled';renderPromotions()">📅 ตั้งเวลาโปรโมท</div>
         </div>
         <div id="promo-content"><div class="loading"><div class="spinner"></div></div></div>
     `;
-    if (promoTab === 'flash') loadFlashSales();
+    if (promoTab === 'campaigns') loadPromotionCampaigns();
+    else if (promoTab === 'performance') loadPromoPerformance();
+    else if (promoTab === 'flash') loadFlashSales();
     else if (promoTab === 'code') loadPromoCodes();
     else loadScheduledPromos();
+}
+
+
+async function loadPromotionCampaigns() {
+    try {
+        const data = await api('/promotion-campaigns');
+        const rows = data.length ? data.map(c => `<tr>
+            <td><div style="font-weight:600;">${c.name}</div><div style="color:var(--text-muted);font-size:0.8rem;">${c.package_name || ''}</div></td>
+            <td>${fmtBaht(c.normal_price)} → <b style="color:var(--primary);">${fmtBaht(c.promo_price)}</b></td>
+            <td>${fmtDateTime(c.starts_at)}<br><span style="color:var(--text-muted);">ถึง ${fmtDateTime(c.ends_at)}</span><br><span style="color:var(--primary);font-size:0.75rem;">${(c.delivery_channels || []).join(", ")}</span></td>
+            <td>${c.is_active ? '<span style="color:var(--success)">🟢 Active</span>' : '<span style="color:var(--text-dim)">⭕ ปิด</span>'}</td>
+            <td>${fmt(c.buyers)} คน / ${fmt(c.orders)} ออเดอร์</td>
+            <td style="font-weight:600;color:var(--success);">${fmtBaht(c.revenue)}</td>
+            <td><div class="btn-group">
+                <button class="btn btn-sm btn-outline" onclick="togglePromotionCampaign(${c.id})">${c.is_active ? '⏸ ปิด' : '▶ เปิด'}</button>
+                <button class="btn btn-sm btn-danger" onclick="deletePromotionCampaign(${c.id})">🗑</button>
+            </div></td>
+        </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">ยังไม่มีแคมเปญโปร</td></tr>`;
+
+        document.getElementById('promo-content').innerHTML = `
+            <div class="alert-box" style="margin-bottom:1rem;">
+                <b>Promotion Campaign Center</b><br>
+                สร้างโปรแบบครบชุด: ราคาโปร + คำขายบอท + caption ส่งกลุ่ม/ลูกค้า + วัดยอดขายอัตโนมัติจาก payment ที่ตรงแพ็กเกจ/ราคา/ช่วงเวลา
+            </div>
+            <button class="btn btn-primary" onclick="showPromotionCampaignForm()" style="margin-bottom:1rem;">+ สร้างแคมเปญโปรใหม่</button>
+            <div class="table-wrap"><table><thead><tr><th>แคมเปญ</th><th>ราคา</th><th>ช่วงเวลา</th><th>สถานะ</th><th>ยอดซื้อ</th><th>รายได้</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+        `;
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+async function showPromotionCampaignForm() {
+    const packages = await api('/settings/packages');
+    const pkgOptions = packages.map(p => `<option value="${p.id}" data-price="${p.price}">${p.name} — ${fmtBaht(p.price)}</option>`).join('');
+    openModal('🎯 สร้างแคมเปญโปร', `
+        <div class="form-group"><label>ชื่อโปร</label><input id="camp-name" placeholder="เช่น โปรสิ้นเดือน VIP 300 เหลือ 200"></div>
+        <div class="form-row">
+            <div class="form-group"><label>แพ็กเกจ</label><select id="camp-pkg" onchange="syncCampaignPackagePrice()">${pkgOptions}</select><div class="dm-description">เลือกชื่อแพ็กเกจได้เลย ไม่ต้องจำเลข ID</div></div>
+            <div class="form-group"><label>ราคาเดิม</label><input id="camp-normal" type="number" value="300"></div>
+            <div class="form-group"><label>ราคาโปร</label><input id="camp-promo" type="number" value="200"></div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>เริ่ม</label><input id="camp-start" type="datetime-local"></div>
+            <div class="form-group"><label>สิ้นสุด</label><input id="camp-end" type="datetime-local"></div>
+        </div>
+        <div class="form-group"><label>Badge/คำสั้นหน้าแพ็กเกจบอท</label><input id="camp-badge" placeholder="🔥 โปร 300 เหลือ 200 ถึงคืนนี้"></div>
+        <div class="form-group"><label>คำขายในบอทตอนลูกค้ากดซื้อ</label><textarea id="camp-bot-text" placeholder="ข้อความอธิบายโปรใน Sales Bot"></textarea></div>
+        <div class="form-group"><label>Caption ส่งเข้ากลุ่ม</label><textarea id="camp-group-caption" placeholder="ข้อความโปรสำหรับกลุ่มฟรี"></textarea></div>
+        <div class="form-group"><label>Caption Broadcast ลูกค้า</label><textarea id="camp-user-caption" placeholder="ข้อความโปรสำหรับยิงหาลูกค้า"></textarea></div>
+        <div class="form-group"><label>ช่องทางที่จะใช้โปรนี้</label>
+            <label style="display:block;color:var(--text);"><input type="checkbox" class="camp-channel" value="bot_package" style="width:auto;margin-right:0.5rem;"> แสดงราคา/คำขายใน Sales Bot</label>
+            <label style="display:block;color:var(--text);"><input type="checkbox" class="camp-channel" value="group_post" style="width:auto;margin-right:0.5rem;"> ส่งโปรเข้ากลุ่ม Telegram</label>
+            <label style="display:block;color:var(--text);"><input type="checkbox" class="camp-channel" value="user_broadcast" style="width:auto;margin-right:0.5rem;"> Broadcast หาลูกค้า</label>
+            <label style="display:block;color:var(--text);"><input type="checkbox" class="camp-channel" value="tracking_only" checked style="width:auto;margin-right:0.5rem;"> Tracking only / ยังไม่ส่งออก</label>
+            <div class="dm-description">ตอนนี้การเลือกนี้คือบันทึกแผน/กันพลาด ยังไม่ยิงข้อความทันทีจนกว่าจะมีปุ่ม Run/ตั้งเวลาเฉพาะช่องทาง</div>
+        </div>
+        <div class="form-group"><label>Target Groups (คั่นด้วย comma)</label><input id="camp-targets" placeholder="FREE1,FREE2 หรือ chat_id"></div>
+        <div class="form-group"><label>รูปโปร</label><input id="camp-image-file" type="file" accept="image/png,image/jpeg,image/webp" onchange="uploadCampaignImage()"><input id="camp-image" placeholder="URL รูปจะถูกใส่อัตโนมัติหลังอัปโหลด" style="margin-top:0.5rem;"><div id="camp-image-preview" class="dm-description">รองรับ JPG / PNG / WEBP ไม่เกิน 8MB</div></div>
+        <button class="btn btn-primary btn-full" onclick="createPromotionCampaign()">💾 สร้างแคมเปญ</button>
+    `);
+    syncCampaignPackagePrice();
+}
+
+function syncCampaignPackagePrice() {
+    const sel = document.getElementById('camp-pkg');
+    const normal = document.getElementById('camp-normal');
+    if (sel && normal) normal.value = parseFloat(sel.selectedOptions[0]?.dataset.price || normal.value || 0);
+}
+
+
+async function uploadCampaignImage() {
+    const input = document.getElementById('camp-image-file');
+    const file = input?.files?.[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    const preview = document.getElementById('camp-image-preview');
+    if (preview) preview.textContent = 'กำลังอัปโหลดรูป...';
+    try {
+        const resp = await fetch('/api/promotion-campaigns/upload-image', {
+            method: 'POST',
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+            body: fd,
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({ detail: 'Upload failed' }));
+            throw new Error(err.detail || 'Upload failed');
+        }
+        const data = await resp.json();
+        document.getElementById('camp-image').value = data.url;
+        if (preview) preview.innerHTML = `อัปโหลดแล้ว: <a href="${data.url}" target="_blank" style="color:var(--primary);">เปิดดูรูป</a><br><img src="${data.url}" style="margin-top:0.5rem;max-width:220px;max-height:160px;border-radius:10px;border:1px solid var(--border);">`;
+        toast('อัปโหลดรูปโปรแล้ว', 'success');
+    } catch (e) {
+        if (preview) preview.textContent = e.message;
+        toast(e.message, 'error');
+    }
+}
+
+async function createPromotionCampaign() {
+    try {
+        const targets = (document.getElementById('camp-targets').value || '').split(',').map(x => x.trim()).filter(Boolean);
+        const channels = Array.from(document.querySelectorAll('.camp-channel:checked')).map(x => x.value);
+        await api('/promotion-campaigns', { method: 'POST', body: JSON.stringify({
+            name: document.getElementById('camp-name').value,
+            package_id: parseInt(document.getElementById('camp-pkg').value),
+            normal_price: parseFloat(document.getElementById('camp-normal').value),
+            promo_price: parseFloat(document.getElementById('camp-promo').value),
+            starts_at: document.getElementById('camp-start').value,
+            ends_at: document.getElementById('camp-end').value,
+            bot_badge: document.getElementById('camp-badge').value,
+            bot_sales_text: document.getElementById('camp-bot-text').value,
+            group_caption: document.getElementById('camp-group-caption').value,
+            user_broadcast_caption: document.getElementById('camp-user-caption').value,
+            target_groups: targets,
+            delivery_channels: channels.length ? channels : ['tracking_only'],
+            image_path: document.getElementById('camp-image').value,
+        })});
+        toast('สร้างแคมเปญโปรแล้ว', 'success'); closeModal(); loadPromotionCampaigns();
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+async function togglePromotionCampaign(id) {
+    await api(`/promotion-campaigns/${id}/toggle`, { method: 'POST' });
+    loadPromotionCampaigns();
+}
+async function deletePromotionCampaign(id) {
+    if (!confirm('ลบแคมเปญนี้?')) return;
+    await api(`/promotion-campaigns/${id}`, { method: 'DELETE' });
+    loadPromotionCampaigns();
+}
+
+async function loadPromoPerformance() {
+    try {
+        const data = await api('/promo-performance');
+        const flashRows = data.flash_sales.length ? data.flash_sales.map(f => `<tr>
+            <td>${f.name}</td><td>${f.package_name || '-'}</td><td>${fmtBaht(f.flash_price)}</td>
+            <td>${fmt(f.sold_slots)}/${fmt(f.total_slots)}</td><td style="font-weight:600;color:var(--success);">${fmtBaht(f.revenue)}</td>
+            <td>${fmtBaht(f.discount_saved)}</td><td>${fmtDateTime(f.starts_at)} - ${fmtDateTime(f.ends_at)}</td>
+        </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">ยังไม่มี Flash Sale</td></tr>`;
+
+        const codeRows = data.promo_codes.length ? data.promo_codes.map(c => `<tr>
+            <td style="font-family:var(--font-mono);color:var(--primary);">${c.code}</td><td>${c.discount_pct}%</td>
+            <td>${fmt(c.buyers)} คน</td><td>${fmt(c.tracked_uses || c.used_count)}/${fmt(c.max_uses)}</td>
+            <td style="font-weight:600;color:var(--success);">${fmtBaht(c.revenue)}</td><td>${fmtBaht(c.discount_total)}</td><td>${fmtDate(c.expires_at)}</td>
+        </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">ยังไม่มี Promo Code ที่ถูกใช้</td></tr>`;
+
+        const schedRows = data.scheduled_promotions.length ? data.scheduled_promotions.map(s => `<tr>
+            <td>${s.name}</td><td>${fmtDateTime(s.scheduled_at)}</td><td>${s.repeat_type}</td>
+            <td>${s.is_sent ? '<span style="color:var(--success)">ส่งแล้ว</span>' : s.is_active ? '<span style="color:var(--warning)">รอส่ง</span>' : 'ปิด'}</td>
+            <td style="color:var(--text-muted);">ยังไม่ผูกยอดขายอัตโนมัติ</td>
+        </tr>`).join('') : `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">ยังไม่มีโปรตั้งเวลา</td></tr>`;
+
+        document.getElementById('promo-content').innerHTML = `
+            <div class="cards-grid" style="margin-bottom:1rem;">
+                <div class="card metric-card primary"><div class="card-label">Flash Sale ขายได้</div><div class="card-value">${fmt(data.summary.flash_sold)} slot</div></div>
+                <div class="card metric-card primary"><div class="card-label">รายได้ Flash Sale</div><div class="card-value">${fmtBaht(data.summary.flash_revenue)}</div></div>
+                <div class="card metric-card success"><div class="card-label">Promo Code ซื้อ</div><div class="card-value">${fmt(data.summary.promo_code_buyers)} คน</div></div>
+                <div class="card metric-card success"><div class="card-label">รายได้ Promo Code</div><div class="card-value">${fmtBaht(data.summary.promo_code_revenue)}</div></div>
+            </div>
+            <div class="section-title">⚡ Flash Sale Performance</div>
+            <div class="table-wrap"><table><thead><tr><th>ชื่อโปร</th><th>แพ็กเกจ</th><th>ราคาโปร</th><th>ขายได้</th><th>รายได้</th><th>ส่วนลดรวม</th><th>ช่วงเวลา</th></tr></thead><tbody>${flashRows}</tbody></table></div>
+            <div class="section-title">🎟 Promo Code Performance</div>
+            <div class="table-wrap"><table><thead><tr><th>Code</th><th>ลด</th><th>คนซื้อ</th><th>ใช้แล้ว</th><th>รายได้</th><th>ส่วนลดรวม</th><th>หมดอายุ</th></tr></thead><tbody>${codeRows}</tbody></table></div>
+            <div class="section-title">📅 โปรโมทตั้งเวลา</div>
+            <div class="alert-box" style="color:var(--text-muted);">หมายเหตุ: โปรแบบ “ตั้งเวลาโพสต์/ส่งข้อความ” ตอนนี้วัดได้แค่ว่าส่งแล้วหรือยัง ยังไม่ได้ผูกยอดขายกลับมาที่แคมเปญแบบอัตโนมัติ</div>
+            <div class="table-wrap"><table><thead><tr><th>ชื่อ</th><th>เวลาส่ง</th><th>รอบ</th><th>สถานะ</th><th>การนับยอด</th></tr></thead><tbody>${schedRows}</tbody></table></div>
+        `;
+    } catch (e) { toast(e.message, 'error'); }
 }
 
 async function loadFlashSales() {
@@ -1158,7 +1447,9 @@ async function loadFlashSales() {
     } catch (e) { toast(e.message, 'error'); }
 }
 
-function showFlashSaleForm() {
+async function showFlashSaleForm() {
+    const packages = await api('/settings/packages');
+    const pkgOptions = packages.map(p => `<option value="${p.id}" data-price="${p.price}">${p.name} — ${fmtBaht(p.price)}</option>`).join('');
     openModal('⚡ สร้าง Flash Sale', `
         <div class="form-group"><label>ชื่อ</label><input id="fs-name" placeholder="ชื่อ Flash Sale"></div>
         <div class="form-row">
@@ -1166,7 +1457,7 @@ function showFlashSaleForm() {
             <div class="form-group"><label>ราคาเดิม</label><input id="fs-orig" type="number" placeholder="300"></div>
         </div>
         <div class="form-row">
-            <div class="form-group"><label>Package ID</label><input id="fs-pkg" type="number" value="1"></div>
+            <div class="form-group"><label>แพ็กเกจ</label><select id="fs-pkg" onchange="syncFlashPackagePrice()">${pkgOptions}</select><div class="dm-description">เลือกชื่อแพ็กเกจ</div></div>
             <div class="form-group"><label>จำนวน Slot</label><input id="fs-slots" type="number" value="30"></div>
         </div>
         <div class="form-row">
@@ -1175,6 +1466,13 @@ function showFlashSaleForm() {
         </div>
         <button class="btn btn-primary btn-full" onclick="createFlashSale()">💾 สร้าง</button>
     `);
+    syncFlashPackagePrice();
+}
+
+function syncFlashPackagePrice() {
+    const sel = document.getElementById('fs-pkg');
+    const orig = document.getElementById('fs-orig');
+    if (sel && orig) orig.value = parseFloat(sel.selectedOptions[0]?.dataset.price || orig.value || 0);
 }
 
 async function createFlashSale() {

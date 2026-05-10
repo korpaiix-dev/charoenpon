@@ -8,13 +8,64 @@ import json
 import os
 import logging
 import httpx
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+
+PROMO_SONGKRAN_SLUG = "PROMO_SONGKRAN_2026"
+PROMO_SONGKRAN_TITLE = "โปรโมชั่นสงกรานต์"
+PROMO_SONGKRAN_CHAT_ID = -1003970513277
+PROMO_SONGKRAN_START_UTC = datetime(2026, 4, 13, 20, 0, 0)
+PROMO_SONGKRAN_END_UTC = datetime(2026, 4, 20, 20, 0, 0)
 
 logger = logging.getLogger(__name__)
 
 ADMIN_GROUP_CHAT_ID = os.getenv("ADMIN_GROUP_CHAT_ID", "-1003830920430")
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
+
+
+def get_group_display_title(slug: str) -> str:
+    return PROMO_SONGKRAN_TITLE if slug == PROMO_SONGKRAN_SLUG else slug
+
+
+def get_songkran_special_group() -> SimpleNamespace:
+    return SimpleNamespace(chat_id=PROMO_SONGKRAN_CHAT_ID, title=PROMO_SONGKRAN_TITLE)
+
+
+async def should_include_songkran_bonus_group(user_telegram_id: int, package_id: int | None = None) -> bool:
+    if not user_telegram_id:
+        return False
+
+    has_existing = await pool.fetchrow(
+        """
+        SELECT 1
+        FROM subscriptions s
+        JOIN users u ON u.id = s.user_id
+        JOIN packages p ON p.id = s.package_id
+        WHERE u.telegram_id = $1
+          AND s.status = 'ACTIVE'
+          AND s.end_date > NOW()
+          AND s.start_date >= $2
+          AND s.start_date < $3
+          AND p.tier = 'TIER_1299'
+        LIMIT 1
+        """,
+        user_telegram_id,
+        PROMO_SONGKRAN_START_UTC,
+        PROMO_SONGKRAN_END_UTC,
+    )
+    if has_existing:
+        return True
+
+    if package_id is None:
+        return False
+
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    if not (PROMO_SONGKRAN_START_UTC <= now_utc < PROMO_SONGKRAN_END_UTC):
+        return False
+
+    pkg = await pool.fetchrow("SELECT tier FROM packages WHERE id = $1", package_id)
+    return bool(pkg and pkg["tier"] == "TIER_1299")
 
 async def _log(admin_id, action, entity_type, entity_id, details, ip):
     await pool.execute(
@@ -151,7 +202,7 @@ async def _telegram_api(token: str, method: str, payload: dict) -> dict:
         return data
 
 
-async def _generate_invite_links(package_id: int) -> dict[str, str]:
+async def _generate_invite_links(package_id: int, user_telegram_id: int | None = None) -> dict[str, str]:
     """Create one-time invite links for all groups the package grants access to.
     
     Uses Guardian Bot via Telegram API (createChatInviteLink).
@@ -173,12 +224,20 @@ async def _generate_invite_links(package_id: int) -> dict[str, str]:
     else:
         group_slugs = [g.strip().strip('"') for g in raw.split(",") if g.strip()]
 
+    if user_telegram_id and await should_include_songkran_bonus_group(user_telegram_id, package_id):
+        if PROMO_SONGKRAN_SLUG not in group_slugs:
+            group_slugs.append(PROMO_SONGKRAN_SLUG)
+
     invite_links = {}
     for slug in group_slugs:
-        # Get chat_id from group_registry
-        grp = await pool.fetchrow(
-            "SELECT chat_id, title FROM group_registry WHERE slug = $1", slug
-        )
+        if slug == PROMO_SONGKRAN_SLUG:
+            special = get_songkran_special_group()
+            grp = {"chat_id": special.chat_id, "title": special.title}
+        else:
+            # Get chat_id from group_registry
+            grp = await pool.fetchrow(
+                "SELECT chat_id, title FROM group_registry WHERE slug = $1", slug
+            )
         if not grp or not grp["chat_id"]:
             logger.warning("Group %s not found in registry, skipping invite link", slug)
             continue
@@ -250,12 +309,12 @@ async def approve_payment(payment_id: int, request: Request, admin=Depends(get_c
     links_list = []
     try:
         if GUARDIAN_BOT_TOKEN and pkg:
-            invite_links = await _generate_invite_links(pay["package_id"])
+            invite_links = await _generate_invite_links(pay["package_id"], pay["customer_telegram_id"])
             for slug, link in invite_links.items():
                 grp = await pool.fetchrow(
                     "SELECT title FROM group_registry WHERE slug = $1", slug
-                )
-                title = grp["title"] if grp else slug
+                ) if slug != PROMO_SONGKRAN_SLUG else None
+                title = grp["title"] if grp else get_group_display_title(slug)
                 links_list.append({"text": f"🚀 {title}", "url": link})
     except Exception as exc:
         logger.error("Failed to generate invite links: %s", exc)

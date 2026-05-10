@@ -4,16 +4,17 @@ from ..auth.dependencies import get_current_admin, require_role
 from ..database import pool
 from ..config import GUARDIAN_BOT_TOKEN, SALES_BOT_TOKEN
 import json, logging, httpx
+from datetime import date, datetime, timedelta
 
 async def log_admin_action(admin_id, action, target_type="", target_id=0, details=""):
-    """Log admin action to activity_log table."""
+    """Log admin action to dashboard_activity_log table."""
     try:
         await pool.execute(
-            "INSERT INTO activity_log (admin_id, action, target_type, target_id, details) VALUES ($1, $2, $3, $4, $5)",
-            admin_id, action, target_type, str(target_id), details,
+            "INSERT INTO dashboard_activity_log (admin_id, action, entity_type, entity_id, details) VALUES ($1, $2, $3, $4, $5::jsonb)",
+            admin_id, action, target_type, str(target_id), json.dumps({"details": details}, ensure_ascii=False),
         )
     except Exception:
-        pass
+        logger.exception("Failed to write dashboard activity log")
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,152 @@ async def revenue_chart(days: int = 30, admin=Depends(get_current_admin)):
         GROUP BY p.created_at::date ORDER BY date
     """, days)
     return [{"date": str(r["date"]), "revenue": float(r["revenue"])} for r in rows]
+
+@router.get("/sales-analytics")
+async def sales_analytics(
+    period: str = "month",
+    date_from: str = "",
+    date_to: str = "",
+    admin=Depends(get_current_admin),
+):
+    """Revenue + buyer analytics for historical day/month/custom ranges.
+
+    All grouping uses Asia/Bangkok business date so dashboard numbers match the team day.
+    """
+    today = await pool.fetchval("SELECT (NOW() AT TIME ZONE 'Asia/Bangkok')::date")
+    if period not in {"day", "month", "custom"}:
+        period = "month"
+
+    try:
+        if period == "day":
+            start = datetime.strptime(date_from, "%Y-%m-%d").date() if date_from else today
+            end = start
+        elif period == "month":
+            if date_from:
+                first = datetime.strptime(date_from[:7] + "-01", "%Y-%m-%d").date()
+            else:
+                first = today.replace(day=1)
+            next_month = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+            start = first
+            end = next_month - timedelta(days=1)
+        else:
+            start = datetime.strptime(date_from, "%Y-%m-%d").date() if date_from else today.replace(day=1)
+            end = datetime.strptime(date_to, "%Y-%m-%d").date() if date_to else today
+    except ValueError:
+        raise HTTPException(status_code=400, detail="รูปแบบวันที่ไม่ถูกต้อง")
+
+    if end < start:
+        start, end = end, start
+    if (end - start).days > 366:
+        raise HTTPException(status_code=400, detail="เลือกช่วงย้อนหลังได้สูงสุด 366 วันต่อครั้ง")
+
+    if period == "month":
+        prev_end = start - timedelta(days=1)
+        prev_start = prev_end.replace(day=1)
+    else:
+        span = (end - start).days + 1
+        prev_end = start - timedelta(days=1)
+        prev_start = prev_end - timedelta(days=span - 1)
+
+    async def range_summary(a: date, b: date):
+        return await pool.fetchrow("""
+            WITH confirmed AS (
+                SELECT p.user_id, p.amount, (p.created_at AT TIME ZONE 'Asia/Bangkok')::date AS paid_date
+                FROM payments p
+                WHERE p.status = 'CONFIRMED'
+                  AND (p.created_at AT TIME ZONE 'Asia/Bangkok')::date BETWEEN $1 AND $2
+            ), first_paid AS (
+                SELECT p.user_id, MIN((p.created_at AT TIME ZONE 'Asia/Bangkok')::date) AS first_paid_date
+                FROM payments p
+                WHERE p.status = 'CONFIRMED'
+                GROUP BY p.user_id
+            )
+            SELECT
+                COALESCE(SUM(c.amount), 0) AS revenue,
+                COUNT(*) AS orders,
+                COUNT(DISTINCT c.user_id) AS buyers,
+                COUNT(DISTINCT c.user_id) FILTER (WHERE fp.first_paid_date BETWEEN $1 AND $2) AS new_buyers,
+                COALESCE(AVG(c.amount), 0) AS avg_order
+            FROM confirmed c
+            LEFT JOIN first_paid fp ON fp.user_id = c.user_id
+        """, a, b)
+
+    current = await range_summary(start, end)
+    previous = await range_summary(prev_start, prev_end)
+
+    chart_rows = await pool.fetch("""
+        WITH days AS (
+            SELECT generate_series($1::date, $2::date, interval '1 day')::date AS day
+        )
+        SELECT d.day,
+               COALESCE(SUM(p.amount), 0) AS revenue,
+               COUNT(p.id) AS orders,
+               COUNT(DISTINCT p.user_id) AS buyers
+        FROM days d
+        LEFT JOIN payments p
+          ON p.status = 'CONFIRMED'
+         AND (p.created_at AT TIME ZONE 'Asia/Bangkok')::date = d.day
+        GROUP BY d.day
+        ORDER BY d.day
+    """, start, end)
+
+    package_rows = await pool.fetch("""
+        SELECT COALESCE(pk.name, 'ไม่ระบุแพ็กเกจ') AS package_name,
+               COALESCE(SUM(p.amount), 0) AS revenue,
+               COUNT(*) AS orders,
+               COUNT(DISTINCT p.user_id) AS buyers
+        FROM payments p
+        LEFT JOIN packages pk ON pk.id = p.package_id
+        WHERE p.status = 'CONFIRMED'
+          AND (p.created_at AT TIME ZONE 'Asia/Bangkok')::date BETWEEN $1 AND $2
+        GROUP BY COALESCE(pk.name, 'ไม่ระบุแพ็กเกจ')
+        ORDER BY revenue DESC
+        LIMIT 8
+    """, start, end)
+
+    month_rows = await pool.fetch("""
+        SELECT date_trunc('month', p.created_at AT TIME ZONE 'Asia/Bangkok')::date AS month,
+               COALESCE(SUM(p.amount), 0) AS revenue,
+               COUNT(*) AS orders,
+               COUNT(DISTINCT p.user_id) AS buyers
+        FROM payments p
+        WHERE p.status = 'CONFIRMED'
+          AND (p.created_at AT TIME ZONE 'Asia/Bangkok')::date >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) - interval '11 months'
+        GROUP BY 1
+        ORDER BY 1
+    """)
+
+    def pct(curr, prev):
+        curr = float(curr or 0)
+        prev = float(prev or 0)
+        if prev == 0:
+            return 0
+        return round(((curr - prev) / prev) * 100, 1)
+
+    return {
+        "period": period,
+        "date_from": str(start),
+        "date_to": str(end),
+        "previous_from": str(prev_start),
+        "previous_to": str(prev_end),
+        "summary": {
+            "revenue": float(current["revenue"] or 0),
+            "orders": int(current["orders"] or 0),
+            "buyers": int(current["buyers"] or 0),
+            "new_buyers": int(current["new_buyers"] or 0),
+            "avg_order": float(current["avg_order"] or 0),
+            "revenue_change": pct(current["revenue"], previous["revenue"]),
+            "buyers_change": pct(current["buyers"], previous["buyers"]),
+        },
+        "previous": {
+            "revenue": float(previous["revenue"] or 0),
+            "orders": int(previous["orders"] or 0),
+            "buyers": int(previous["buyers"] or 0),
+        },
+        "chart": [{"date": str(r["day"]), "revenue": float(r["revenue"]), "orders": int(r["orders"]), "buyers": int(r["buyers"])} for r in chart_rows],
+        "packages": [{"package_name": r["package_name"], "revenue": float(r["revenue"]), "orders": int(r["orders"]), "buyers": int(r["buyers"])} for r in package_rows],
+        "months": [{"month": str(r["month"])[:7], "revenue": float(r["revenue"]), "orders": int(r["orders"]), "buyers": int(r["buyers"])} for r in month_rows],
+    }
 
 @router.get("/members-stats")
 async def members_stats(admin=Depends(get_current_admin)):

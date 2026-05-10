@@ -115,3 +115,35 @@ class PackageUpdate(BaseModel):
 # --- Payment ---
 class PaymentReject(BaseModel):
     reason: str = ""
+
+# --- Promotion Campaign Center ---
+class PromotionCampaignCreate(BaseModel):
+    name: str
+    package_id: int
+    normal_price: float
+    promo_price: float
+    starts_at: str
+    ends_at: str
+    bot_badge: str = ""
+    bot_sales_text: str = ""
+    group_caption: str = ""
+    user_broadcast_caption: str = ""
+    target_groups: List[str] = []
+    delivery_channels: List[str] = ["tracking_only"]
+    image_path: str = ""
+
+class PromotionCampaignUpdate(BaseModel):
+    name: Optional[str] = None
+    package_id: Optional[int] = None
+    normal_price: Optional[float] = None
+    promo_price: Optional[float] = None
+    starts_at: Optional[str] = None
+    ends_at: Optional[str] = None
+    bot_badge: Optional[str] = None
+    bot_sales_text: Optional[str] = None
+    group_caption: Optional[str] = None
+    user_broadcast_caption: Optional[str] = None
+    target_groups: Optional[List[str]] = None
+    delivery_channels: Optional[List[str]] = None
+    image_path: Optional[str] = None
+    is_active: Optional[bool] = None
