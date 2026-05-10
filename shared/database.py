@@ -6,6 +6,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -62,10 +63,26 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
         await session.close()
 
 
+CONTENT_PREVIEWS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS content_previews (
+    id SERIAL PRIMARY KEY,
+    content_id INTEGER NOT NULL REFERENCES content_queue(id),
+    preview_file_id TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+)
+"""
+
+CONTENT_PREVIEWS_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS ix_content_previews_content_id ON content_previews(content_id)
+"""
+
+
 async def init_db() -> None:
-    """Create all tables if they don't exist."""
+    """Create all tables and compatibility tables if they don't exist."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(text(CONTENT_PREVIEWS_TABLE_SQL))
+        await conn.execute(text(CONTENT_PREVIEWS_INDEX_SQL))
 
 
 async def drop_db() -> None:

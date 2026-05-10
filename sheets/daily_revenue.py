@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 TH_TZ = timezone(timedelta(hours=7))
 
 # Admin/test Telegram IDs — exclude from revenue calculations
-EXCLUDED_TELEGRAM_IDS = {8502597269, 8370054523}
+EXCLUDED_TELEGRAM_IDS = {8502597269, 8370054523, 8567926841, 8116134249}
 
 
 class DailyRevenueSheet:

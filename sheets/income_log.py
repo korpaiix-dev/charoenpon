@@ -27,7 +27,7 @@ STATUS_MAP = {
 }
 
 # Admin/test Telegram IDs — never write to sheets
-EXCLUDED_TELEGRAM_IDS = {8502597269, 8370054523}
+EXCLUDED_TELEGRAM_IDS = {8502597269, 8370054523, 8567926841, 8116134249}
 
 
 class IncomeLogSheet:
