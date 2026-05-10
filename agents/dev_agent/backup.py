@@ -60,10 +60,13 @@ async def run_pg_dump(output_path: Path) -> bool:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # ใช้ pg_dump ตรงผ่าน PGHOST (postgres container name on docker network)
+    # Plain SQL + gzip is easier to inspect and restore across minor client/server version mismatches.
+    # Filter transaction_timeout because newer pg_dump clients emit it, while PostgreSQL 15 does not support it.
     cmd = (
         f"PGPASSWORD={DB_PASSWORD} pg_dump -h {DB_HOST} -p {DB_PORT} "
         f"-U {DB_USER} -d {DB_NAME} "
-        f"--format=custom --compress=6 -f {output_path}"
+        f"--format=plain --no-owner --no-privileges "
+        f"| sed '/^SET transaction_timeout/d' | gzip -6 > {output_path}"
     )
 
     logger.info("Running pg_dump via network: host=%s port=%s", DB_HOST, DB_PORT)
@@ -198,22 +201,12 @@ async def test_restore() -> dict[str, Any]:
     if not latest_backup:
         return {"success": False, "error": "No local backup found for restore test"}
 
-    container = "charoenpon-postgres"
-    pg_env = f"-e PGPASSWORD={DB_PASSWORD}"
+    pg_prefix = f"PGPASSWORD={DB_PASSWORD}"
+    conn = f"-h {DB_HOST} -p {DB_PORT} -U {DB_USER}"
 
-    # Copy backup file into container for restore
-    copy_cmd = f"docker cp {latest_backup} {container}:/tmp/restore_test.dump"
-    proc = await asyncio.create_subprocess_shell(
-        copy_cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    await proc.communicate()
-    if proc.returncode != 0:
-        return {"success": False, "error": "Failed to copy backup into container"}
-
-    # Drop test DB if exists
-    drop_cmd = f"docker exec {pg_env} {container} dropdb -U {DB_USER} --if-exists {TEST_RESTORE_DB}"
+    # Drop/create/restore via PostgreSQL network tools inside the backup container.
+    # Do not depend on docker CLI inside the container.
+    drop_cmd = f"{pg_prefix} dropdb {conn} --if-exists {TEST_RESTORE_DB}"
     proc = await asyncio.create_subprocess_shell(
         drop_cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -221,8 +214,7 @@ async def test_restore() -> dict[str, Any]:
     )
     await proc.communicate()
 
-    # Create test DB
-    create_cmd = f"docker exec {pg_env} {container} createdb -U {DB_USER} {TEST_RESTORE_DB}"
+    create_cmd = f"{pg_prefix} createdb {conn} {TEST_RESTORE_DB}"
     proc = await asyncio.create_subprocess_shell(
         create_cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -232,11 +224,10 @@ async def test_restore() -> dict[str, Any]:
     if proc.returncode != 0:
         return {"success": False, "error": f"Failed to create test DB: {stderr.decode()}"}
 
-    # Restore
     restore_cmd = (
-        f"docker exec {pg_env} {container} "
-        f"pg_restore -U {DB_USER} -d {TEST_RESTORE_DB} "
-        f"--no-owner --no-privileges /tmp/restore_test.dump"
+        f"gzip -dc {latest_backup} "
+        f"| sed '/^SET transaction_timeout/d' "
+        f"| {pg_prefix} psql {conn} -d {TEST_RESTORE_DB} -v ON_ERROR_STOP=1 >/tmp/restore_test_psql.out"
     )
     proc = await asyncio.create_subprocess_shell(
         restore_cmd,
@@ -247,18 +238,9 @@ async def test_restore() -> dict[str, Any]:
 
     restore_success = proc.returncode == 0
 
-    # Cleanup: drop test DB and temp file
-    drop_cmd = f"docker exec {pg_env} {container} dropdb -U {DB_USER} --if-exists {TEST_RESTORE_DB}"
+    drop_cmd = f"{pg_prefix} dropdb {conn} --if-exists {TEST_RESTORE_DB}"
     proc = await asyncio.create_subprocess_shell(
         drop_cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    await proc.communicate()
-
-    cleanup_cmd = f"docker exec {container} rm -f /tmp/restore_test.dump"
-    proc = await asyncio.create_subprocess_shell(
-        cleanup_cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
