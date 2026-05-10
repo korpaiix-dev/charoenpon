@@ -1,0 +1,30 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-charoenpon
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            set -e
+            cd /root/charoenpon
+            git fetch origin
+            git reset --hard origin/master
+            # NOTE: bot processes (sales/admin/content/guardian/discord) are not auto-restarted.
+            # Add explicit restart commands here if you wire them to systemd later.
+            echo 'Charoenpon deploy: code synced. Manual bot restart may be needed.'
