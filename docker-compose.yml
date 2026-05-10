@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   postgres:
     image: postgres:15
@@ -79,18 +77,6 @@ services:
 
   # content-scheduler: REMOVED — replaced by content-bot (มิน @jarernAD4_bot)
 
-  marketing-scheduler:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: charoenpon-marketing-scheduler
-    restart: always
-    depends_on:
-      postgres:
-        condition: service_healthy
-    env_file: .env
-    command: python -m agents.marketing_agent
-
   finance-scheduler:
     build:
       context: .
@@ -102,18 +88,6 @@ services:
         condition: service_healthy
     env_file: .env
     command: python -m agents.finance_agent
-
-  growth-scheduler:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: charoenpon-growth-scheduler
-    restart: always
-    depends_on:
-      postgres:
-        condition: service_healthy
-    env_file: .env
-    command: python -m agents.growth_agent
 
   monitor:
     build:
@@ -161,20 +135,6 @@ services:
     env_file: .env
     command: python -m bots.content_bot
 
-  announce-bot:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: charoenpon-announce-bot
-    restart: always
-    depends_on:
-      postgres:
-        condition: service_healthy
-    env_file: .env
-    environment:
-      BOT_MODULE: bots.announce_bot
-    command: python -m bots.announce_bot
-
   manager-agent:
     build:
       context: .
@@ -205,14 +165,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  fb-manager:
-    container_name: charoenpon-fb-manager
-    build:
-      context: ./fb-manager
-      dockerfile: Dockerfile
-    volumes:
-      - ./fb-manager/data:/app/data
-    restart: unless-stopped
+  # fb-manager removed 2026-05-01: Facebook auto-post no longer used
 
 volumes:
   postgres_data:
