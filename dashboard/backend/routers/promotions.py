@@ -1,13 +1,69 @@
 """Promotions router — Flash Sales, Promo Codes, Scheduled Promotions."""
-from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi import APIRouter, Depends, Request, HTTPException, UploadFile, File
 from ..auth.dependencies import require_role
 from ..database import pool
 from ..models.schemas import (FlashSaleCreate, FlashSaleUpdate, PromoCodeCreate, PromoCodeUpdate,
-                               ScheduledPromotionCreate, ScheduledPromotionUpdate)
+                               ScheduledPromotionCreate, ScheduledPromotionUpdate, PromotionCampaignCreate, PromotionCampaignUpdate)
 import json
+import os
+import uuid
+from pathlib import Path
 from datetime import datetime
 
 router = APIRouter(tags=["promotions"])
+
+PROMO_CAMPAIGN_SQL = """
+CREATE TABLE IF NOT EXISTS promotion_campaigns (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    package_id INTEGER NOT NULL REFERENCES packages(id),
+    normal_price NUMERIC(10,2) NOT NULL,
+    promo_price NUMERIC(10,2) NOT NULL,
+    starts_at TIMESTAMP NOT NULL,
+    ends_at TIMESTAMP NOT NULL,
+    bot_badge TEXT NOT NULL DEFAULT '',
+    bot_sales_text TEXT NOT NULL DEFAULT '',
+    group_caption TEXT NOT NULL DEFAULT '',
+    user_broadcast_caption TEXT NOT NULL DEFAULT '',
+    target_groups JSONB NOT NULL DEFAULT '[]'::jsonb,
+    delivery_channels JSONB NOT NULL DEFAULT '["tracking_only"]'::jsonb,
+    image_path TEXT NOT NULL DEFAULT '',
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_by INTEGER REFERENCES dashboard_admins(id),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_promotion_campaigns_active_window ON promotion_campaigns(is_active, starts_at, ends_at);
+ALTER TABLE promotion_campaigns ADD COLUMN IF NOT EXISTS delivery_channels JSONB NOT NULL DEFAULT '["tracking_only"]'::jsonb;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS promotion_campaign_id INTEGER REFERENCES promotion_campaigns(id);
+CREATE INDEX IF NOT EXISTS ix_payments_promotion_campaign_id ON payments(promotion_campaign_id);
+
+CREATE OR REPLACE FUNCTION attach_active_promotion_campaign()
+RETURNS trigger AS $$
+BEGIN
+    IF NEW.promotion_campaign_id IS NULL AND NEW.status = 'CONFIRMED' THEN
+        SELECT pc.id INTO NEW.promotion_campaign_id
+        FROM promotion_campaigns pc
+        WHERE pc.is_active = TRUE
+          AND pc.package_id = NEW.package_id
+          AND NEW.created_at BETWEEN pc.starts_at AND pc.ends_at
+          AND NEW.amount = pc.promo_price
+        ORDER BY pc.starts_at DESC, pc.id DESC
+        LIMIT 1;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_attach_active_promotion_campaign ON payments;
+CREATE TRIGGER trg_attach_active_promotion_campaign
+BEFORE INSERT OR UPDATE OF status, amount, package_id, created_at, promotion_campaign_id ON payments
+FOR EACH ROW EXECUTE FUNCTION attach_active_promotion_campaign();
+"""
+
+async def ensure_promo_campaign_tables():
+    await pool.execute(PROMO_CAMPAIGN_SQL)
+
 
 
 def _to_dt(val):
@@ -24,6 +80,109 @@ async def _log(admin_id, action, entity_type, entity_id, details, ip):
         "INSERT INTO dashboard_activity_log (admin_id, action, entity_type, entity_id, details, ip_address) VALUES ($1,$2,$3,$4,$5::jsonb,$6)",
         admin_id, action, entity_type, entity_id, json.dumps(details) if details else None, ip
     )
+
+@router.post("/api/promotion-campaigns/upload-image")
+async def upload_promotion_image(file: UploadFile = File(...), admin=Depends(require_role("admin"))):
+    """Upload promotion image and return public URL for campaign use."""
+    allowed = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+    ext = allowed.get(file.content_type or "")
+    if not ext:
+        raise HTTPException(status_code=400, detail="รองรับเฉพาะ JPG, PNG, WEBP")
+
+    data = await file.read()
+    if len(data) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="ไฟล์ใหญ่เกิน 8MB")
+
+    base_dir = Path(__file__).resolve().parents[2] / "frontend" / "assets" / "promotions"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = f"promo-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8]}{ext}"
+    dest = base_dir / safe_name
+    dest.write_bytes(data)
+    return {"ok": True, "url": f"/assets/promotions/{safe_name}", "path": str(dest)}
+
+# ========== PROMOTION CAMPAIGN CENTER ==========
+@router.get("/api/promotion-campaigns")
+async def list_promotion_campaigns(admin=Depends(require_role("admin"))):
+    await ensure_promo_campaign_tables()
+    rows = await pool.fetch("""
+        SELECT pc.*, p.name AS package_name,
+               COUNT(pay.id) FILTER (WHERE pay.status='CONFIRMED') AS orders,
+               COUNT(DISTINCT pay.user_id) FILTER (WHERE pay.status='CONFIRMED') AS buyers,
+               COALESCE(SUM(pay.amount) FILTER (WHERE pay.status='CONFIRMED'), 0) AS revenue
+        FROM promotion_campaigns pc
+        LEFT JOIN packages p ON p.id = pc.package_id
+        LEFT JOIN payments pay ON pay.promotion_campaign_id = pc.id
+        GROUP BY pc.id, p.name
+        ORDER BY pc.created_at DESC
+    """)
+    return [
+        {
+            **dict(r),
+            "normal_price": float(r["normal_price"]),
+            "promo_price": float(r["promo_price"]),
+            "orders": int(r["orders"] or 0),
+            "buyers": int(r["buyers"] or 0),
+            "revenue": float(r["revenue"] or 0),
+        }
+        for r in rows
+    ]
+
+@router.post("/api/promotion-campaigns")
+async def create_promotion_campaign(req: PromotionCampaignCreate, request: Request, admin=Depends(require_role("admin"))):
+    await ensure_promo_campaign_tables()
+    admin_id = int(admin["id"])
+    row = await pool.fetchrow("""
+        INSERT INTO promotion_campaigns
+        (name, package_id, normal_price, promo_price, starts_at, ends_at, bot_badge, bot_sales_text,
+         group_caption, user_broadcast_caption, target_groups, delivery_channels, image_path, created_by)
+        VALUES ($1,$2,$3,$4,$5::timestamp,$6::timestamp,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13,$14)
+        RETURNING id
+    """, req.name, req.package_id, req.normal_price, req.promo_price, _to_dt(req.starts_at), _to_dt(req.ends_at),
+        req.bot_badge, req.bot_sales_text, req.group_caption, req.user_broadcast_caption,
+        json.dumps(req.target_groups), json.dumps(req.delivery_channels), req.image_path, admin_id)
+    ip = request.client.host if request.client else None
+    await _log(admin_id, "create_promotion_campaign", "promotion_campaign", row["id"], {"name": req.name}, ip)
+    return {"ok": True, "id": row["id"]}
+
+@router.put("/api/promotion-campaigns/{campaign_id}")
+async def update_promotion_campaign(campaign_id: int, req: PromotionCampaignUpdate, request: Request, admin=Depends(require_role("admin"))):
+    await ensure_promo_campaign_tables()
+    updates, params, idx = [], [], 1
+    for field, val in req.dict(exclude_none=True).items():
+        if field in ("starts_at", "ends_at"):
+            updates.append(f"{field} = ${idx}::timestamp")
+            params.append(_to_dt(val))
+        elif field in ("target_groups", "delivery_channels"):
+            updates.append(f"{field} = ${idx}::jsonb")
+            params.append(json.dumps(val))
+        else:
+            updates.append(f"{field} = ${idx}")
+            params.append(val)
+        idx += 1
+    if not updates:
+        raise HTTPException(400, "No fields to update")
+    updates.append("updated_at = NOW()")
+    params.append(campaign_id)
+    await pool.execute(f"UPDATE promotion_campaigns SET {', '.join(updates)} WHERE id = ${idx}", *params)
+    ip = request.client.host if request.client else None
+    await _log(int(admin["id"]), "update_promotion_campaign", "promotion_campaign", campaign_id, req.dict(exclude_none=True), ip)
+    return {"ok": True}
+
+@router.post("/api/promotion-campaigns/{campaign_id}/toggle")
+async def toggle_promotion_campaign(campaign_id: int, request: Request, admin=Depends(require_role("admin"))):
+    await ensure_promo_campaign_tables()
+    await pool.execute("UPDATE promotion_campaigns SET is_active = NOT is_active, updated_at = NOW() WHERE id = $1", campaign_id)
+    ip = request.client.host if request.client else None
+    await _log(int(admin["id"]), "toggle_promotion_campaign", "promotion_campaign", campaign_id, None, ip)
+    return {"ok": True}
+
+@router.delete("/api/promotion-campaigns/{campaign_id}")
+async def delete_promotion_campaign(campaign_id: int, request: Request, admin=Depends(require_role("admin"))):
+    await ensure_promo_campaign_tables()
+    await pool.execute("DELETE FROM promotion_campaigns WHERE id = $1", campaign_id)
+    ip = request.client.host if request.client else None
+    await _log(int(admin["id"]), "delete_promotion_campaign", "promotion_campaign", campaign_id, None, ip)
+    return {"ok": True}
 
 # ========== PROMO STATS SUMMARY ==========
 @router.get("/api/promo-stats")
@@ -43,6 +202,75 @@ async def promo_stats(admin=Depends(require_role("admin"))):
         "flash_revenue": float(row["flash_revenue"]),
     }
 
+
+@router.get("/api/promo-performance")
+async def promo_performance(admin=Depends(require_role("admin"))):
+    """Detailed promotion performance from tracked promo tables."""
+    flash_rows = await pool.fetch("""
+        SELECT fs.id, fs.name, fs.package_id, p.name AS package_name,
+               fs.flash_price, fs.original_price, fs.total_slots, fs.sold_slots,
+               (fs.sold_slots * fs.flash_price) AS revenue,
+               (fs.sold_slots * GREATEST(fs.original_price - fs.flash_price, 0)) AS discount_saved,
+               fs.starts_at, fs.ends_at, fs.is_active, fs.created_at
+        FROM flash_sales fs
+        LEFT JOIN packages p ON p.id = fs.package_id
+        ORDER BY fs.starts_at DESC, fs.id DESC
+    """)
+    code_rows = await pool.fetch("""
+        SELECT pc.id, pc.code, pc.discount_pct, pc.max_uses, pc.used_count,
+               pc.package_id, pk.name AS package_name, pc.is_active, pc.expires_at, pc.created_at,
+               COUNT(pcu.id) AS tracked_uses,
+               COUNT(DISTINCT pcu.user_id) AS buyers,
+               COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'CONFIRMED'), 0) AS revenue,
+               COALESCE(SUM(pcu.discount_amount), 0) AS discount_total
+        FROM promo_codes pc
+        LEFT JOIN packages pk ON pk.id = pc.package_id
+        LEFT JOIN promo_code_usage pcu ON pcu.promo_code_id = pc.id
+        LEFT JOIN payments p ON p.id = pcu.payment_id
+        GROUP BY pc.id, pk.name
+        ORDER BY pc.created_at DESC
+    """)
+    scheduled_rows = await pool.fetch("""
+        SELECT id, name, repeat_type, is_active, is_sent, sent_at, scheduled_at, created_at
+        FROM scheduled_promotions
+        ORDER BY scheduled_at DESC, id DESC
+    """)
+
+    flash_total_revenue = sum(float(r["revenue"] or 0) for r in flash_rows)
+    flash_total_sold = sum(int(r["sold_slots"] or 0) for r in flash_rows)
+    code_total_revenue = sum(float(r["revenue"] or 0) for r in code_rows)
+    code_total_buyers = sum(int(r["buyers"] or 0) for r in code_rows)
+
+    return {
+        "summary": {
+            "flash_sold": flash_total_sold,
+            "flash_revenue": flash_total_revenue,
+            "promo_code_buyers": code_total_buyers,
+            "promo_code_revenue": code_total_revenue,
+            "scheduled_sent": sum(1 for r in scheduled_rows if r["is_sent"]),
+        },
+        "flash_sales": [
+            {
+                "id": r["id"], "name": r["name"], "package_name": r["package_name"],
+                "flash_price": float(r["flash_price"]), "original_price": float(r["original_price"]),
+                "sold_slots": int(r["sold_slots"] or 0), "total_slots": int(r["total_slots"] or 0),
+                "revenue": float(r["revenue"] or 0), "discount_saved": float(r["discount_saved"] or 0),
+                "starts_at": str(r["starts_at"]), "ends_at": str(r["ends_at"]), "is_active": r["is_active"],
+            }
+            for r in flash_rows
+        ],
+        "promo_codes": [
+            {
+                "id": r["id"], "code": r["code"], "discount_pct": r["discount_pct"],
+                "package_name": r["package_name"], "used_count": int(r["used_count"] or 0),
+                "tracked_uses": int(r["tracked_uses"] or 0), "buyers": int(r["buyers"] or 0),
+                "revenue": float(r["revenue"] or 0), "discount_total": float(r["discount_total"] or 0),
+                "max_uses": int(r["max_uses"] or 0), "is_active": r["is_active"], "expires_at": str(r["expires_at"]),
+            }
+            for r in code_rows
+        ],
+        "scheduled_promotions": [dict(r) for r in scheduled_rows],
+    }
 
 # ========== FLASH SALES ==========
 @router.get("/api/flash-sales")

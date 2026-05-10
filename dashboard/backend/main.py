@@ -11,7 +11,7 @@ from .auth.router import router as auth_router
 from .routers.dashboard import router as dashboard_router
 from .routers.customers import router as customers_router
 from .routers.payments import router as payments_router
-from .routers.promotions import router as promotions_router
+from .routers.promotions import router as promotions_router, ensure_promo_campaign_tables
 from .routers.content import router as content_router
 from .routers.groups import router as groups_router
 from .routers.team import router as team_router
@@ -21,6 +21,7 @@ from .routers.marketing import router as marketing_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await ensure_promo_campaign_tables()
     yield
     await close_db()
 
