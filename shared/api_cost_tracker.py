@@ -17,6 +17,11 @@ from shared.models import ApiCostLog
 
 logger = logging.getLogger(__name__)
 
+MODEL_ALIASES: dict[str, str] = {
+    "anthropic/claude-haiku-3-5": "google/gemini-2.5-flash",
+    "anthropic/claude-sonnet-4-20250514": "google/gemini-2.5-flash",
+}
+
 # --- Price per 1M tokens (input, output) in USD ---
 PRICES: dict[str, dict[str, float]] = {
     # Legacy short keys (backward compatibility)
@@ -82,10 +87,16 @@ async def get_usd_rate() -> float:
     return float(_rate_cache["rate"])
 
 
+def normalize_model(model: str) -> str:
+    """Map deprecated/invalid model IDs to supported ones."""
+    return MODEL_ALIASES.get(model, model)
+
+
 def calculate_cost(
     model: str, prompt_tokens: int, completion_tokens: int
 ) -> float:
     """Calculate USD cost from token counts."""
+    model = normalize_model(model)
     prices = PRICES.get(model)
     if not prices:
         logger.warning("Unknown model %s, using gemini-2.0-flash-lite prices", model)
@@ -217,6 +228,8 @@ async def call_openrouter(
 
     Returns the full OpenRouter response dict. Raises httpx.HTTPStatusError on failure.
     """
+    model = normalize_model(model)
+
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
@@ -232,6 +245,14 @@ async def call_openrouter(
 
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(OPENROUTER_API_URL, headers=headers, json=payload)
+        if resp.status_code >= 400:
+            logger.error(
+                "OpenRouter error caller=%s model=%s status=%s body=%s",
+                caller,
+                model,
+                resp.status_code,
+                resp.text[:1000],
+            )
         resp.raise_for_status()
         data = resp.json()
 

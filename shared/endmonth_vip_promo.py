@@ -1,0 +1,99 @@
+"""End-month VIP G300 promotion helpers.
+
+Promotion requested by boss (2026-04-28):
+- VIP เจริญพร 18+ / G300 normally 300 THB
+- Promo price 200 THB
+- Visible through 30 April 2026; expires automatically at 2026-05-01 00:00 Asia/Bangkok
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+
+TH_TZ = timezone(timedelta(hours=7))
+PROMO_TIER = "300"
+PROMO_NORMAL_PRICE = Decimal("300")
+PROMO_PRICE = Decimal("200")
+PROMO_2499_TIER = "2499"
+PROMO_2499_NORMAL_PRICE = Decimal("2499")
+PROMO_2499_PRICE = Decimal("2000")
+PROMO_END_TH = datetime(2026, 5, 1, 0, 0, 0, tzinfo=TH_TZ)
+PROMO_TITLE = "VIP เจริญพร 18+"
+PROMO_2499_TITLE = "GOD MODE ถาวร"
+PROMO_DATE_TEXT = "ถึงวันที่ 30 เมษายนนี้เท่านั้น"
+SALES_BOT_DEEPLINK = "tg://resolve?domain=NamwarnJarern_bot&start=packages"
+import os
+PROMO_IMAGE_PATH = os.environ.get("ENDMONTH_PROMO_IMAGE_PATH", "/app/assets/vip-charoenpon-18plus-apr30.jpg")
+PROMO_2499_IMAGE_PATH = os.environ.get("ENDMONTH_2499_PROMO_IMAGE_PATH", "/app/assets/godmode-2499-to-2000-apr30.jpg")
+
+
+def now_th() -> datetime:
+    return datetime.now(TH_TZ)
+
+
+def is_endmonth_vip_promo_active(at: datetime | None = None) -> bool:
+    """Return True while the G300 end-month promo should be shown/used."""
+    current = at or now_th()
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=TH_TZ)
+    return current.astimezone(TH_TZ) < PROMO_END_TH
+
+
+def get_effective_price_for_tier(tier: str, base_price: Decimal) -> Decimal:
+    """Apply active end-month promos."""
+    if tier == PROMO_TIER and is_endmonth_vip_promo_active():
+        return PROMO_PRICE
+    if tier == PROMO_2499_TIER and is_endmonth_vip_promo_active():
+        return PROMO_2499_PRICE
+    return base_price
+
+
+def get_promo_badge_for_tier(tier: str) -> str:
+    if tier == PROMO_TIER and is_endmonth_vip_promo_active():
+        return f"🔥 โปร 300 เหลือ 200 บาท — {PROMO_DATE_TEXT}"
+    if tier == PROMO_2499_TIER and is_endmonth_vip_promo_active():
+        return f"🔥 โปร 2,499 เหลือ 2,000 บาท — {PROMO_DATE_TEXT}"
+    return ""
+
+
+def get_group_promo_caption(group_index: int | None = None) -> str:
+    """Caption for posting promo image into public/free groups.
+
+    Uses embedded HTML link per boss request: สมัครสมาชิกกดที่นี่.
+    """
+    start = "packages" if group_index is None else f"apr30_g{group_index}"
+    link = f"tg://resolve?domain=NamwarnJarern_bot&start={start}"
+    return (
+        "🔥 <b>VIP เจริญพร 18+</b>\n\n"
+        "โปรสิ้นเดือน กลุ่ม 300\n"
+        "จาก <s>300 บาท</s> เหลือ <b>200 บาท</b>\n"
+        f"⏰ {PROMO_DATE_TEXT}\n\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f'👉 <a href="{link}">สมัครสมาชิกกดที่นี่</a>\n'
+        "━━━━━━━━━━━━━━━━━━"
+    )
+
+
+def get_user_broadcast_caption() -> str:
+    return (
+        "🔥 <b>โปรสิ้นเดือน VIP เจริญพร 18+</b>\n\n"
+        "กลุ่ม 300 ลดเหลือ <b>200 บาท</b>\n"
+        f"⏰ {PROMO_DATE_TEXT}\n\n"
+        "กดปุ่มด้านล่างเพื่อเลือกแพ็กเกจได้เลยค่ะ"
+    )
+
+
+def get_group_2499_promo_caption(group_index: int | None = None) -> str:
+    """Caption for GOD MODE 2499 -> 2000 group promotion via Content Bot."""
+    start = "packages" if group_index is None else f"apr30_god_g{group_index}"
+    link = f"tg://resolve?domain=NamwarnJarern_bot&start={start}"
+    return (
+        "💎 <b>โปรสิ้นเดือน GOD MODE ถาวร</b>\n\n"
+        "แพ็ก 2,499 ลดเหลือ <b>2,000 บาท</b>\n"
+        "เข้าครบทุกห้อง + Lifetime ไม่ต้องต่ออายุ\n"
+        f"⏰ {PROMO_DATE_TEXT} เวลา 23:59\n\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f'👉 <a href="{link}">สมัครสมาชิกกดที่นี่</a>\n'
+        "━━━━━━━━━━━━━━━━━━"
+    )
