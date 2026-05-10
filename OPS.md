@@ -37,14 +37,34 @@ charoenpon/
 
 ## Running services on VPS
 
-| Service | Type | Restart command |
-|---------|------|-----------------|
-| sales_bot, admin_bot, content_bot, guardian_bot | python -m bots.X | manual kill + respawn (no systemd yet) |
-| discord_bot | python -m discord_bot.main | manual |
-| dashboard | uvicorn (port 8000) | manual |
+Charoenpon stack runs in **docker compose** (`/root/charoenpon/docker-compose.yml`):
+
+| Service | Container | Command |
+|---------|-----------|---------|
+| postgres | charoenpon-postgres | postgres:15 |
+| sales-bot | charoenpon-sales-bot | python -m bots.sales_bot |
+| admin-bot | charoenpon-admin-bot | python -m bots.admin_bot |
+| content-bot | charoenpon-content-bot | python -m bots.content_bot |
+| guardian-bot | charoenpon-guardian-bot | python -m bots.guardian_bot |
+| discord-bot | charoenpon-discord-bot | python -m discord_bot.main |
+| finance-scheduler | charoenpon-finance-scheduler | python -m agents.finance_agent |
+| monitor | charoenpon-monitor | python -m agents.dev_agent monitor |
+| backup-cron | charoenpon-backup-cron | python -m agents.dev_agent backup |
+| manager-agent | charoenpon-manager-agent | python -m agents.manager_agent |
+| dashboard | charoenpon-dashboard | uvicorn (port 8010) |
+
+Restart commands:
+- All: `cd /root/charoenpon && docker compose up -d`
+- Rebuild + restart: `cd /root/charoenpon && docker compose up -d --build`
+- One service: `docker compose restart <service>` (e.g. `sales-bot`)
+- Logs: `docker compose logs -f <service>`
+
+Non-docker:
+| Service | Type | Restart |
+|---------|------|---------|
 | jarern4-poster | systemd timer | `systemctl restart jarern4-poster.timer` |
-| Redis | systemd | `systemctl restart redis-server` |
-| Docker | systemd | `systemctl restart docker` |
+| Redis (host) | systemd | `systemctl restart redis-server` |
+| Docker daemon | systemd | `systemctl restart docker` |
 
 ## Schedules
 
