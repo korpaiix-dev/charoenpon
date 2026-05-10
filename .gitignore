@@ -6,3 +6,11 @@ __pycache__/
 venv/
 node_modules/
 *.log
+
+# === Added 2026-05-10: cleanup ===
+*.bak.*
+crontab.bak.*
+docker-compose.yml.bak.*
+.codex
+broadcast_new_users_*.jsonl
+backups/
