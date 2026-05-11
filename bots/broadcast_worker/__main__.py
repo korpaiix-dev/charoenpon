@@ -95,7 +95,7 @@ async def pick_next_job(pool: asyncpg.Pool) -> dict | None:
             row = await conn.fetchrow(
                 """
                 SELECT id, message_text, target_user_ids, last_processed_idx,
-                       success_count, fail_count, status, parse_mode
+                       success_count, failed_count, status
                 FROM broadcasts
                 WHERE status = 'PENDING'
                    OR (status = 'IN_PROGRESS' AND
@@ -134,7 +134,7 @@ async def checkpoint(
             UPDATE broadcasts
             SET last_processed_idx=$2,
                 success_count=$3,
-                fail_count=$4,
+                failed_count=$4,
                 last_heartbeat_at=NOW()
             WHERE id=$1
             """,
@@ -163,7 +163,7 @@ async def finish_job(
             UPDATE broadcasts
             SET status=$2,
                 success_count=$3,
-                fail_count=$4,
+                failed_count=$4,
                 completed_at=NOW(),
                 last_heartbeat_at=NOW()
             WHERE id=$1
@@ -204,7 +204,7 @@ async def send_one(bot: Bot, user_id: int, text: str, parse_mode: str | None) ->
 async def run_job(pool: asyncpg.Pool, bot: Bot, job: dict) -> None:
     bid = job["id"]
     text = job["message_text"]
-    parse_mode = job.get("parse_mode")
+    parse_mode = job.get("parse_mode") or "HTML"
     raw_targets = job["target_user_ids"]
     if isinstance(raw_targets, str):
         targets = json.loads(raw_targets)
@@ -213,7 +213,7 @@ async def run_job(pool: asyncpg.Pool, bot: Bot, job: dict) -> None:
 
     start_idx = job.get("last_processed_idx") or 0
     ok = job.get("success_count") or 0
-    fail = job.get("fail_count") or 0
+    fail = job.get("failed_count") or 0
     total = len(targets)
 
     log.info(
