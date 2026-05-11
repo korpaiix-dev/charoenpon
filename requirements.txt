@@ -11,3 +11,4 @@ Pillow
 psutil
 boto3
 tweepy
+redis==5.0.1
