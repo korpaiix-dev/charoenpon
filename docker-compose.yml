@@ -167,6 +167,23 @@ services:
 
   # fb-manager removed 2026-05-01: Facebook auto-post no longer used
 
+  broadcast-worker:
+    container_name: charoenpon-broadcast-worker
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python -m bots.broadcast_worker
+    restart: always
+    depends_on:
+      - postgres
+      - redis
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+
 volumes:
   postgres_data:
     driver: local
