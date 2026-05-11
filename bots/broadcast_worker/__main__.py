@@ -89,7 +89,7 @@ async def pick_next_job(pool: asyncpg.Pool) -> dict | None:
     Uses SELECT ... FOR UPDATE SKIP LOCKED inside a transaction so two
     workers can't pick the same row.
     """
-    stale_cutoff = datetime.now(timezone.utc) - timedelta(minutes=HEARTBEAT_STALE_MIN)
+    stale_cutoff = datetime.utcnow() - timedelta(minutes=HEARTBEAT_STALE_MIN)
     async with pool.acquire() as conn:
         async with conn.transaction():
             row = await conn.fetchrow(
