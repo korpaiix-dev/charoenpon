@@ -391,6 +391,15 @@ async def _guardian_timeout_kick(context) -> None:
         await context.bot.unban_chat_member(chat_id=chat_id, user_id=user_id, only_if_banned=True)
         logger.info("Timeout kick: user %s from chat %s", user_id, chat_id)
 
+        # === Fix #2: announce kick in the group (social proof + renewal CTA) ===
+        try:
+            display = f"@{username}" if username else "สมาชิกท่านหนึ่ง"
+            announce_text = f"🌙 {display} หมดอายุสมาชิก VIP และได้ออกจากกลุ่ม\n💎 ต่ออายุได้ตลอดที่ @NamwarnJarern_bot"
+            await context.bot.send_message(chat_id=chat_id, text=announce_text)
+        except Exception as ann_exc:
+            logger.warning("Failed to announce kick in chat %s: %s", chat_id, ann_exc)
+
+
         # Notify user via Sales Bot
         try:
             _sales = Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
