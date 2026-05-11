@@ -182,6 +182,9 @@ services:
       DB_HOST: postgres
       DB_PORT: 5432
       BOT_TOKEN: ${SALES_BOT_TOKEN}
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      DB_NAME: ${POSTGRES_DB:-charoenpon}
 
 volumes:
   postgres_data:
