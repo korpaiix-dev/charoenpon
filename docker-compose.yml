@@ -181,6 +181,7 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
+      BOT_TOKEN: ${SALES_BOT_TOKEN}
 
 volumes:
   postgres_data:
