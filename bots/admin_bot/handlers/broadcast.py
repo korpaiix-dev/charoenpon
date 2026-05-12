@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import logging
+import json
 import os
 import time
 from datetime import datetime, timedelta, timezone
@@ -257,6 +258,7 @@ async def _create_broadcast_record(
     total_count: int,
     sent_by: int,
     sent_by_username: str | None,
+    user_ids: "set[int] | list[int] | None" = None,
 ) -> int:
     """Insert a broadcast record and return its ID."""
     async with get_session() as session:
@@ -264,8 +266,10 @@ async def _create_broadcast_record(
             text("""
                 INSERT INTO broadcasts 
                 (message_text, message_photo_id, target_type, target_value,
-                 total_count, sent_by, sent_by_username)
-                VALUES (:msg, :photo, :tt, :tv, :tc, :sb, :sbu)
+                 total_count, sent_by, sent_by_username,
+                 status, target_user_ids)
+                VALUES (:msg, :photo, :tt, :tv, :tc, :sb, :sbu,
+                        'PENDING', CAST(:tuids AS JSONB))
                 RETURNING id
             """),
             {
@@ -276,6 +280,7 @@ async def _create_broadcast_record(
                 "tc": total_count,
                 "sb": sent_by,
                 "sbu": sent_by_username,
+            "tuids": json.dumps(list(user_ids or [])),
             },
         )
         row = result.first()
@@ -309,61 +314,13 @@ async def _update_broadcast_record(
 # ─── Send Logic ───────────────────────────────────────────────────────────────
 
 async def _send_broadcast(
-    user_ids: set[int],
+    user_ids,
     message_text: str | None,
     photo_id: str | None,
 ) -> tuple[int, int]:
-    """Send broadcast to user IDs via Sales Bot. Returns (success, failed)."""
-    sales_bot = _get_sales_bot()
-    await sales_bot.initialize()
-    success = 0
-    failed = 0
-
-    for uid in user_ids:
-        try:
-            if photo_id:
-                await sales_bot.send_photo(
-                    chat_id=uid,
-                    photo=photo_id,
-                    caption=message_text,
-                    parse_mode="HTML",
-                )
-            else:
-                await sales_bot.send_message(
-                    chat_id=uid,
-                    text=message_text,
-                    parse_mode="HTML",
-                )
-            success += 1
-        except telegram.error.RetryAfter as e:
-            logger.warning("Rate limited, sleeping %s seconds", e.retry_after)
-            await asyncio.sleep(e.retry_after)
-            try:
-                if photo_id:
-                    await sales_bot.send_photo(
-                        chat_id=uid, photo=photo_id,
-                        caption=message_text, parse_mode="HTML",
-                    )
-                else:
-                    await sales_bot.send_message(
-                        chat_id=uid, text=message_text, parse_mode="HTML",
-                    )
-                success += 1
-            except Exception:
-                failed += 1
-        except (telegram.error.Forbidden, telegram.error.BadRequest) as e:
-            logger.debug("Cannot send to %s: %s", uid, e)
-            failed += 1
-        except Exception as e:
-            logger.warning("Failed to send to %s: %s", uid, e)
-            failed += 1
-
-        await asyncio.sleep(SEND_DELAY)
-
-    return success, failed
-
-
-# ─── Discord Notify ───────────────────────────────────────────────────────────
+    """Stub — broadcast-worker container handles sending now (status=PENDING in DB)."""
+    logger.info("_send_broadcast inline call ignored — broadcast-worker queue handles it. users=%d", len(user_ids))
+    return (0, 0)
 
 async def _notify_discord_broadcast(
     target_type: str,
@@ -668,6 +625,7 @@ async def confirm_send_callback(update: Update, context: ContextTypes.DEFAULT_TY
         total_count=len(user_ids),
         sent_by=admin_user.id,
         sent_by_username=admin_username,
+    user_ids=user_ids,
     )
 
     await query.edit_message_text(
@@ -784,6 +742,7 @@ async def receive_message_single(update: Update, context: ContextTypes.DEFAULT_T
         total_count=1,
         sent_by=update.effective_user.id,
         sent_by_username=admin_username,
+    user_ids=user_ids,
     )
 
     start_time = time.time()
