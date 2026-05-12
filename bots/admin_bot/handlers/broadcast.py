@@ -293,25 +293,9 @@ async def _update_broadcast_record(
     failed_count: int,
     duration_seconds: int,
 ) -> None:
-    """Update broadcast record with results."""
-    async with get_session() as session:
-        await session.execute(
-            text("""
-                UPDATE broadcasts
-                SET success_count = :sc, failed_count = :fc,
-                    completed_at = NOW(), duration_seconds = :ds
-                WHERE id = :bid
-            """),
-            {
-                "sc": success_count,
-                "fc": failed_count,
-                "ds": duration_seconds,
-                "bid": broadcast_id,
-            },
-        )
-
-
-# ─── Send Logic ───────────────────────────────────────────────────────────────
+    """Stub — broadcast-worker container handles updates now (status, counts, completed_at)."""
+    logger.info("_update_broadcast_record inline call ignored (id=%s) — worker handles updates", broadcast_id)
+    return
 
 async def _send_broadcast(
     user_ids,
@@ -644,9 +628,9 @@ async def confirm_send_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     # Report result
     result_text = (
-        f"📢 <b>Broadcast #{broadcast_id} เสร็จสิ้น</b>\n\n"
-        f"✅ สำเร็จ: {success} คน\n"
-        f"❌ ล้มเหลว: {failed} คน\n"
+            f"📤 <b>Broadcast #{broadcast_id} เข้าคิวแล้ว</b>\n\n"
+            f"👥 ส่งถึง {len(user_ids) if isinstance(user_ids, (list, set, tuple)) else '?'} คน\n"
+            f"⏳ Worker กำลังประมวลผลในเบื้องหลัง (5-15 นาที)\n"
         f"⏱️ ใช้เวลา: {_format_duration(duration)}\n"
         f"📤 ส่งโดย: @{admin_username}\n\n"
         f"━━━━━━━━━━━━━━━\n"
