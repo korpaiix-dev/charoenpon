@@ -94,7 +94,7 @@ async def pick_next_job(pool: asyncpg.Pool) -> dict | None:
         async with conn.transaction():
             row = await conn.fetchrow(
                 """
-                SELECT id, message_text, target_user_ids, last_processed_idx,
+                SELECT id, message_text, message_photo_id, target_user_ids, last_processed_idx,
                        success_count, failed_count, status
                 FROM broadcasts
                 WHERE status = 'PENDING'
@@ -173,15 +173,23 @@ async def finish_job(
 
 
 # --- Send ---
-async def send_one(bot: Bot, user_id: int, text: str, parse_mode: str | None) -> tuple[bool, str]:
+async def send_one(bot: Bot, user_id: int, text: str, parse_mode: str | None, photo_id: str | None = None) -> tuple[bool, str]:
     """Returns (ok, reason). reason is empty on success or 'blocked'/'badreq'/'flood'/'net'."""
     try:
-        await bot.send_message(
-            chat_id=user_id,
-            text=text,
-            parse_mode=parse_mode or None,
-            disable_web_page_preview=True,
-        )
+        if photo_id:
+            await bot.send_photo(
+                chat_id=user_id,
+                photo=photo_id,
+                caption=text,
+                parse_mode=parse_mode or "HTML",
+            )
+        else:
+            await bot.send_message(
+                chat_id=user_id,
+                text=text,
+                parse_mode=parse_mode or None,
+                disable_web_page_preview=True,
+            )
         return True, ""
     except Forbidden:
         return False, "blocked"
@@ -205,6 +213,7 @@ async def run_job(pool: asyncpg.Pool, bot: Bot, job: dict) -> None:
     bid = job["id"]
     text = job["message_text"]
     parse_mode = job.get("parse_mode") or "HTML"
+    photo_id = job.get("message_photo_id")
     raw_targets = job["target_user_ids"]
     if isinstance(raw_targets, str):
         targets = json.loads(raw_targets)
@@ -228,7 +237,7 @@ async def run_job(pool: asyncpg.Pool, bot: Bot, job: dict) -> None:
             return
 
         uid = int(targets[idx])
-        success, _reason = await send_one(bot, uid, text, parse_mode)
+        success, _reason = await send_one(bot, uid, text, parse_mode, photo_id)
         if success:
             ok += 1
         else:
