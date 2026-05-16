@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <title>Bot &amp; Admin Management — เจริญพร</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, "Segoe UI", "Sukhumvit Set", sans-serif; background:#0f1419; color:#e8e8e8; margin:0; padding:24px; max-width:1200px; margin:0 auto; }
+    h1 { margin-bottom:8px; font-size: 26px; }
+    h2 { margin-top:0; font-size: 18px; }
+    .muted { color:#8a96a3; font-size:14px; }
+    .card { background:#1a2030; border:1px solid #2a3245; border-radius:10px; padding:20px; margin-bottom:20px; }
+    .card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+    table { width:100%; border-collapse:collapse; margin-top:12px; }
+    th, td { padding:10px 8px; text-align:left; border-bottom:1px solid #2a3245; font-size:14px; }
+    th { color:#8a96a3; font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:0.5px; }
+    code { font-family: "JetBrains Mono","SF Mono",Consolas,monospace; background:#0d1118; padding:2px 6px; border-radius:4px; font-size:13px; color:#c0d8ff; }
+    button { cursor:pointer; padding:8px 14px; border-radius:6px; border:none; font-size:13px; font-weight:600; }
+    .btn-primary { background:#4361ee; color:#fff; }
+    .btn-primary:hover { background:#3651de; }
+    .btn-secondary { background:#2a3245; color:#e8e8e8; }
+    .btn-secondary:hover { background:#3a4255; }
+    .btn-danger { background:#e74c3c; color:#fff; }
+    .btn-danger:hover { background:#d04030; }
+    .btn-sm { padding:5px 10px; font-size:12px; margin-left:4px; }
+    input { background:#0d1118; border:1px solid #2a3245; color:#e8e8e8; padding:8px 12px; border-radius:6px; font-size:14px; width:100%; max-width:400px; }
+    input:focus { outline:none; border-color:#4361ee; }
+    .badge { display:inline-block; padding:3px 8px; border-radius:4px; font-size:12px; font-weight:600; }
+    .badge-success { background:rgba(40,180,99,0.2); color:#28b463; }
+    .badge-danger { background:rgba(231,76,60,0.2); color:#e74c3c; }
+    .badge-warn { background:rgba(255,170,0,0.2); color:#fa0; }
+    .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:1000; justify-content:center; align-items:center; }
+    .modal.show { display:flex; }
+    .modal-content { background:#1a2030; border-radius:10px; padding:24px; max-width:600px; width:90%; }
+    .modal-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:16px; }
+    .form-row { display:flex; gap:10px; margin-top:12px; align-items:center; }
+    .admin-list { list-style:none; padding:0; margin:12px 0; }
+    .admin-list li { padding:10px; background:#0d1118; border-radius:6px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; }
+    .login-box { max-width:400px; margin:80px auto; }
+    a { color:#4361ee; }
+    .hidden { display:none; }
+    .nav-back { margin-bottom:16px; }
+    .nav-back a { color:#8a96a3; text-decoration:none; font-size:14px; }
+    .nav-back a:hover { color:#4361ee; }
+  </style>
+</head>
+<body>
+
+<div class="nav-back"><a href="/">← กลับ Dashboard หลัก</a></div>
+
+<!-- ──────── Login ──────── -->
+<div id="login-box" class="login-box hidden">
+  <div class="card">
+    <h2>🔒 Login</h2>
+    <p class="muted">Token หมดอายุหรือยังไม่ได้ login</p>
+    <p><a href="/">→ ไปหน้า Dashboard login</a></p>
+  </div>
+</div>
+
+<!-- ──────── Main ──────── -->
+<div id="main" class="hidden">
+  <h1>⚙️ Bot &amp; Admin Management</h1>
+  <p class="muted">เปลี่ยน bot token เมื่อโดน ban + จัดการรายชื่อ admin (มีผลทันทีหลังกด save)</p>
+
+  <!-- Bots table -->
+  <div class="card">
+    <div class="card-header">
+      <h2>🤖 Bot Tokens</h2>
+      <button class="btn-secondary" onclick="refreshBots()">🔄 Refresh</button>
+    </div>
+    <div id="bots-status" class="muted">Loading…</div>
+    <table id="bots-table" class="hidden">
+      <thead>
+        <tr><th>Key</th><th>Service</th><th>Token</th><th>Live @username</th><th>Actions</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <!-- Admin IDs -->
+  <div class="card">
+    <div class="card-header">
+      <h2>👤 Admin Telegram IDs</h2>
+      <button class="btn-secondary" onclick="refreshAdmins()">🔄 Refresh</button>
+    </div>
+    <div id="admins-status" class="muted">Loading…</div>
+    <div class="form-row">
+      <input id="new-admin-id" type="number" placeholder="เพิ่ม Telegram ID (เช่น 8343620146)" />
+      <button class="btn-primary" onclick="addAdmin()">➕ Add</button>
+    </div>
+    <ul id="admins-list" class="admin-list"></ul>
+  </div>
+</div>
+
+<!-- Edit modal -->
+<div id="edit-modal" class="modal">
+  <div class="modal-content">
+    <h3>เปลี่ยน Bot Token: <code id="edit-key"></code></h3>
+    <p class="muted">หา token ใหม่จาก <a href="https://t.me/BotFather" target="_blank">@BotFather</a> → /mybots → API Token</p>
+    <label>New Token:</label>
+    <input id="edit-token" type="text" placeholder="paste token เต็มที่นี่" style="width:100%; font-family:monospace;" />
+    <div id="edit-status" class="muted" style="min-height:24px; margin-top:8px;"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeEdit()">Cancel</button>
+      <button class="btn-primary" id="save-btn" onclick="saveToken()">💾 Save + Restart</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ──────── Auth ────────
+const token = localStorage.getItem('token') || localStorage.getItem('access_token') || '';
+if (!token) {
+  document.getElementById('login-box').classList.remove('hidden');
+} else {
+  document.getElementById('main').classList.remove('hidden');
+  loadAll();
+}
+
+async function api(url, opts = {}) {
+  opts.headers = opts.headers || {};
+  opts.headers['Authorization'] = `Bearer ${token}`;
+  if (opts.body && !opts.headers['Content-Type']) {
+    opts.headers['Content-Type'] = 'application/json';
+  }
+  const r = await fetch(url, opts);
+  if (r.status === 401) {
+    localStorage.removeItem('token');
+    localStorage.removeItem('access_token');
+    location.href = '/';
+    throw new Error('unauth');
+  }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
+  return j;
+}
+
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+
+async function loadAll() {
+  await Promise.all([refreshBots(), refreshAdmins()]);
+}
+
+// ──────── Bots ────────
+async function refreshBots() {
+  const st = document.getElementById('bots-status');
+  const tbl = document.getElementById('bots-table');
+  const tb = tbl.querySelector('tbody');
+  st.textContent = '⏳ Loading bots… (checking getMe)';
+  tbl.classList.add('hidden');
+  tb.innerHTML = '';
+  try {
+    const d = await api('/api/admin/bots');
+    st.textContent = '';
+    tbl.classList.remove('hidden');
+    for (const b of d.bots) {
+      const tr = document.createElement('tr');
+      const live = b.live || {};
+      const liveHtml = live.ok
+        ? `<span class="badge badge-success">@${esc(live.username)}</span>`
+        : (b.has_token ? `<span class="badge badge-danger">${esc(live.error)}</span>` : `<span class="badge badge-warn">no token</span>`);
+      tr.innerHTML = `
+        <td><code>${esc(b.key)}</code></td>
+        <td><code>${esc(b.service)}</code></td>
+        <td><code>${esc(b.token_masked || '(empty)')}</code></td>
+        <td>${liveHtml}</td>
+        <td>
+          <button class="btn-secondary btn-sm" onclick="testBot('${esc(b.key)}')">🧪 Test</button>
+          <button class="btn-primary btn-sm" onclick="openEdit('${esc(b.key)}')">✏️ Change</button>
+        </td>`;
+      tb.appendChild(tr);
+    }
+  } catch (e) {
+    st.innerHTML = `❌ <span style="color:#e74c3c">${esc(e.message)}</span>`;
+  }
+}
+
+async function testBot(key) {
+  try {
+    const r = await api(`/api/admin/bots/${key}/test`, { method: 'POST' });
+    alert(r.ok ? `✅ ${key}\n@${r.username} (id ${r.id})` : `❌ ${key}\n${r.error}`);
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+function openEdit(key) {
+  document.getElementById('edit-key').textContent = key;
+  document.getElementById('edit-token').value = '';
+  document.getElementById('edit-status').textContent = '';
+  document.getElementById('edit-modal').classList.add('show');
+}
+
+function closeEdit() {
+  document.getElementById('edit-modal').classList.remove('show');
+}
+
+async function saveToken() {
+  const key = document.getElementById('edit-key').textContent;
+  const t = document.getElementById('edit-token').value.trim();
+  const st = document.getElementById('edit-status');
+  const btn = document.getElementById('save-btn');
+  if (!t || t.length < 20) { st.innerHTML = '<span style="color:#e74c3c">⚠️ Token สั้นเกินไป</span>'; return; }
+  if (!/^\d+:[A-Za-z0-9_-]{30,}$/.test(t)) { st.innerHTML = '<span style="color:#e74c3c">⚠️ Format ผิด</span>'; return; }
+  btn.disabled = true;
+  st.textContent = '⏳ บันทึก + restart container…';
+  try {
+    const r = await api(`/api/admin/bots/${key}`, { method: 'PUT', body: JSON.stringify({ token: t }) });
+    st.innerHTML = `<span style="color:#28b463">✅ saved + restarted @${esc(r.username)} (${esc(r.service)})</span>`;
+    setTimeout(() => { closeEdit(); refreshBots(); }, 1500);
+  } catch (e) {
+    st.innerHTML = `<span style="color:#e74c3c">❌ ${esc(e.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ──────── Admin IDs ────────
+async function refreshAdmins() {
+  const st = document.getElementById('admins-status');
+  const ls = document.getElementById('admins-list');
+  st.textContent = '⏳ Loading…';
+  ls.innerHTML = '';
+  try {
+    const d = await api('/api/admin/admin-ids');
+    st.textContent = `Total: ${d.ids.length} admin IDs`;
+    for (const id of d.ids) {
+      const li = document.createElement('li');
+      li.innerHTML = `<code>${id}</code> <button class="btn-danger btn-sm" onclick="removeAdmin(${id})">🗑️ Remove</button>`;
+      ls.appendChild(li);
+    }
+  } catch (e) {
+    st.innerHTML = `❌ <span style="color:#e74c3c">${esc(e.message)}</span>`;
+  }
+}
+
+async function addAdmin() {
+  const inp = document.getElementById('new-admin-id');
+  const id = parseInt(inp.value, 10);
+  if (!id || id <= 0) { alert('กรอก Telegram ID เป็นตัวเลข'); return; }
+  if (!confirm(`เพิ่ม admin ID ${id}?\n\nระบบจะ restart bots ที่เกี่ยวข้อง (admin/sales/guardian/content)`)) return;
+  try {
+    await api('/api/admin/admin-ids', { method: 'POST', body: JSON.stringify({ telegram_id: id }) });
+    inp.value = '';
+    await refreshAdmins();
+    alert(`✅ Added admin ${id}`);
+  } catch (e) {
+    alert('❌ ' + e.message);
+  }
+}
+
+async function removeAdmin(id) {
+  if (!confirm(`ลบ admin ${id}? ระบบจะ restart bots`)) return;
+  try {
+    await api(`/api/admin/admin-ids/${id}`, { method: 'DELETE' });
+    await refreshAdmins();
+    alert(`✅ Removed admin ${id}`);
+  } catch (e) {
+    alert('❌ ' + e.message);
+  }
+}
+</script>
+
+</body>
+</html>

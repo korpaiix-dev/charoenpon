@@ -17,6 +17,7 @@ from .routers.groups import router as groups_router
 from .routers.team import router as team_router
 from .routers.settings import router as settings_router
 from .routers.marketing import router as marketing_router
+from .routers.bots import router as bots_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -47,6 +48,7 @@ app.include_router(groups_router)
 app.include_router(team_router)
 app.include_router(settings_router)
 app.include_router(marketing_router)
+app.include_router(bots_router)
 
 # Serve frontend static files
 frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
