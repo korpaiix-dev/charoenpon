@@ -92,29 +92,35 @@
 
     <script src="/js/app.js?v=14"></script>
 
-<!-- INJECT_BOT_MGMT: standalone bot management page link -->
+
+
+
+<!-- INJECT_BOT_MGMT v2: standalone bot management link -->
+<style>
+#nav-bot-mgmt-link { display: flex; align-items: center; gap: 12px; padding: 10px 16px; cursor: pointer; color: inherit; text-decoration: none; border-radius: 6px; margin: 2px 8px; font-size: 14px; transition: background 0.15s; }
+#nav-bot-mgmt-link:hover { background: rgba(255,255,255,0.05); }
+</style>
 <script>
 (function () {
   function tryInject() {
     var nav = document.getElementById('sidebar-nav');
     if (!nav) { setTimeout(tryInject, 400); return; }
     if (document.getElementById('nav-bot-mgmt-link')) return;
-    // Find one existing item to clone its class structure
-    var sample = nav.querySelector('a, button, [role=button]');
-    if (!sample) { setTimeout(tryInject, 400); return; }
-    var item = sample.cloneNode(false);
-    item.id = 'nav-bot-mgmt-link';
-    item.removeAttribute('onclick');
-    item.innerHTML = (sample.innerHTML.includes('span') ? '<span style=\"font-size:1.1em\">⚙️</span> &nbsp; Bot Manage' : '⚙️ Bot Manage');
-    item.href = '/bots.html';
-    item.style.cursor = 'pointer';
-    nav.appendChild(item);
+    var a = document.createElement('a');
+    a.id = 'nav-bot-mgmt-link';
+    a.href = '/bots.html';
+    a.innerHTML = '<span style=\"font-size:1.2em\">⚙️</span><span>Bot Manage</span>';
+    nav.appendChild(a);
+    console.log('[bot-mgmt] sidebar link injected');
   }
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function () { setTimeout(tryInject, 600); });
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(tryInject, 800); });
   } else {
-    setTimeout(tryInject, 600);
+    setTimeout(tryInject, 800);
   }
+  // retry after 3s in case nav populated late
+  setTimeout(tryInject, 3000);
+  setTimeout(tryInject, 6000);
 })();
 </script>
 
