@@ -95,7 +95,10 @@
 
 
 
-<!-- INJECT_BOT_MGMT v2: standalone bot management link -->
+
+
+
+<!-- INJECT_BOT_MGMT v3: bypass SPA router by using window.location -->
 <style>
 #nav-bot-mgmt-link { display: flex; align-items: center; gap: 12px; padding: 10px 16px; cursor: pointer; color: inherit; text-decoration: none; border-radius: 6px; margin: 2px 8px; font-size: 14px; transition: background 0.15s; }
 #nav-bot-mgmt-link:hover { background: rgba(255,255,255,0.05); }
@@ -108,17 +111,21 @@
     if (document.getElementById('nav-bot-mgmt-link')) return;
     var a = document.createElement('a');
     a.id = 'nav-bot-mgmt-link';
-    a.href = '/bots.html';
+    a.href = 'javascript:void(0)';
     a.innerHTML = '<span style=\"font-size:1.2em\">⚙️</span><span>Bot Manage</span>';
+    a.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      window.location.assign('/bots.html');
+    }, true);
     nav.appendChild(a);
-    console.log('[bot-mgmt] sidebar link injected');
+    console.log('[bot-mgmt v3] sidebar link injected');
   }
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function () { setTimeout(tryInject, 800); });
   } else {
     setTimeout(tryInject, 800);
   }
-  // retry after 3s in case nav populated late
   setTimeout(tryInject, 3000);
   setTimeout(tryInject, 6000);
 })();
