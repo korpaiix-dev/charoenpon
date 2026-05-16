@@ -91,5 +91,32 @@
     </div>
 
     <script src="/js/app.js?v=14"></script>
+
+<!-- INJECT_BOT_MGMT: standalone bot management page link -->
+<script>
+(function () {
+  function tryInject() {
+    var nav = document.getElementById('sidebar-nav');
+    if (!nav) { setTimeout(tryInject, 400); return; }
+    if (document.getElementById('nav-bot-mgmt-link')) return;
+    // Find one existing item to clone its class structure
+    var sample = nav.querySelector('a, button, [role=button]');
+    if (!sample) { setTimeout(tryInject, 400); return; }
+    var item = sample.cloneNode(false);
+    item.id = 'nav-bot-mgmt-link';
+    item.removeAttribute('onclick');
+    item.innerHTML = (sample.innerHTML.includes('span') ? '<span style=\"font-size:1.1em\">⚙️</span> &nbsp; Bot Manage' : '⚙️ Bot Manage');
+    item.href = '/bots.html';
+    item.style.cursor = 'pointer';
+    nav.appendChild(item);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(tryInject, 600); });
+  } else {
+    setTimeout(tryInject, 600);
+  }
+})();
+</script>
+
 </body>
 </html>
