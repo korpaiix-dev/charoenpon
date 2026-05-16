@@ -227,4 +227,3 @@
   window.addAdmin = addAdmin;
   window.removeAdmin = removeAdmin;
 })();
-                                                                    
