@@ -19,6 +19,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text as sa_text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -223,7 +224,18 @@ class Payment(Base):
     # verifier relationship removed — verified_by stores telegram_id directly
 
     __table_args__ = (
-        # UniqueConstraint("slip_hash", name="uq_payment_slip_hash"),  # disabled: admin reviews manually
+        # FIX 2025-05-21 (Phase 2e): Re-enable slip_hash uniqueness as a partial unique index.
+        # Only enforce for pending/confirmed payments so that rejected slips can be retried
+        # with the same image. Requires a manual Alembic migration since SQLAlchemy can't
+        # automatically migrate from "no constraint" to "partial index" in-place.
+        Index(
+            "uq_payment_slip_hash_active",
+            "slip_hash",
+            unique=True,
+            postgresql_where=sa_text(
+                "status IN ('PENDING', 'CONFIRMED') AND slip_hash IS NOT NULL"
+            ),
+        ),
     )
 
 

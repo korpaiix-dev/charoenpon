@@ -385,6 +385,50 @@ async def _guardian_timeout_kick(context) -> None:
     decision_key = f"{user_id}_{chat_id}"
     pending_guardian_decisions.pop(decision_key, None)
 
+    # FIX 2025-05-21 (Phase 2c): Re-verify before kick to avoid race condition
+    # ลูกค้าอาจเพิ่ง paid ระหว่าง 20 นาทีที่รอ (replication lag / approval delay)
+    # ก่อนเตะต้อง re-check active subscription หาก telegram_id ของ user มี active sub
+    # → CANCEL kick ทันที (ป้องกัน kick ลูกค้าจริง)
+    try:
+        async with get_session() as session:
+            user_row = await session.execute(
+                select(User.id).where(User.telegram_id == user_id)
+            )
+            user_db_id = user_row.scalar_one_or_none()
+            if user_db_id is not None:
+                sub_check = await session.execute(
+                    select(Subscription).where(
+                        Subscription.user_id == user_db_id,
+                        Subscription.status == SubscriptionStatus.ACTIVE,
+                        Subscription.end_date > datetime.utcnow(),
+                    )
+                )
+                if sub_check.scalar_one_or_none() is not None:
+                    logger.info(
+                        "Timeout kick CANCELLED — user %s has active sub now (race avoided)",
+                        user_id,
+                    )
+                    # also notify admin group that kick was cancelled
+                    try:
+                        admin_bot = Bot(token=admin_bot_token)
+                        await admin_bot.initialize()
+                        await admin_bot.edit_message_text(
+                            chat_id=admin_group_id,
+                            message_id=message_id,
+                            text=(
+                                f"✅ หมดเวลา — แต่ตรวจพบ active subscription\n"
+                                f"ไม่เตะ (race avoided)\n\n"
+                                f"👤 User: "
+                                + (f"@{username} ({user_id})" if username else f"{user_id}")
+                            ),
+                        )
+                    except Exception as exc:
+                        logger.warning("Failed to edit race-avoided message: %s", exc)
+                    return  # don't kick
+    except Exception as exc:
+        # ถ้า DB ล่ม ก็ให้ proceed kick ตามปกติ (fail-open อันตรายน้อยกว่า fail-close ถ้า monitor ทำงานไม่ได้)
+        logger.error("Pre-kick re-verify failed for user %s: %s — proceeding with kick", user_id, exc)
+
     # Kick the user using guardian bot
     try:
         await context.bot.ban_chat_member(chat_id=chat_id, user_id=user_id)
@@ -401,6 +445,7 @@ async def _guardian_timeout_kick(context) -> None:
 
 
         # Notify user via Sales Bot
+        # FIX 2025-05-21 (Phase 2c): เพิ่มประโยค "หากเพิ่งสมัครและถูกเตะ" สำหรับ edge case
         try:
             _sales = Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
             await _sales.initialize()
@@ -408,7 +453,8 @@ async def _guardian_timeout_kick(context) -> None:
                 chat_id=user_id,
                 text=(
                     f"⚠️ คุณถูกนำออกจากกลุ่มเนื่องจากไม่มี subscription ที่ active ครับ\n\n"
-                    "หากต้องการเข้าใหม่ สามารถสมัครแพ็กเกจได้ที่ @NamwarnJarern_bot ครับ"
+                    "หากต้องการเข้าใหม่ สามารถสมัครแพ็กเกจได้ที่ @NamwarnJarern_bot ครับ\n\n"
+                    "❗ หากคุณเพิ่งสมัครและถูกเตะออก กรุณาทักแอดมินเพื่อตรวจสอบครับ"
                 ),
             )
         except Exception as e:

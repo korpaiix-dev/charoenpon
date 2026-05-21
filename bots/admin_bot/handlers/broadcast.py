@@ -62,12 +62,40 @@ def _get_sales_bot() -> Bot:
     return Bot(token=token)
 
 
+# FIX 2025-05-21 (Phase 2g): Admin user whitelist — chat_id alone is not enough.
+# Anyone who is added to the admin group could run /broadcast before. Now we also
+# require the sender's telegram user id to be in ADMIN_USER_IDS (comma-separated env).
+_ADMIN_USER_IDS: frozenset[int] = frozenset(
+    int(x.strip()) for x in os.environ.get("ADMIN_USER_IDS", "").split(",")
+    if x.strip().isdigit()
+)
+
+
 def _is_admin_group(update: Update) -> bool:
-    """Check if message is from the admin group."""
-    return (
+    """Check if message is from the admin group AND sender is a whitelisted admin."""
+    chat_ok = (
         update.effective_chat is not None
         and update.effective_chat.id == ADMIN_GROUP_ID
     )
+    if not chat_ok:
+        return False
+    # If whitelist is empty (not configured), fall back to chat-only check —
+    # but log a warning so this gets noticed and fixed.
+    if not _ADMIN_USER_IDS:
+        logger.warning(
+            "ADMIN_USER_IDS env not set — broadcast accessible to anyone in admin group. "
+            "Set ADMIN_USER_IDS=<comma-separated tg_ids> to lock down."
+        )
+        return True
+    user = update.effective_user
+    user_ok = user is not None and user.id in _ADMIN_USER_IDS
+    if not user_ok:
+        logger.warning(
+            "BLOCKED: non-admin user %s (%s) tried broadcast command",
+            user.id if user else "?",
+            user.username if user else "?",
+        )
+    return user_ok
 
 
 # ─── CSV Helpers ──────────────────────────────────────────────────────────────
