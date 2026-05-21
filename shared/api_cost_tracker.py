@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio as _asyncio
 import json
 import logging
 import os
 import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from time import monotonic as _monotonic
 from typing import Any
 
 import httpx
@@ -16,6 +18,74 @@ from shared.database import get_session
 from shared.models import ApiCostLog
 
 logger = logging.getLogger(__name__)
+
+
+# === FIX 2025-05-21 (Phase 2d): Circuit breaker to stop spamming dead API ===
+class OpenRouterCircuitOpen(RuntimeError):
+    """Raised when circuit breaker is open — caller should fallback gracefully."""
+    pass
+
+
+_CB_STATE: dict[str, float] = {"open_until": 0.0, "auth_fail_count": 0, "general_fail_count": 0}
+_CB_LOCK = _asyncio.Lock()
+_CB_AUTH_THRESHOLD = 3       # 3 ครั้ง 401 ติด = open 30 นาที
+_CB_GENERAL_THRESHOLD = 8    # 8 ครั้ง fail อื่นๆ = open 1 นาที
+_CB_AUTH_OPEN_SEC = 1800
+_CB_GENERAL_OPEN_SEC = 60
+
+
+async def _cb_check_or_raise() -> None:
+    async with _CB_LOCK:
+        remaining = _CB_STATE["open_until"] - _monotonic()
+        if remaining > 0:
+            raise OpenRouterCircuitOpen(
+                f"OpenRouter circuit open for {int(remaining)}s more"
+            )
+
+
+async def _cb_record_failure(status_code: int) -> None:
+    async with _CB_LOCK:
+        if status_code == 401:
+            _CB_STATE["auth_fail_count"] += 1
+            if _CB_STATE["auth_fail_count"] >= _CB_AUTH_THRESHOLD:
+                _CB_STATE["open_until"] = _monotonic() + _CB_AUTH_OPEN_SEC
+                logger.error(
+                    "🚨 OpenRouter circuit OPEN (auth) for %ds — key likely revoked/invalid",
+                    _CB_AUTH_OPEN_SEC,
+                )
+                await _send_discord_alert(
+                    "🚨 OpenRouter API key INVALID",
+                    f"AI calls failing 401 for {_CB_AUTH_THRESHOLD}x in a row. "
+                    f"Circuit OPEN for {_CB_AUTH_OPEN_SEC // 60} minutes. "
+                    f"**Slip auto-check is OFFLINE** — admin must check slips manually.\n"
+                    f"Action: rotate OpenRouter key + force-recreate containers.",
+                    color=0xFF0000,
+                )
+        else:
+            _CB_STATE["general_fail_count"] += 1
+            if _CB_STATE["general_fail_count"] >= _CB_GENERAL_THRESHOLD:
+                _CB_STATE["open_until"] = _monotonic() + _CB_GENERAL_OPEN_SEC
+                logger.warning("OpenRouter circuit OPEN (general) for %ds", _CB_GENERAL_OPEN_SEC)
+
+
+async def _cb_record_success() -> None:
+    async with _CB_LOCK:
+        _CB_STATE["auth_fail_count"] = 0
+        _CB_STATE["general_fail_count"] = 0
+
+
+async def _send_discord_alert(title: str, message: str, color: int = 0xFFA500) -> None:
+    """Send alert to ALERT_DISCORD_WEBHOOK env (different from notify webhook)."""
+    webhook = os.environ.get("ALERT_DISCORD_WEBHOOK") or os.environ.get("DISCORD_WEBHOOK")
+    if not webhook:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(webhook, json={
+                "embeds": [{"title": title, "description": message, "color": color}]
+            })
+    except Exception as e:
+        logger.warning("Discord alert failed: %s", e)
 
 MODEL_ALIASES: dict[str, str] = {
     "anthropic/claude-haiku-3-5": "google/gemini-2.5-flash",
@@ -227,7 +297,12 @@ async def call_openrouter(
     """Call OpenRouter API and automatically track cost.
 
     Returns the full OpenRouter response dict. Raises httpx.HTTPStatusError on failure.
+    Raises OpenRouterCircuitOpen when the circuit breaker is open
+    (e.g. key revoked) — caller should fall back to admin-manual flow.
     """
+    # FIX 2025-05-21 (Phase 2d): short-circuit when breaker is open
+    await _cb_check_or_raise()
+
     model = normalize_model(model)
 
     headers = {
@@ -243,22 +318,36 @@ async def call_openrouter(
         "max_tokens": max_tokens,
     }
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(OPENROUTER_API_URL, headers=headers, json=payload)
-        if resp.status_code >= 400:
-            logger.error(
-                "OpenRouter error caller=%s model=%s status=%s body=%s",
-                caller,
-                model,
-                resp.status_code,
-                resp.text[:1000],
-            )
-        resp.raise_for_status()
-        data = resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(OPENROUTER_API_URL, headers=headers, json=payload)
+            if resp.status_code >= 400:
+                logger.error(
+                    "OpenRouter error caller=%s model=%s status=%s body=%s",
+                    caller,
+                    model,
+                    resp.status_code,
+                    resp.text[:1000],
+                )
+                # FIX 2025-05-21 (Phase 2d): record failure for circuit breaker
+                await _cb_record_failure(resp.status_code)
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPStatusError:
+        # status already recorded above
+        raise
+    except httpx.HTTPError as exc:
+        # Network / timeout / connection errors → general bucket
+        logger.error("OpenRouter network error caller=%s: %s", caller, exc)
+        await _cb_record_failure(0)
+        raise
 
     usage = data.get("usage", {})
     prompt_tokens = usage.get("prompt_tokens", 0)
     completion_tokens = usage.get("completion_tokens", 0)
+
+    # FIX 2025-05-21 (Phase 2d): success → reset breaker counters
+    await _cb_record_success()
 
     await track(
         model=model,

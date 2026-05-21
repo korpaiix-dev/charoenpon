@@ -30,6 +30,8 @@ from bots.sales_bot.handlers.packages import get_package_handlers
 from bots.sales_bot.handlers.payment import get_payment_handlers
 from bots.sales_bot.handlers.referral import get_referral_handlers
 from bots.sales_bot.handlers.start import get_start_handlers
+# FIX 2025-05-21 (Phase 2a): /getlink — customer self-service for one-time invite links
+from bots.sales_bot.handlers.getlink import get_getlink_handler
 from bots.sales_bot.handlers.support import get_support_handlers
 from bots.sales_bot.handlers.trial import get_trial_handlers
 from bots.sales_bot.handlers.upsell import get_upsell_handlers, run_upsell_dm_job
@@ -195,6 +197,10 @@ def create_application() -> Application:
     # --- Group 0: Command & callback handlers ---
     for handler in get_start_handlers():
         app.add_handler(handler, group=0)
+
+    # FIX 2025-05-21 (Phase 2a): /getlink — VIP customers can request fresh one-time
+    # invite links themselves without bothering admin.
+    app.add_handler(get_getlink_handler(), group=0)
 
     # Trial handlers — ปิดแล้ว (ยกเลิกโปร 99)
     # for handler in get_trial_handlers():

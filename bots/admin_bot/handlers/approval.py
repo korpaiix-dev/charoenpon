@@ -928,8 +928,45 @@ async def approve_promo_callback(update: Update, context: ContextTypes.DEFAULT_T
         await query.answer(f"❌ Error: {str(exc)[:100]}", show_alert=True)
 
 
+# FIX 2025-05-21 (Phase 2f): Verify slip amount matches the button admin clicked.
+# Prevents the case where admin misclicks "2499" while the slip is actually 99
+# and a customer gets lifetime access for 99 baht.
+async def _verify_approve_amount(payment: "Payment", button_amount) -> tuple[bool, str]:
+    """Verify button amount matches payment amount.
+
+    Returns (ok, warning_msg). When ``payment.amount`` is None we cannot verify
+    so we treat it as a soft mismatch (ok=False) and let admin confirm.
+    """
+    from decimal import Decimal
+    if payment is None or payment.amount is None:
+        return False, (
+            f"⚠️ AMOUNT MISMATCH: button={button_amount} payment=<unknown> "
+            "(no recorded amount on slip). Please verify slip again."
+        )
+    try:
+        btn = Decimal(str(button_amount))
+        pay = Decimal(str(payment.amount))
+    except Exception:
+        return False, (
+            f"⚠️ AMOUNT MISMATCH: button={button_amount} payment={payment.amount} "
+            "(parse error). Please verify slip again."
+        )
+    if pay == btn:
+        return True, ""
+    diff = abs(pay - btn)
+    return False, (
+        f"⚠️ AMOUNT MISMATCH: button={btn} payment={pay} "
+        f"(diff={diff}). Possible misclick — please verify slip again."
+    )
+
+
 async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """อนุมัติสลิปโดยเลือกราคา — approve_300_userid format."""
+    """อนุมัติสลิปโดยเลือกราคา — approve_300_userid format.
+
+    Supports ``approve_<price>_<user_id>`` and the override form
+    ``approve_<price>_<user_id>_force`` (Phase 2f) which bypasses the
+    amount-mismatch guard when admin has explicitly confirmed.
+    """
     query = update.callback_query
     await query.answer()
 
@@ -937,14 +974,101 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
         await query.answer("⛔ คุณไม่มีสิทธิ์", show_alert=True)
         return
 
-    parts = query.data.split("_")  # approve_300_12345
+    parts = query.data.split("_")  # approve_300_12345  or  approve_300_12345_force
     price = parts[1]
     target_user_id = int(parts[2])
+    # FIX 2025-05-21 (Phase 2f): support force override via trailing "_force"
+    force_override = (len(parts) >= 4 and parts[3] == "force")
 
     import os
     import telegram as tg
     from datetime import timedelta
+    from decimal import Decimal
     from bots.guardian_bot.group_monitor import generate_invite_links_for_user
+
+    # FIX 2025-05-21 (Phase 2f): pre-flight amount verification.
+    # Look up the most-recent PENDING payment for this telegram user and
+    # compare against the button amount. If they disagree and admin has NOT
+    # passed the ``force`` flag, refuse to proceed and ask for confirmation.
+    try:
+        # Compute the button's nominal baht value
+        if price == "ADD500":
+            button_amount = Decimal("500")
+        else:
+            try:
+                button_amount = Decimal(price)
+            except Exception:
+                button_amount = None
+
+        verify_payment = None
+        async with get_session() as _vsess:
+            _vu = await _vsess.execute(
+                select(User).where(User.telegram_id == target_user_id)
+            )
+            _vu_row = _vu.scalar_one_or_none()
+            if _vu_row is not None:
+                _vp = await _vsess.execute(
+                    select(Payment)
+                    .where(
+                        Payment.user_id == _vu_row.id,
+                        Payment.status == PaymentStatus.PENDING,
+                    )
+                    .order_by(Payment.created_at.desc())
+                    .limit(1)
+                )
+                verify_payment = _vp.scalar_one_or_none()
+
+        if button_amount is not None and verify_payment is not None and not force_override:
+            ok, warn_msg = await _verify_approve_amount(verify_payment, button_amount)
+            if not ok:
+                logger.warning(
+                    "approve_by_price amount mismatch: admin=%s user_tg=%s "
+                    "button=%s payment_id=%s payment_amount=%s",
+                    query.from_user.id, target_user_id, button_amount,
+                    getattr(verify_payment, "id", None),
+                    getattr(verify_payment, "amount", None),
+                )
+                # log so we have an audit trail of the warning the admin saw
+                try:
+                    await log_admin_action(
+                        admin_id=query.from_user.id,
+                        action="approve_amount_mismatch_warned",
+                        target_type="user",
+                        target_id=target_user_id,
+                        details=(
+                            f"button={button_amount} "
+                            f"payment_id={getattr(verify_payment, 'id', None)} "
+                            f"payment_amount={getattr(verify_payment, 'amount', None)}"
+                        ),
+                    )
+                except Exception:
+                    pass
+
+                confirm_kb = tg.InlineKeyboardMarkup([
+                    [
+                        tg.InlineKeyboardButton(
+                            f"✅ ยืนยัน {price} (force)",
+                            callback_data=f"approve_{price}_{target_user_id}_force",
+                            api_kwargs={"style": "danger"},
+                        ),
+                        tg.InlineKeyboardButton(
+                            "❌ ยกเลิก",
+                            callback_data=f"reject_{target_user_id}",
+                            api_kwargs={"style": "secondary"},
+                        ),
+                    ]
+                ])
+                try:
+                    await query.message.reply_text(
+                        warn_msg + "\n\nกด ✅ ยืนยัน (force) เฉพาะเมื่อสลิปตรงจริง.",
+                        reply_markup=confirm_kb,
+                    )
+                except Exception as _exc_warn:
+                    logger.warning("Could not post mismatch warning: %s", _exc_warn)
+                return
+    except Exception as _exc_verify:
+        # NEVER block approval if the verification itself crashes — just log.
+        logger.warning("approve amount verify guard failed (non-fatal): %s", _exc_verify)
 
     try:
         # Find package by price
@@ -1248,6 +1372,22 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
             logger.info("Welcome referral DM sent to %d (approve_by_price)", target_user_id)
         except Exception as exc_w:
             logger.warning("Welcome referral DM failed for user %d: %s", target_user_id, exc_w)
+
+        # FIX 2025-05-21 (Phase 2f): audit log every approval with payment_id + button_amount
+        try:
+            await log_admin_action(
+                admin_id=query.from_user.id,
+                action="approve_by_price",
+                target_type="user",
+                target_id=target_user_id,
+                details=(
+                    f"button={price} amount_paid={amount_paid} "
+                    f"payment_id={new_payment_id} pkg={pkg_name} "
+                    f"force={force_override}"
+                ),
+            )
+        except Exception as exc_log:
+            logger.warning("log_admin_action failed for approve_by_price: %s", exc_log)
 
     except Exception as exc:
         logger.error("approve_by_price error: %s", exc)

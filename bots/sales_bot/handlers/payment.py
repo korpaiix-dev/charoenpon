@@ -354,6 +354,10 @@ async def _ai_read_slip(b64_image: str) -> str | None:
         logger.info("AI slip reader result: %s", content[:200])
         return content
     except Exception as exc:
+        # FIX 2025-05-21 (Phase 2d caller): re-raise circuit-open so caller can defer slip
+        from shared.api_cost_tracker import OpenRouterCircuitOpen as _CircuitOpen
+        if isinstance(exc, _CircuitOpen):
+            raise
         logger.error("AI slip reader API error: %s", exc)
 
     return None
@@ -401,6 +405,10 @@ async def _ai_screen_image(b64_image: str) -> str | None:
         logger.info("AI screen result: %s", result)
         return result
     except Exception as exc:
+        # FIX 2025-05-21 (Phase 2d caller): re-raise circuit-open so caller can defer
+        from shared.api_cost_tracker import OpenRouterCircuitOpen as _CircuitOpen
+        if isinstance(exc, _CircuitOpen):
+            raise
         logger.error("AI screen API error: %s", exc)
 
     return None
@@ -515,11 +523,26 @@ async def _approve_payment(
                 .values(status=SubscriptionStatus.EXPIRED)
             )
         else:
-            await session.execute(
-                sa_update_dup(Subscription)
-                .where(Subscription.user_id == db_payment.user_id, Subscription.status == SubscriptionStatus.ACTIVE)
-                .values(status=SubscriptionStatus.EXPIRED)
+            # FIX 2025-05-21 (Phase 2b): Protect lifetime (TIER_2499) — only
+            # expire non-lifetime active subs. Otherwise a customer who already
+            # paid 2499 forever loses access when buying any add-on / re-buy,
+            # and guardian-bot kicks them out of the lifetime groups.
+            sub_ids_result = await session.execute(
+                select(Subscription.id)
+                .join(Package, Subscription.package_id == Package.id)
+                .where(
+                    Subscription.user_id == db_payment.user_id,
+                    Subscription.status == SubscriptionStatus.ACTIVE,
+                    Package.tier != PackageTier.TIER_2499,
+                )
             )
+            non_lifetime_ids = [row[0] for row in sub_ids_result]
+            if non_lifetime_ids:
+                await session.execute(
+                    sa_update_dup(Subscription)
+                    .where(Subscription.id.in_(non_lifetime_ids))
+                    .values(status=SubscriptionStatus.EXPIRED)
+                )
 
         # Create subscription
         now = datetime.utcnow()
@@ -687,12 +710,48 @@ async def handle_photo_slip(
                 )
                 return
     except Exception as exc:
+        # FIX 2025-05-21 (Phase 2d caller): if circuit-open, defer slip and do NOT forward to admin
+        from shared.api_cost_tracker import OpenRouterCircuitOpen as _CircuitOpen
+        if isinstance(exc, _CircuitOpen):
+            logger.warning("AI offline (circuit-open) for screen — defer user=%s: %s", user.id, exc)
+            try:
+                await _notify_discord(
+                    "🛑 SLIP DEFERRED — AI offline (screen)",
+                    f"User {user.id} ({user.first_name or '?'}) sent slip but AI circuit is open. "
+                    f"Slip NOT forwarded to admin. User asked to retry in 30 min.",
+                    color=0xFFA500,
+                )
+            except Exception:
+                pass
+            await update.message.reply_text(
+                "⏳ ระบบประมวลผลสลิปอัตโนมัติหยุดทำงานชั่วคราวค่ะ\n\n"
+                "กรุณาส่งสลิปอีกครั้งใน 30 นาที หรือทักแอดมินโดยตรง 🙏\n"
+                "ติดต่อแอดมิน: https://t.me/zeinju_bunker"
+            )
+            return
         logger.warning("AI screen failed, proceeding with OCR: %s", exc)
 
     # OCR
     try:
         ocr_text = await _ocr_slip_image(context.bot, file_id)
     except Exception as exc:
+        # FIX 2025-05-21 (Phase 2d caller): same circuit-open guard for OCR call (which uses AI too)
+        from shared.api_cost_tracker import OpenRouterCircuitOpen as _CircuitOpen
+        if isinstance(exc, _CircuitOpen):
+            logger.warning("AI offline (circuit-open) for OCR — defer user=%s: %s", user.id, exc)
+            try:
+                await _notify_discord(
+                    "🛑 SLIP DEFERRED — AI offline (OCR)",
+                    f"User {user.id} sent slip but AI circuit is open. Not forwarded to admin.",
+                    color=0xFFA500,
+                )
+            except Exception:
+                pass
+            await update.message.reply_text(
+                "⏳ ระบบประมวลผลสลิปอัตโนมัติหยุดทำงานชั่วคราวค่ะ\n\n"
+                "กรุณาส่งสลิปอีกครั้งใน 30 นาที 🙏"
+            )
+            return
         logger.error("OCR failed: %s", exc)
         await update.message.reply_text(
             "⚠️ ไม่สามารถอ่านสลิปได้ค่ะ กรุณาส่งรูปที่ชัดขึ้น หรือติดต่อแอดมิน (https://t.me/zeinju_bunker)ค่ะ"

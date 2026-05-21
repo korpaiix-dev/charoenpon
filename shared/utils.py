@@ -206,5 +206,40 @@ async def check_duplicate_slip(file_id_or_link: str) -> Payment | None:
 
 
 def compute_slip_hash(file_id_or_link: str) -> str:
-    """Public interface for computing slip hash — use when creating Payment records."""
+    """Public interface for computing slip hash — use when creating Payment records.
+
+    NOTE (Phase 2e): file_id changes per bot and per forward, so this hash is NOT stable
+    for true duplicate detection across bots. Kept for backward compatibility. Prefer
+    `compute_slip_unique_hash(file_unique_id)` for new code.
+    """
     return _compute_slip_hash(file_id_or_link)
+
+
+# FIX 2025-05-21 (Phase 2e): file_unique_id is stable across bots and forwards.
+# Use this for new code paths so duplicate slips are detected even if uploaded
+# via a different bot (e.g. guardian vs sales).
+def compute_slip_unique_hash(file_unique_id: str) -> str:
+    """Hash a Telegram PhotoSize.file_unique_id — stable across bots/forwards.
+
+    >>> compute_slip_unique_hash("AgADBA")  # doctest: +SKIP
+    '...sha256...'
+    """
+    return hashlib.sha256(file_unique_id.encode()).hexdigest()
+
+
+async def check_duplicate_slip_by_unique_id(file_unique_id: str) -> Payment | None:
+    """Check duplicate slip by file_unique_id (preferred over check_duplicate_slip).
+
+    Returns the existing Payment if a pending/confirmed payment already uses the same
+    image (by file_unique_id hash), None otherwise.
+    """
+    slip_hash = compute_slip_unique_hash(file_unique_id)
+
+    async with get_session() as session:
+        result = await session.execute(
+            select(Payment).where(
+                Payment.slip_hash == slip_hash,
+                Payment.status.in_([PaymentStatus.CONFIRMED, PaymentStatus.PENDING]),
+            )
+        )
+        return result.scalar_one_or_none()
