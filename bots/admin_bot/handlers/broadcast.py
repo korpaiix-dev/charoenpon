@@ -65,8 +65,14 @@ def _get_sales_bot() -> Bot:
 # FIX 2025-05-21 (Phase 2g): Admin user whitelist — chat_id alone is not enough.
 # Anyone who is added to the admin group could run /broadcast before. Now we also
 # require the sender's telegram user id to be in ADMIN_USER_IDS (comma-separated env).
+# FIX 2025-05-21 (Phase 2g v2): reuse existing ADMIN_TELEGRAM_IDS env var
+# (already configured in .env, no need for separate ADMIN_USER_IDS)
 _ADMIN_USER_IDS: frozenset[int] = frozenset(
-    int(x.strip()) for x in os.environ.get("ADMIN_USER_IDS", "").split(",")
+    int(x.strip()) for x in (
+        os.environ.get("ADMIN_USER_IDS")
+        or os.environ.get("ADMIN_TELEGRAM_IDS")
+        or ""
+    ).split(",")
     if x.strip().isdigit()
 )
 
