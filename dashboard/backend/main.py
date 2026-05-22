@@ -64,4 +64,13 @@ if os.path.isdir(frontend_dir):
 async def health():
     return {"status": "ok", "service": "charoenpon-dashboard"}
 
-# SPA fallbac
+# SPA fallback — return index.html for any non-API path so the SPA can route client-side
+# FIX 2025-05-21 (Phase D-5): /api/* paths that don't match a router return real 404
+@app.get("/{full_path:path}")
+async def spa_fallback(full_path: str):
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    index = os.path.join(frontend_dir, "index.html")
+    if os.path.isfile(index):
+        return FileResponse(index)
+    raise HTTPException(status_code=503, detail="Frontend not built")
