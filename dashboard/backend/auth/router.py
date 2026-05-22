@@ -1,16 +1,18 @@
 """Auth router — login, logout, me, password change."""
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import bcrypt
+import json
 from ..database import pool
 from ..auth.jwt import create_token
 from ..auth.dependencies import get_current_admin
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
+# FIX 2025-05-21 (Phase D-11): validate telegram_id (> 0) and password length on the schema
 class LoginRequest(BaseModel):
-    telegram_id: int
-    password: str
+    telegram_id: int = Field(..., gt=0)
+    password: str = Field(..., min_length=1, max_length=128)
 
 class PasswordChangeRequest(BaseModel):
     old_password: str
@@ -21,7 +23,7 @@ async def _log_activity(admin_id: int, action: str, entity_type: str = None, ent
         """INSERT INTO dashboard_activity_log (admin_id, action, entity_type, entity_id, details, ip_address)
            VALUES ($1, $2, $3, $4, $5::jsonb, $6)""",
         admin_id, action, entity_type, entity_id,
-        __import__('json').dumps(details) if details else None, ip
+        json.dumps(details) if details else None, ip
     )
 
 @router.post("/login")
@@ -30,32 +32,39 @@ async def login(req: LoginRequest, request: Request):
         "SELECT * FROM dashboard_admins WHERE telegram_id = $1 AND is_active = TRUE",
         req.telegram_id
     )
-    if not row:
+    # FIX 2025-05-21 (Phase D-12): log failed login attempts so brute-force is visible in audit trail
+    if not row or not bcrypt.checkpw(req.password.encode(), row["password_hash"].encode()):
+        try:
+            await pool.execute(
+                "INSERT INTO dashboard_activity_log (admin_id, action, entity_type, details, ip_address) "
+                "VALUES (NULL, 'login_failed', 'session', $1::jsonb, $2)",
+                json.dumps({"telegram_id": req.telegram_id}),
+                request.client.host if request.client else None,
+            )
+        except Exception:
+            pass
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    if not bcrypt.checkpw(req.password.encode(), row["password_hash"].encode()):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    
+
     token, jti, expires_at = create_token(row["id"], row["telegram_id"], row["role"], row["display_name"])
-    
+
     ip = request.client.host if request.client else None
     ua = request.headers.get("user-agent", "")
-    
+
     # Store session
     await pool.execute(
         """INSERT INTO dashboard_sessions (admin_id, token_jti, ip_address, user_agent, expires_at)
            VALUES ($1, $2, $3, $4, $5)""",
         row["id"], jti, ip, ua, expires_at
     )
-    
+
     # Update last login
     await pool.execute(
         "UPDATE dashboard_admins SET last_login_at = NOW(), last_login_ip = $1 WHERE id = $2",
         ip, row["id"]
     )
-    
+
     await _log_activity(row["id"], "login", "session", None, {"ip": ip}, ip)
-    
+
     return {
         "token": token,
         "admin": {
@@ -95,7 +104,7 @@ async def change_password(req: PasswordChangeRequest, request: Request):
     row = await pool.fetchrow("SELECT password_hash FROM dashboard_admins WHERE id = $1", admin["id"])
     if not bcrypt.checkpw(req.old_password.encode(), row["password_hash"].encode()):
         raise HTTPException(status_code=400, detail="Old password incorrect")
-    
+
     new_hash = bcrypt.hashpw(req.new_password.encode(), bcrypt.gensalt()).decode()
     await pool.execute("UPDATE dashboard_admins SET password_hash = $1, updated_at = NOW() WHERE id = $2", new_hash, admin["id"])
     await _log_activity(admin["id"], "change_password", "admin", admin["id"], None, request.client.host if request.client else None)

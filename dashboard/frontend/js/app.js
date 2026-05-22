@@ -10,6 +10,22 @@ let charts = {};
 
 const ROLE_LEVELS = { owner: 100, super_admin: 75, admin: 50, moderator: 10 };
 
+// FIX 2025-05-21 (Phase D-XSS): HTML escape helper — ใช้ทุกที่ที่ใส่ user/DB string เข้า innerHTML
+function esc(s) {
+    if (s == null) return '';
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// FIX 2025-05-21 (Phase D-XSS): Double-submit guard helpers
+const _busy = new Set();
+async function withBusy(key, fn) {
+    if (_busy.has(key)) return;
+    _busy.add(key);
+    try { await fn(); }
+    finally { _busy.delete(key); }
+}
+
+
 const NAV_ITEMS = [
     { id: 'dashboard', icon: '📊', label: 'ภาพรวม', minRole: 'moderator' },
     { id: 'customers', icon: '👥', label: 'ลูกค้า', minRole: 'moderator' },
@@ -70,19 +86,20 @@ function togglePassword() {
     inp.type = inp.type === 'password' ? 'text' : 'password';
 }
 
-function logout() {
+async function logout() {
+    // FIX 2025-05-21 (Phase D-XSS): full cleanup — flush LS/SS, kill timers, destroy charts
     if (token) {
-        fetch('/api/auth/logout', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` }
-        }).catch(() => {});
+        try { await fetch('/api/auth/logout', { method:'POST', headers:{Authorization:`Bearer ${token}`} }); } catch {}
     }
     token = null; admin = null;
-    localStorage.removeItem('token');
-    localStorage.removeItem('admin');
+    ['token','admin','access_token'].forEach(k => localStorage.removeItem(k));
+    try { sessionStorage.clear(); } catch {}
     if (alertInterval) { clearInterval(alertInterval); alertInterval = null; }
-    document.getElementById('app').classList.add('hidden');
+    try { Object.values(charts).forEach(c => c && c.destroy && c.destroy()); } catch {}
+    charts = {};
+    lastAlertCount = { pending: -1, sos: -1 };
     document.getElementById('login-page').classList.remove('hidden');
+    document.getElementById('app').classList.add('hidden');
 }
 
 // ========== APP INIT ==========
@@ -310,7 +327,7 @@ async function checkAlerts() {
                         const amt = Number(slip.amount).toLocaleString();
                         showNotifCard('slip',
                             '💰 สลิปใหม่รอตรวจ!',
-                            `<b>${name}</b> — ฿${amt}<br>${slip.package_name || ''}`,
+                            `<b>${esc(name)}</b> — ฿${esc(amt)}<br>${esc(slip.package_name || '')}`,
                             imgUrl,
                             () => navigate('finance')
                         );
@@ -339,7 +356,7 @@ async function checkAlerts() {
             if (anomalyCount > (lastAlertCount.anomaly || 0)) {
                 const anomalies = data.anomalies || [];
                 const desc = anomalies.length > 0
-                    ? anomalies.slice(0, 2).map(a => `<b>${a.first_name || 'ลูกค้า'}</b>: ฿${Number(a.amount).toLocaleString()} (${a.reason})`).join('<br>')
+                    ? anomalies.slice(0, 2).map(a => `<b>${esc(a.first_name || 'ลูกค้า')}</b>: ฿${Number(a.amount).toLocaleString()} (${esc(a.reason)})`).join('<br>')
                     : `พบยอดผิดปกติ <b>${anomalyCount}</b> รายการ`;
                 showNotifCard('anomaly',
                     '⚠️ ยอดเงินผิดปกติ!',
@@ -500,10 +517,10 @@ async function renderDashboard() {
         if (!alertItems) alertItems = '<div class="alert-box-item" style="color:var(--success);">✅ ไม่มี alert</div>';
 
         const packageRows = analytics.packages.length
-            ? analytics.packages.map(p => `<tr><td>${p.package_name}</td><td>${fmtBaht(p.revenue)}</td><td>${fmt(p.buyers)}</td><td>${fmt(p.orders)}</td></tr>`).join('')
+            ? analytics.packages.map(p => `<tr><td>${esc(p.package_name)}</td><td>${fmtBaht(p.revenue)}</td><td>${fmt(p.buyers)}</td><td>${fmt(p.orders)}</td></tr>`).join('')
             : `<tr><td colspan="4" style="color:var(--text-muted);text-align:center;">ไม่มียอดขายในช่วงนี้</td></tr>`;
         const monthRows = analytics.months.length
-            ? analytics.months.map(m => `<tr><td>${m.month}</td><td>${fmtBaht(m.revenue)}</td><td>${fmt(m.buyers)}</td><td>${fmt(m.orders)}</td></tr>`).join('')
+            ? analytics.months.map(m => `<tr><td>${esc(m.month)}</td><td>${fmtBaht(m.revenue)}</td><td>${fmt(m.buyers)}</td><td>${fmt(m.orders)}</td></tr>`).join('')
             : `<tr><td colspan="4" style="color:var(--text-muted);text-align:center;">ยังไม่มีข้อมูลรายเดือน</td></tr>`;
 
         content.innerHTML = `
@@ -614,7 +631,7 @@ async function renderDashboard() {
             });
         }
     } catch (err) {
-        content.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${err.message}</p></div>`;
+        content.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${esc(err.message)}</p></div>`;
     }
 }
 
@@ -637,7 +654,7 @@ async function loadSOSAlerts() {
             const hasActive = s.has_active_sub;
             html += `<div class="pending-card">
                 <div class="pending-info">
-                    <span>👤 ${name} ${hasActive ? '<span style="color:var(--success);font-size:0.75rem;">● VIP</span>' : '<span style="color:var(--error);font-size:0.75rem;">● ไม่มี VIP</span>'}</span>
+                    <span>👤 ${esc(name)} ${hasActive ? '<span style="color:var(--success);font-size:0.75rem;">● VIP</span>' : '<span style="color:var(--error);font-size:0.75rem;">● ไม่มี VIP</span>'}</span>
                     <span style="font-family:var(--font-mono);font-size:0.8rem;color:var(--text-muted);">ID: ${s.telegram_id}</span>
                     <span style="font-size:0.85rem;">💬 ${(s.message || '').slice(0, 100)}</span>
                     <span style="color:var(--text-muted);font-size:0.8rem;">🕒 ${fmtDateTime(s.created_at)}</span>
@@ -645,7 +662,7 @@ async function loadSOSAlerts() {
                 <div class="btn-group">
                     ${hasActive
                         ? `<button class="btn btn-sm btn-primary" id="sos-btn-${s.telegram_id}" onclick="resendSOSLinks(${s.telegram_id}, this)">🔗 ส่งลิงก์ใหม่</button>`
-                        : `<button class="btn btn-sm btn-warning" onclick="sosContactCustomer(${s.telegram_id}, '${name.replace(/'/g, "\\'")}')">💬 แจ้งลูกค้า</button>`
+                        : `<button class="btn btn-sm btn-warning" onclick="sosContactCustomer(${s.telegram_id}, '${esc(name).replace(/'/g, '\\&#39;')}')">💬 แจ้งลูกค้า</button>`
                     }
                     <button class="btn btn-sm btn-outline" onclick="resolveSOSManual(${s.telegram_id})">✅ จบเคส</button>
                 </div>
@@ -729,11 +746,11 @@ async function showSOSHistory(page) {
             const name = s.username ? '@' + s.username : s.first_name || '-';
             html += `<tr>
                 <td>${fmtDateTime(s.created_at)}</td>
-                <td>${name}</td>
+                <td>${esc(name)}</td>
                 <td style="font-family:var(--font-mono);font-size:0.8rem;">${s.telegram_id}</td>
                 <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${(s.message || '-').slice(0, 80)}</td>
                 <td>${statusBadge(s.status)}</td>
-                <td>${s.resolved_by || '-'} ${s.resolved_at ? fmtDateTime(s.resolved_at) : ''}</td>
+                <td>${esc(s.resolved_by || '-')} ${s.resolved_at ? fmtDateTime(s.resolved_at) : ''}</td>
             </tr>`;
         });
         html += '</tbody></table></div>';
@@ -757,9 +774,9 @@ async function loadDashboardPendingSlips() {
                 <div style="flex-shrink:0;">${slipHtml}</div>
                 <div style="flex:1;">
                     <div class="pending-info">
-                        <span>👤 ${p.username ? '@'+p.username : p.first_name || p.telegram_id}</span>
+                        <span>👤 ${p.username ? '@'+esc(p.username) : esc(p.first_name) || p.telegram_id}</span>
                         <span style="font-weight:600;">${fmtBaht(p.amount)}</span>
-                        <span style="color:var(--text-muted);font-size:0.8rem;">${fmtDateTime(p.created_at)} | ${p.package_name || ''}</span>
+                        <span style="color:var(--text-muted);font-size:0.8rem;">${fmtDateTime(p.created_at)} | ${esc(p.package_name || '')}</span>
                     </div>
                     <div class="btn-group" style="margin-top:0.5rem;">
                         <button class="btn btn-sm btn-success" onclick="approvePayment(${p.id})">✅ อนุมัติ</button>
@@ -840,7 +857,7 @@ function previewBroadcastMedia(input) {
     } else if (file.type.startsWith('video/')) {
         preview.innerHTML = `<video src="${url}" controls style="max-width:100%;max-height:200px;border-radius:8px;"></video>`;
     } else {
-        preview.innerHTML = `<div style="color:var(--text-muted);font-size:0.85rem;">📎 ${file.name}</div>`;
+        preview.innerHTML = `<div style="color:var(--text-muted);font-size:0.85rem;">📎 ${esc(file.name)}</div>`;
     }
 }
 
@@ -906,7 +923,7 @@ async function doBroadcast() {
         toast(`Broadcast สำเร็จ: ${data.sent}/${data.total}`, 'success');
     } catch (e) {
         result.style.display = 'block';
-        result.innerHTML = `<div class="alert-box"><div class="alert-box-item" style="color:var(--error);">❌ ${e.message}</div></div>`;
+        result.innerHTML = `<div class="alert-box"><div class="alert-box-item" style="color:var(--error);">❌ ${esc(e.message)}</div></div>`;
         btn.disabled = false;
         btn.textContent = '📩 ส่ง Broadcast';
         toast(e.message, 'error');
@@ -924,7 +941,7 @@ async function showBroadcastHistory(page) {
             const msg = (b.message_text || '').slice(0, 60) + ((b.message_text || '').length > 60 ? '...' : '');
             html += `<tr>
                 <td>${fmtDateTime(b.created_at)}</td>
-                <td>${b.admin_name || b.admin_id}</td>
+                <td>${esc(b.admin_name || b.admin_id)}</td>
                 <td>${target}</td>
                 <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.85rem;">${msg}</td>
                 <td><span style="color:var(--success);">${b.total_sent}</span> / <span style="color:var(--error);">${b.total_failed}</span></td>
@@ -946,9 +963,9 @@ async function loadCustomers(page) {
             const status = u.sub_status || (u.is_banned ? 'BANNED' : 'NONE');
             html += `<tr>
                 <td>${(customerPage-1)*25+i+1}</td>
-                <td>${u.username ? '@'+u.username : u.first_name || '-'}</td>
+                <td>${u.username ? '@'+esc(u.username) : esc(u.first_name) || '-'}</td>
                 <td style="font-family:var(--font-mono);font-size:0.8rem;">${u.telegram_id}</td>
-                <td>${u.package_name || '-'}</td>
+                <td>${esc(u.package_name || '-')}</td>
                 <td>${statusBadge(status)}</td>
                 <td>${fmtDate(u.end_date)}</td>
                 <td>${fmtBaht(u.total_spent)}</td>
@@ -972,8 +989,8 @@ async function showCustomerDetail(userId) {
         const u = detail.user;
         const sub = detail.subscription;
         
-        let payHtml = payments.map(p => `<tr><td>${fmtDate(p.created_at)}</td><td>${fmtBaht(p.amount)}</td><td>${p.method}</td><td>${statusBadge(p.status)}</td></tr>`).join('');
-        let groupsHtml = groups.map(g => `<span class="status-badge status-active">${g.slug}</span>`).join(' ') || '-';
+        let payHtml = payments.map(p => `<tr><td>${fmtDate(p.created_at)}</td><td>${fmtBaht(p.amount)}</td><td>${esc(p.method)}</td><td>${statusBadge(p.status)}</td></tr>`).join('');
+        let groupsHtml = groups.map(g => `<span class="status-badge status-active">${esc(g.slug)}</span>`).join(' ') || '-';
         
         let actionsHtml = '';
         if (hasRole('admin')) {
@@ -987,7 +1004,7 @@ async function showCustomerDetail(userId) {
                 </div>`;
         }
         
-        openModal(`👤 ${u.username ? '@'+u.username : u.first_name || 'User'} (ID: ${u.telegram_id})`, `
+        openModal(`👤 ${u.username ? '@'+esc(u.username) : esc(u.first_name) || 'User'} (ID: ${u.telegram_id})`, `
             <div class="detail-panel">
                 <div class="detail-row"><span class="detail-label">แพ็กเกจ</span><span class="detail-value">${sub ? sub.package_name : '-'}</span></div>
                 <div class="detail-row"><span class="detail-label">สถานะ</span><span class="detail-value">${sub ? statusBadge(sub.status) : statusBadge(u.is_banned ? 'BANNED' : 'NONE')}</span></div>
@@ -1031,11 +1048,11 @@ async function customerAction(userId, action) {
         }
     } else if (action === 'kick') {
         const groups = await api('/groups');
-        const checkboxes = groups.map(g => `<label style="display:block;margin:0.3rem 0;"><input type="checkbox" class="kick-group" value="${g.id}"> ${g.slug} — ${g.title}</label>`).join('');
+        const checkboxes = groups.map(g => `<label style="display:block;margin:0.3rem 0;"><input type="checkbox" class="kick-group" value="${g.id}"> ${esc(g.slug)} — ${esc(g.title)}</label>`).join('');
         openModal('🔨 เตะออกจากกลุ่ม', `${checkboxes}<button class="btn btn-warning btn-full" style="margin-top:1rem;" onclick="doKick(${userId})">ยืนยันเตะ</button>`);
     } else if (action === 'upgrade') {
         const pkgs = await api('/settings/packages');
-        const opts = pkgs.map(p => `<option value="${p.id}">${p.name} (${fmtBaht(p.price)})</option>`).join('');
+        const opts = pkgs.map(p => `<option value="${p.id}">${esc(p.name)} (${fmtBaht(p.price)})</option>`).join('');
         openModal('🆙 อัพเกรด', `
             <div class="form-group"><label>แพ็กเกจใหม่</label><select id="upgrade-pkg">${opts}</select></div>
             <button class="btn btn-primary btn-full" onclick="doUpgrade(${userId})">ยืนยันอัพเกรด</button>
@@ -1044,36 +1061,51 @@ async function customerAction(userId, action) {
 }
 
 async function doExtend(uid) {
+    if (_busy.has(`ext-${uid}`)) return;
+    _busy.add(`ext-${uid}`);
     try {
         await api(`/customers/${uid}/extend`, { method: 'POST', body: JSON.stringify({ days: parseInt(document.getElementById('extend-days').value) }) });
         toast('ต่อเวลาสำเร็จ', 'success'); closeModal();
     } catch (e) { toast(e.message, 'error'); }
+    finally { _busy.delete(`ext-${uid}`); }
 }
 async function doDM(uid) {
+    if (_busy.has(`dm-${uid}`)) return;
+    _busy.add(`dm-${uid}`);
     try {
         await api(`/customers/${uid}/dm`, { method: 'POST', body: JSON.stringify({ message: document.getElementById('dm-message').value }) });
         toast('ส่ง DM แล้ว', 'success'); closeModal();
     } catch (e) { toast(e.message, 'error'); }
+    finally { _busy.delete(`dm-${uid}`); }
 }
 async function doBan(uid) {
+    if (_busy.has(`ban-${uid}`)) return;
+    _busy.add(`ban-${uid}`);
     try {
         await api(`/customers/${uid}/ban`, { method: 'POST', body: JSON.stringify({ reason: document.getElementById('ban-reason').value }) });
         toast('แบนแล้ว', 'success'); closeModal(); loadCustomers();
     } catch (e) { toast(e.message, 'error'); }
+    finally { _busy.delete(`ban-${uid}`); }
 }
 async function doKick(uid) {
+    if (_busy.has(`kick-${uid}`)) return;
     const ids = [...document.querySelectorAll('.kick-group:checked')].map(c => parseInt(c.value));
     if (!ids.length) { toast('เลือกกลุ่มก่อน', 'error'); return; }
+    _busy.add(`kick-${uid}`);
     try {
         await api(`/customers/${uid}/kick`, { method: 'POST', body: JSON.stringify({ group_ids: ids }) });
         toast('เตะแล้ว', 'success'); closeModal();
     } catch (e) { toast(e.message, 'error'); }
+    finally { _busy.delete(`kick-${uid}`); }
 }
 async function doUpgrade(uid) {
+    if (_busy.has(`upg-${uid}`)) return;
+    _busy.add(`upg-${uid}`);
     try {
         await api(`/customers/${uid}/upgrade`, { method: 'POST', body: JSON.stringify({ package_id: parseInt(document.getElementById('upgrade-pkg').value) }) });
         toast('อัพเกรดสำเร็จ', 'success'); closeModal();
     } catch (e) { toast(e.message, 'error'); }
+    finally { _busy.delete(`upg-${uid}`); }
 }
 
 // ========== PAGE: FINANCE ==========
@@ -1127,9 +1159,9 @@ async function loadPendingSlips() {
                 <div style="flex-shrink:0;">${slipHtml}</div>
                 <div style="flex:1;">
                     <div class="pending-info">
-                        <span>👤 ${p.username ? '@'+p.username : p.first_name || p.telegram_id}</span>
+                        <span>👤 ${p.username ? '@'+esc(p.username) : esc(p.first_name) || p.telegram_id}</span>
                         <span style="font-weight:600;">${fmtBaht(p.amount)}</span>
-                        <span style="color:var(--text-muted);font-size:0.8rem;">${fmtDateTime(p.created_at)} | ${p.package_name || ''}</span>
+                        <span style="color:var(--text-muted);font-size:0.8rem;">${fmtDateTime(p.created_at)} | ${esc(p.package_name || '')}</span>
                     </div>
                     <div class="btn-group" style="margin-top:0.5rem;">
                         <button class="btn btn-sm btn-success" onclick="approvePayment(${p.id})">✅ อนุมัติ</button>
@@ -1152,7 +1184,7 @@ async function loadExpiredPending() {
         expired.forEach(p => {
             html += `<div class="pending-card" style="border-color:var(--text-dim);opacity:0.7;">
                 <div class="pending-info">
-                    <span>👤 ${p.username ? '@'+p.username : p.first_name || p.telegram_id}</span>
+                    <span>👤 ${p.username ? '@'+esc(p.username) : esc(p.first_name) || p.telegram_id}</span>
                     <span style="font-weight:600;">${fmtBaht(p.amount)}</span>
                     <span style="color:var(--text-dim);font-size:0.8rem;">${fmtDateTime(p.created_at)}</span>
                 </div>
@@ -1168,22 +1200,28 @@ async function loadExpiredPending() {
 }
 
 async function approvePayment(id) {
+    if (_busy.has(`appr-${id}`)) return;
     if (!confirm('อนุมัติสลิปนี้?')) return;
+    _busy.add(`appr-${id}`);
     try {
         await api(`/payments/${id}/approve`, { method: 'POST' });
         toast('อนุมัติแล้ว', 'success');
         loadPendingSlips(); loadDashboardPendingSlips(); loadPayments(); checkAlerts();
     } catch (e) { toast(e.message, 'error'); }
+    finally { _busy.delete(`appr-${id}`); }
 }
 
 async function rejectPayment(id) {
+    if (_busy.has(`rej-${id}`)) return;
     const reason = prompt('เหตุผลปฏิเสธ:');
     if (reason === null) return;
+    _busy.add(`rej-${id}`);
     try {
         await api(`/payments/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) });
         toast('ปฏิเสธแล้ว', 'success');
         loadPendingSlips(); loadDashboardPendingSlips(); loadPayments(); checkAlerts();
     } catch (e) { toast(e.message, 'error'); }
+    finally { _busy.delete(`rej-${id}`); }
 }
 
 async function loadPayments(page) {
@@ -1194,10 +1232,10 @@ async function loadPayments(page) {
         data.items.forEach(p => {
             html += `<tr>
                 <td>${fmtDateTime(p.created_at)}</td>
-                <td>${p.username ? '@'+p.username : p.first_name || '-'}</td>
+                <td>${p.username ? '@'+esc(p.username) : esc(p.first_name) || '-'}</td>
                 <td style="font-weight:600;">${fmtBaht(p.amount)}</td>
-                <td>${p.method}</td>
-                <td>${p.package_name}</td>
+                <td>${esc(p.method)}</td>
+                <td>${esc(p.package_name)}</td>
                 <td>${statusBadge(p.status)}</td>
             </tr>`;
         });
@@ -1265,7 +1303,7 @@ async function loadPromotionCampaigns() {
     try {
         const data = await api('/promotion-campaigns');
         const rows = data.length ? data.map(c => `<tr>
-            <td><div style="font-weight:600;">${c.name}</div><div style="color:var(--text-muted);font-size:0.8rem;">${c.package_name || ''}</div></td>
+            <td><div style="font-weight:600;">${esc(c.name)}</div><div style="color:var(--text-muted);font-size:0.8rem;">${esc(c.package_name || '')}</div></td>
             <td>${fmtBaht(c.normal_price)} → <b style="color:var(--primary);">${fmtBaht(c.promo_price)}</b></td>
             <td>${fmtDateTime(c.starts_at)}<br><span style="color:var(--text-muted);">ถึง ${fmtDateTime(c.ends_at)}</span><br><span style="color:var(--primary);font-size:0.75rem;">${(c.delivery_channels || []).join(", ")}</span></td>
             <td>${c.is_active ? '<span style="color:var(--success)">🟢 Active</span>' : '<span style="color:var(--text-dim)">⭕ ปิด</span>'}</td>
@@ -1290,7 +1328,7 @@ async function loadPromotionCampaigns() {
 
 async function showPromotionCampaignForm() {
     const packages = await api('/settings/packages');
-    const pkgOptions = packages.map(p => `<option value="${p.id}" data-price="${p.price}">${p.name} — ${fmtBaht(p.price)}</option>`).join('');
+    const pkgOptions = packages.map(p => `<option value="${p.id}" data-price="${p.price}">${esc(p.name)} — ${fmtBaht(p.price)}</option>`).join('');
     openModal('🎯 สร้างแคมเปญโปร', `
         <div class="form-group"><label>ชื่อโปร</label><input id="camp-name" placeholder="เช่น โปรสิ้นเดือน VIP 300 เหลือ 200"></div>
         <div class="form-row">
@@ -1392,19 +1430,19 @@ async function loadPromoPerformance() {
     try {
         const data = await api('/promo-performance');
         const flashRows = data.flash_sales.length ? data.flash_sales.map(f => `<tr>
-            <td>${f.name}</td><td>${f.package_name || '-'}</td><td>${fmtBaht(f.flash_price)}</td>
+            <td>${esc(f.name)}</td><td>${esc(f.package_name || '-')}</td><td>${fmtBaht(f.flash_price)}</td>
             <td>${fmt(f.sold_slots)}/${fmt(f.total_slots)}</td><td style="font-weight:600;color:var(--success);">${fmtBaht(f.revenue)}</td>
             <td>${fmtBaht(f.discount_saved)}</td><td>${fmtDateTime(f.starts_at)} - ${fmtDateTime(f.ends_at)}</td>
         </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">ยังไม่มี Flash Sale</td></tr>`;
 
         const codeRows = data.promo_codes.length ? data.promo_codes.map(c => `<tr>
-            <td style="font-family:var(--font-mono);color:var(--primary);">${c.code}</td><td>${c.discount_pct}%</td>
+            <td style="font-family:var(--font-mono);color:var(--primary);">${esc(c.code)}</td><td>${c.discount_pct}%</td>
             <td>${fmt(c.buyers)} คน</td><td>${fmt(c.tracked_uses || c.used_count)}/${fmt(c.max_uses)}</td>
             <td style="font-weight:600;color:var(--success);">${fmtBaht(c.revenue)}</td><td>${fmtBaht(c.discount_total)}</td><td>${fmtDate(c.expires_at)}</td>
         </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">ยังไม่มี Promo Code ที่ถูกใช้</td></tr>`;
 
         const schedRows = data.scheduled_promotions.length ? data.scheduled_promotions.map(s => `<tr>
-            <td>${s.name}</td><td>${fmtDateTime(s.scheduled_at)}</td><td>${s.repeat_type}</td>
+            <td>${esc(s.name)}</td><td>${fmtDateTime(s.scheduled_at)}</td><td>${esc(s.repeat_type)}</td>
             <td>${s.is_sent ? '<span style="color:var(--success)">ส่งแล้ว</span>' : s.is_active ? '<span style="color:var(--warning)">รอส่ง</span>' : 'ปิด'}</td>
             <td style="color:var(--text-muted);">ยังไม่ผูกยอดขายอัตโนมัติ</td>
         </tr>`).join('') : `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">ยังไม่มีโปรตั้งเวลา</td></tr>`;
@@ -1434,7 +1472,7 @@ async function loadFlashSales() {
         html += '<div class="table-wrap"><table><thead><tr><th>ชื่อ</th><th>ราคา</th><th>Slot</th><th>Sold</th><th>เริ่ม</th><th>สิ้นสุด</th><th>สถานะ</th><th></th></tr></thead><tbody>';
         data.forEach(s => {
             html += `<tr>
-                <td>${s.name}</td><td>${fmtBaht(s.flash_price)}</td><td>${s.total_slots}</td><td>${s.sold_slots}</td>
+                <td>${esc(s.name)}</td><td>${fmtBaht(s.flash_price)}</td><td>${s.total_slots}</td><td>${s.sold_slots}</td>
                 <td>${fmtDateTime(s.starts_at)}</td><td>${fmtDateTime(s.ends_at)}</td>
                 <td>${s.is_active ? '<span style="color:var(--success)">🟢 Live</span>' : '<span style="color:var(--text-dim)">⭕ ปิด</span>'}</td>
                 <td><div class="btn-group">
@@ -1449,7 +1487,7 @@ async function loadFlashSales() {
 
 async function showFlashSaleForm() {
     const packages = await api('/settings/packages');
-    const pkgOptions = packages.map(p => `<option value="${p.id}" data-price="${p.price}">${p.name} — ${fmtBaht(p.price)}</option>`).join('');
+    const pkgOptions = packages.map(p => `<option value="${p.id}" data-price="${p.price}">${esc(p.name)} — ${fmtBaht(p.price)}</option>`).join('');
     openModal('⚡ สร้าง Flash Sale', `
         <div class="form-group"><label>ชื่อ</label><input id="fs-name" placeholder="ชื่อ Flash Sale"></div>
         <div class="form-row">
@@ -1505,7 +1543,7 @@ async function loadPromoCodes() {
         html += '<div class="table-wrap"><table><thead><tr><th>Code</th><th>ส่วนลด</th><th>ใช้แล้ว/ทั้งหมด</th><th>หมดอายุ</th><th>สถานะ</th><th></th></tr></thead><tbody>';
         data.forEach(c => {
             html += `<tr>
-                <td style="font-family:var(--font-mono);color:var(--primary);">${c.code}</td>
+                <td style="font-family:var(--font-mono);color:var(--primary);">${esc(c.code)}</td>
                 <td>${c.discount_pct}%</td><td>${c.used_count}/${c.max_uses}</td>
                 <td>${fmtDate(c.expires_at)}</td>
                 <td>${c.is_active ? '<span style="color:var(--success)">Active</span>' : '<span style="color:var(--text-dim)">Off</span>'}</td>
@@ -1555,7 +1593,7 @@ async function loadScheduledPromos() {
         let html = `<button class="btn btn-primary" onclick="showScheduledForm()" style="margin-bottom:1rem;">+ สร้างโปรโมทตั้งเวลา</button>`;
         html += '<div class="table-wrap"><table><thead><tr><th>ชื่อ</th><th>เวลา</th><th>ทุก</th><th>สถานะ</th><th></th></tr></thead><tbody>';
         data.forEach(s => {
-            html += `<tr><td>${s.name}</td><td>${fmtDateTime(s.scheduled_at)}</td><td>${s.repeat_type}</td>
+            html += `<tr><td>${esc(s.name)}</td><td>${fmtDateTime(s.scheduled_at)}</td><td>${esc(s.repeat_type)}</td>
                 <td>${s.is_sent ? '<span style="color:var(--success)">✅ ส่งแล้ว</span>' : s.is_active ? '<span style="color:var(--warning)">⏳ รอ</span>' : 'Off'}</td>
                 <td><button class="btn btn-sm btn-danger" onclick="deleteScheduledPromo(${s.id})">🗑</button></td></tr>`;
         });
@@ -1632,7 +1670,7 @@ async function loadContentQueue() {
         if (!data.length) { document.getElementById('content-area').innerHTML = html + '<div class="empty-state"><div class="icon">📸</div><p>Queue ว่าง</p></div>'; setupDropZone(); return; }
         html += '<div class="table-wrap"><table><thead><tr><th>#</th><th>Type</th><th>File ID</th><th>วันที่</th><th></th></tr></thead><tbody>';
         data.forEach((c, i) => {
-            html += `<tr><td>${i+1}</td><td>${c.file_type}</td><td style="font-family:var(--font-mono);font-size:0.75rem;">${(c.file_id || '').slice(0,30)}...</td><td>${fmtDateTime(c.created_at)}</td>
+            html += `<tr><td>${i+1}</td><td>${esc(c.file_type)}</td><td style="font-family:var(--font-mono);font-size:0.75rem;">${esc((c.file_id || '').slice(0,30))}...</td><td>${fmtDateTime(c.created_at)}</td>
                 <td>${hasRole('admin') ? `<button class="btn btn-sm btn-danger" onclick="deleteQueueItem(${c.id})">🗑</button>` : ''}</td></tr>`;
         });
         html += '</tbody></table></div>';
@@ -1658,7 +1696,7 @@ async function handleContentUpload(files) {
     let successCount = 0;
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        progress.innerHTML = `<div style="color:var(--primary);font-size:0.85rem;">⏳ กำลังอัพโหลด ${file.name} (${i+1}/${files.length})...</div>`;
+        progress.innerHTML = `<div style="color:var(--primary);font-size:0.85rem;">⏳ กำลังอัพโหลด ${esc(file.name)} (${i+1}/${files.length})...</div>`;
         try {
             const formData = new FormData();
             formData.append('file', file);
@@ -1686,7 +1724,7 @@ async function loadContentSchedule() {
         const data = await api('/content/schedule');
         let html = '<div class="table-wrap"><table><thead><tr><th>เวลา</th><th>กลุ่ม</th><th>Type</th><th>สถานะ</th></tr></thead><tbody>';
         data.forEach(s => {
-            html += `<tr><td>${fmtDateTime(s.scheduled_at)}</td><td>${s.group_slug}</td><td>${s.content_type}</td>
+            html += `<tr><td>${fmtDateTime(s.scheduled_at)}</td><td>${esc(s.group_slug)}</td><td>${esc(s.content_type)}</td>
                 <td>${s.is_sent ? '<span style="color:var(--success)">✅ ส่งแล้ว</span>' : '<span style="color:var(--warning)">⏳ รอ</span>'}</td></tr>`;
         });
         html += '</tbody></table></div>';
@@ -1714,20 +1752,20 @@ async function renderGroups() {
         const data = await api('/groups/categorized');
         
         function groupTable(groups, emoji, title, category) {
-            let html = `<div class="category-section"><div class="category-header">${emoji} ${title} <span class="category-count">${groups.length}</span>
+            let html = `<div class="category-section"><div class="category-header">${emoji} ${esc(title)} <span class="category-count">${groups.length}</span>
                 <button class="btn btn-sm btn-primary" style="margin-left:auto;" onclick="showAddGroupForm('${category}')">+ เพิ่มกลุ่ม</button>
             </div>`;
             if (!groups.length) { html += '<div class="empty-state" style="padding:1rem;">ไม่มีกลุ่ม</div></div>'; return html; }
             html += '<div class="table-wrap"><table><thead><tr><th>Slug</th><th>ชื่อกลุ่ม</th><th>Chat ID</th><th>Tier</th><th>สถานะ</th><th></th></tr></thead><tbody>';
             groups.forEach(g => {
                 html += `<tr>
-                    <td style="font-family:var(--font-mono);color:var(--primary);">${g.slug}</td>
-                    <td>${g.title}</td>
+                    <td style="font-family:var(--font-mono);color:var(--primary);">${esc(g.slug)}</td>
+                    <td>${esc(g.title)}</td>
                     <td style="font-family:var(--font-mono);font-size:0.8rem;">${g.chat_id}</td>
-                    <td>${g.min_tier}</td>
+                    <td>${esc(g.min_tier)}</td>
                     <td>${g.is_active ? '<span style="color:var(--success)">Active</span>' : 'Off'}</td>
                     <td><div class="btn-group">
-                        <button class="btn btn-sm btn-outline" onclick="showEditGroupForm(${g.id},'${g.slug}','${g.title.replace(/'/g,"&#39;")}',${g.chat_id},'${g.min_tier}',${g.is_active})">✏️</button>
+                        <button class="btn btn-sm btn-outline" onclick="showEditGroupForm(${g.id},'${esc(g.slug).replace(/'/g,'\\&#39;')}','${esc(g.title).replace(/'/g,'\\&#39;')}',${g.chat_id},'${esc(g.min_tier).replace(/'/g,'\\&#39;')}',${g.is_active})">✏️</button>
                         <button class="btn btn-sm btn-danger" onclick="deleteGroup(${g.id})">🗑️</button>
                         <button class="btn btn-sm btn-outline" onclick="showGroupDetail(${g.id})">📋</button>
                         <button class="btn btn-sm btn-primary" onclick="genInviteLink(${g.id})">🔗</button>
@@ -1742,7 +1780,7 @@ async function renderGroups() {
             groupTable(data.free, '🆓', 'กลุ่มฟรี', 'free') +
             groupTable(data.chat, '💬', 'กลุ่มพูดคุย', 'chat');
         
-    } catch (e) { content.innerHTML = `<div class="empty-state">${e.message}</div>`; }
+    } catch (e) { content.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`; }
 }
 
 function showAddGroupForm(category) {
@@ -1780,7 +1818,7 @@ async function createGroup() {
 
 function showEditGroupForm(id, slug, title, chatId, tier, isActive) {
     openModal('✏️ แก้ไขกลุ่ม: ' + slug, `
-        <div class="form-group"><label>ชื่อกลุ่ม</label><input id="egrp-title" value="${title}"></div>
+        <div class="form-group"><label>ชื่อกลุ่ม</label><input id="egrp-title" value="${esc(title)}"></div>
         <div class="form-group"><label>Chat ID</label><input id="egrp-chatid" type="number" value="${chatId}"></div>
         <div class="form-group"><label>Tier</label>
             <select id="egrp-tier">
@@ -1825,7 +1863,7 @@ async function showGroupDetail(id) {
         let html = '<div class="section-title">👥 สมาชิก</div>';
         html += '<div class="table-wrap"><table><thead><tr><th>ชื่อ</th><th>Telegram ID</th><th>แพ็กเกจ</th><th>หมดอายุ</th></tr></thead><tbody>';
         members.forEach(m => {
-            html += `<tr><td>${m.username ? '@'+m.username : m.first_name || '-'}</td><td>${m.telegram_id}</td><td>${m.package_name}</td><td>${fmtDate(m.end_date)}</td></tr>`;
+            html += `<tr><td>${m.username ? '@'+esc(m.username) : esc(m.first_name) || '-'}</td><td>${m.telegram_id}</td><td>${esc(m.package_name)}</td><td>${fmtDate(m.end_date)}</td></tr>`;
         });
         html += '</tbody></table></div>';
         openModal('📱 สมาชิกกลุ่ม', html);
@@ -1833,12 +1871,15 @@ async function showGroupDetail(id) {
 }
 
 async function genInviteLink(id) {
+    if (_busy.has(`inv-${id}`)) return;
+    _busy.add(`inv-${id}`);
     try {
         const result = await api(`/groups/${id}/invite-link`, { method: 'POST' });
         const link = result?.result?.invite_link || 'ไม่สามารถสร้าง link ได้';
-        openModal('🔗 Invite Link', `<div style="word-break:break-all;font-family:var(--font-mono);color:var(--primary);padding:1rem;background:var(--bg);border-radius:var(--radius-sm);">${link}</div>
-            <button class="btn btn-primary btn-full" style="margin-top:1rem;" onclick="navigator.clipboard.writeText('${link}');toast('คัดลอกแล้ว','success')">📋 Copy</button>`);
+        openModal('🔗 Invite Link', `<div style="word-break:break-all;font-family:var(--font-mono);color:var(--primary);padding:1rem;background:var(--bg);border-radius:var(--radius-sm);">${esc(link)}</div>
+            <button class="btn btn-primary btn-full" style="margin-top:1rem;" onclick="navigator.clipboard.writeText('${esc(link).replace(/'/g,'\\&#39;')}');toast('คัดลอกแล้ว','success')">📋 Copy</button>`);
     } catch (e) { toast(e.message, 'error'); }
+    finally { _busy.delete(`inv-${id}`); }
 }
 
 // ========== PAGE: TEAM ==========
@@ -1865,17 +1906,17 @@ async function renderTeam() {
             const theirLevel = ROLE_LEVELS[m.role] || 0;
             const canEdit = myLevel > theirLevel && m.role !== 'owner';
             html += `<tr>
-                <td>${m.display_name}</td>
+                <td>${esc(m.display_name)}</td>
                 <td style="font-family:var(--font-mono);">${m.telegram_id}</td>
-                <td>${roleIcon} ${m.role}</td>
+                <td>${roleIcon} ${esc(m.role)}</td>
                 <td>${m.is_active ? '<span style="color:var(--success)">🟢</span>' : '<span style="color:var(--error)">🔴</span>'}</td>
                 <td>${fmtDateTime(m.last_login_at)}</td>
-                <td>${canEdit ? `<div class="btn-group"><button class="btn btn-sm btn-outline" onclick="showEditTeam(${m.id},'${m.display_name}','${m.role}',${m.is_active})">✏️</button><button class="btn btn-sm btn-outline" onclick="showTeamActivity(${m.id})">📋</button></div>` : (m.role !== 'owner' ? `<button class="btn btn-sm btn-outline" onclick="showTeamActivity(${m.id})">📋</button>` : '')}</td>
+                <td>${canEdit ? `<div class="btn-group"><button class="btn btn-sm btn-outline" onclick="showEditTeam(${m.id},'${esc(m.display_name).replace(/'/g,'\\&#39;')}','${esc(m.role).replace(/'/g,'\\&#39;')}',${m.is_active})">✏️</button><button class="btn btn-sm btn-outline" onclick="showTeamActivity(${m.id})">📋</button></div>` : (m.role !== 'owner' ? `<button class="btn btn-sm btn-outline" onclick="showTeamActivity(${m.id})">📋</button>` : '')}</td>
             </tr>`;
         });
         html += '</tbody></table></div>';
         content.innerHTML = html;
-    } catch (e) { content.innerHTML = `<div class="empty-state">${e.message}</div>`; }
+    } catch (e) { content.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`; }
 }
 
 function showAddTeamForm() {
@@ -1892,6 +1933,8 @@ function showAddTeamForm() {
 }
 
 async function addTeamMember() {
+    if (_busy.has('addTeam')) return;
+    _busy.add('addTeam');
     try {
         await api('/team', { method: 'POST', body: JSON.stringify({
             telegram_id: parseInt(document.getElementById('tm-tid').value),
@@ -1901,6 +1944,7 @@ async function addTeamMember() {
         })});
         toast('เพิ่มทีมงานแล้ว', 'success'); closeModal(); renderTeam();
     } catch (e) { toast(e.message, 'error'); }
+    finally { _busy.delete('addTeam'); }
 }
 
 function showEditTeam(id, name, role, isActive) {
@@ -1950,7 +1994,7 @@ async function showTeamActivity(id) {
         let html = '<div class="table-wrap"><table><thead><tr><th>เวลา</th><th>Action</th><th>Type</th><th>Details</th></tr></thead><tbody>';
         data.items.forEach(a => {
             const details = a.details ? JSON.stringify(a.details).slice(0,80) : '-';
-            html += `<tr><td>${fmtDateTime(a.created_at)}</td><td>${a.action}</td><td>${a.entity_type || '-'}</td><td style="font-size:0.8rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;">${details}</td></tr>`;
+            html += `<tr><td>${fmtDateTime(a.created_at)}</td><td>${esc(a.action)}</td><td>${esc(a.entity_type || '-')}</td><td style="font-size:0.8rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;">${esc(details)}</td></tr>`;
         });
         html += '</tbody></table></div>';
         openModal('📋 Activity Log', html);
@@ -1982,9 +2026,9 @@ async function loadPackages() {
         if (hasRole('owner')) html += `<button class="btn btn-primary" onclick="showPkgForm()" style="margin-bottom:1rem;">+ เพิ่มแพ็กเกจ</button>`;
         html += '<div class="table-wrap"><table><thead><tr><th>ชื่อ</th><th>ราคา</th><th>วัน</th><th>Tier</th><th>สถานะ</th><th></th></tr></thead><tbody>';
         data.forEach(p => {
-            html += `<tr><td>${p.name}</td><td>${fmtBaht(p.price)}</td><td>${p.duration_days}</td><td>${p.tier}</td>
+            html += `<tr><td>${esc(p.name)}</td><td>${fmtBaht(p.price)}</td><td>${p.duration_days}</td><td>${esc(p.tier)}</td>
                 <td>${p.is_active ? '<span style="color:var(--success)">Active</span>' : 'Off'}</td>
-                <td>${hasRole('owner') ? `<button class="btn btn-sm btn-outline" onclick="editPkg(${p.id},'${p.name}',${p.price},${p.duration_days})">✏️</button>` : ''}</td></tr>`;
+                <td>${hasRole('owner') ? `<button class="btn btn-sm btn-outline" onclick="editPkg(${p.id},'${esc(p.name).replace(/'/g,'\\&#39;')}',${p.price},${p.duration_days})">✏️</button>` : ''}</td></tr>`;
         });
         html += '</tbody></table></div>';
         document.getElementById('settings-area').innerHTML = html;
@@ -2017,7 +2061,7 @@ async function createPkg() {
 
 function editPkg(id, name, price, days) {
     openModal('✏️ แก้ไข ' + name, `
-        <div class="form-group"><label>ชื่อ</label><input id="epkg-name" value="${name}"></div>
+        <div class="form-group"><label>ชื่อ</label><input id="epkg-name" value="${esc(name)}"></div>
         <div class="form-row">
             <div class="form-group"><label>ราคา</label><input id="epkg-price" type="number" value="${price}"></div>
             <div class="form-group"><label>วัน</label><input id="epkg-days" type="number" value="${days}"></div>
@@ -2239,7 +2283,7 @@ async function renderMarketing() {
             const weeklyEl = document.getElementById('weekly-chart');
             if (weeklyEl) weeklyEl.parentElement.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.9rem;">📊 ยังไม่มีข้อมูลรายสัปดาห์</div>';
         }
-    } catch (e) { content.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${e.message}</p></div>`; }
+    } catch (e) { content.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${esc(e.message)}</p></div>`; }
 }
 
 // ========== PAGE: ACTIVITY LOG ==========
@@ -2249,7 +2293,7 @@ async function renderActivityLog() {
     try {
         const filters = await api('/dashboard/activity-log/filters');
         const actionOpts = '<option value="">ทั้งหมด</option>' + filters.actions.map(a => `<option value="${a}" ${activityAction===a?'selected':''}>${a}</option>`).join('');
-        const adminOpts = '<option value="0">ทั้งหมด</option>' + filters.admins.map(a => `<option value="${a.id}" ${activityAdmin==a.id?'selected':''}>${a.name}</option>`).join('');
+        const adminOpts = '<option value="0">ทั้งหมด</option>' + filters.admins.map(a => `<option value="${a.id}" ${activityAdmin==a.id?'selected':''}>${esc(a.name)}</option>`).join('');
         content.innerHTML = `
             <div class="filters" style="margin-bottom:1rem;">
                 <select onchange="activityAction=this.value;activityPage=1;loadActivityLog()" style="padding:0.5rem;border-radius:var(--radius-sm);background:var(--surface-2);color:var(--text);border:1px solid var(--border);">
@@ -2263,7 +2307,7 @@ async function renderActivityLog() {
             <div id="activity-pagination"></div>
         `;
         loadActivityLog();
-    } catch (e) { content.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${e.message}</p></div>`; }
+    } catch (e) { content.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${esc(e.message)}</p></div>`; }
 }
 
 async function loadActivityLog(page) {
@@ -2278,12 +2322,12 @@ async function loadActivityLog(page) {
             const details = a.details ? JSON.stringify(a.details).slice(0, 100) : '-';
             html += `<tr>
                 <td style="white-space:nowrap;">${fmtDateTime(a.created_at)}</td>
-                <td>${a.admin_name || a.admin_id}</td>
-                <td><span class="status-badge">${a.action}</span></td>
-                <td>${a.entity_type || '-'}</td>
+                <td>${esc(a.admin_name || a.admin_id)}</td>
+                <td><span class="status-badge">${esc(a.action)}</span></td>
+                <td>${esc(a.entity_type || '-')}</td>
                 <td>${a.entity_id || '-'}</td>
-                <td style="font-size:0.8rem;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${details}</td>
-                <td style="font-size:0.75rem;font-family:var(--font-mono);">${a.ip_address || '-'}</td>
+                <td style="font-size:0.8rem;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(details)}</td>
+                <td style="font-size:0.75rem;font-family:var(--font-mono);">${esc(a.ip_address || '-')}</td>
             </tr>`;
         });
         html += '</tbody></table></div>';
@@ -2298,3 +2342,19 @@ if (token && admin) {
 } else {
     document.getElementById('login-page').classList.remove('hidden');
 }
+
+// ========== FIX 2025-05-21 (Phase D-XSS): Auto-logout on idle 30 min ==========
+let _idleTimer;
+function _resetIdleTimer() {
+    clearTimeout(_idleTimer);
+    _idleTimer = setTimeout(() => {
+        if (token) {
+            try { toast('Idle 30 นาที — auto logout', 'error'); } catch {}
+            logout();
+        }
+    }, 30 * 60 * 1000);
+}
+['click','keydown','mousemove','touchstart'].forEach(e =>
+    document.addEventListener(e, _resetIdleTimer, true)
+);
+_resetIdleTimer();

@@ -7,7 +7,9 @@ from ..config import JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_HOURS
 def create_token(admin_id: int, telegram_id: int, role: str, display_name: str) -> tuple[str, str, datetime]:
     """Create JWT token. Returns (token, jti, expires_at)."""
     jti = uuid.uuid4().hex
-    expires_at = datetime.utcnow() + timedelta(hours=JWT_EXPIRE_HOURS)
+    # FIX 2025-05-21 (Phase D-2): use timezone-aware UTC (datetime.utcnow is deprecated)
+    now_utc = datetime.now(timezone.utc)
+    expires_at = now_utc + timedelta(hours=JWT_EXPIRE_HOURS)
     payload = {
         "sub": admin_id,
         "tid": telegram_id,
@@ -15,7 +17,7 @@ def create_token(admin_id: int, telegram_id: int, role: str, display_name: str) 
         "name": display_name,
         "jti": jti,
         "exp": expires_at,
-        "iat": datetime.utcnow(),
+        "iat": now_utc,
     }
     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
     return token, jti, expires_at

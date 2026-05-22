@@ -1,5 +1,6 @@
 """Pydantic schemas for request/response validation."""
-from pydantic import BaseModel
+# FIX 2025-05-21 (Phase D-5-business): add field_validator import for promo_code validation
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
 
@@ -22,17 +23,33 @@ class FlashSaleUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 # --- Promo Code ---
+# FIX 2025-05-21 (Phase D-5-business): tighten PromoCodeCreate with field constraints + future-date validator
 class PromoCodeCreate(BaseModel):
-    code: str
-    discount_pct: int
-    max_uses: int = 1
+    code: str = Field(min_length=3, max_length=32)
+    discount_pct: int = Field(ge=1, le=90)
+    max_uses: int = Field(ge=1, le=100000, default=1)
     package_id: Optional[int] = None
-    min_amount: Optional[float] = None
+    min_amount: Optional[float] = Field(default=None, ge=0)
     expires_at: str
 
+    @field_validator("expires_at")
+    @classmethod
+    def must_be_future(cls, v):
+        try:
+            dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+        except ValueError:
+            raise ValueError("expires_at format ไม่ถูกต้อง")
+        # compare as naive UTC for both sides
+        now = datetime.utcnow()
+        dt_cmp = dt.replace(tzinfo=None) if dt.tzinfo else dt
+        if dt_cmp <= now:
+            raise ValueError("expires_at ต้องเป็นอนาคต")
+        return v
+
+# FIX 2025-05-21 (Phase D-5-business): tighten PromoCodeUpdate with field constraints
 class PromoCodeUpdate(BaseModel):
-    discount_pct: Optional[int] = None
-    max_uses: Optional[int] = None
+    discount_pct: Optional[int] = Field(default=None, ge=1, le=90)
+    max_uses: Optional[int] = Field(default=None, ge=1, le=100000)
     is_active: Optional[bool] = None
     expires_at: Optional[str] = None
 
@@ -79,6 +96,10 @@ class TeamMemberUpdate(BaseModel):
     display_name: Optional[str] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
+
+# FIX 2025-05-21 (Phase D-6): typed schema for password reset (min length enforced)
+class PasswordReset(BaseModel):
+    new_password: str = Field(..., min_length=10, max_length=128)
 
 # --- Group ---
 class GroupCreate(BaseModel):

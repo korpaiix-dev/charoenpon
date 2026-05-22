@@ -19,32 +19,31 @@ async def get_current_admin(request: Request) -> dict:
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
     
-    # Check if session is revoked
+    # FIX 2025-05-21 (Phase D-3): re-check is_active + role from DB on every request
+    # (don't trust token claims — demote/disable must take effect immediately)
     jti = payload.get("jti")
     row = await pool.fetchrow(
-        "SELECT revoked_at FROM dashboard_sessions WHERE token_jti = $1", jti
+        """
+        SELECT s.revoked_at, a.is_active, a.role
+        FROM dashboard_sessions s
+        JOIN dashboard_admins a ON a.id = s.admin_id
+        WHERE s.token_jti = $1
+        """,
+        jti,
     )
-    if row and row["revoked_at"]:
+    if not row:
+        raise HTTPException(status_code=401, detail="Session not found")
+    if row["revoked_at"]:
         raise HTTPException(status_code=401, detail="Token revoked")
-    
+    if not row["is_active"]:
+        raise HTTPException(status_code=401, detail="Account disabled")
+
     return {
         "id": payload["sub"],
         "telegram_id": payload["tid"],
-        "role": payload["role"],
+        "role": row["role"],   # DB role (not token) so demote takes effect immediately
         "display_name": payload["name"],
         "jti": jti,
     }
 
-def require_role(min_role: str):
-    """Dependency factory for role-based access."""
-    min_level = ROLE_LEVELS.get(min_role, 0)
-    
-    async def checker(request: Request):
-        admin = await get_current_admin(request)
-        admin_level = ROLE_LEVELS.get(admin["role"], 0)
-        if admin_level < min_level:
-            raise HTTPException(status_code=403, detail=f"Requires {min_role} role or higher")
-        request.state.admin = admin
-        return admin
-    
-    return checker
+d

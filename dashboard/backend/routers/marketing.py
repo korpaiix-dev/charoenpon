@@ -73,6 +73,9 @@ async def ai_insights(admin=Depends(require_role("admin"))):
 
 @router.get("/daily-reports")
 async def daily_reports(page: int = 1, per_page: int = 30, admin=Depends(require_role("admin"))):
+    # FIX 2025-05-21 (Phase D-6-business): clamp pagination
+    per_page = max(1, min(per_page, 100))
+    page = max(1, page)
     offset = (page - 1) * per_page
     total = await pool.fetchval("SELECT COUNT(*) FROM marketing_daily_reports")
     rows = await pool.fetch("""

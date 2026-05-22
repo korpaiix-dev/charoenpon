@@ -79,6 +79,9 @@ async def list_payments(
     date_from: str = "", date_to: str = "",
     admin=Depends(get_current_admin)
 ):
+    # FIX 2025-05-21 (Phase D-6-business): clamp pagination to prevent abusive page sizes
+    per_page = max(1, min(per_page, 100))
+    page = max(1, page)
     offset = (page - 1) * per_page
     conditions = []
     params = []
@@ -149,13 +152,22 @@ async def pending_payments(admin=Depends(get_current_admin)):
               AND s.start_date > p.created_at - interval '1 hour'
           )
     """)
+    # FIX 2025-05-21 (Phase D-2-business): หยุด auto-CONFIRM payment ของ user ที่มี active sub แล้ว
+    # (ลูกค้าจ่ายซ้ำ → revenue บวกเก๊, refund ยาก) — เปลี่ยนเป็น flag REJECTED + reject_reason ชัดเจน
+    # ให้ admin ตัดสินใจ refund หรือ extend เอง
     if stale:
         stale_ids = [r["id"] for r in stale]
         await pool.execute(
-            "UPDATE payments SET status = 'CONFIRMED', verified_by = 0, verified_at = NOW() WHERE id = ANY($1::int[])",
+            """
+            UPDATE payments
+               SET status = 'REJECTED',
+                   verified_by = 0, verified_at = NOW(),
+                   reject_reason = COALESCE(reject_reason, '') || ' [auto-DUPLICATE] ลูกค้ามี active sub อยู่แล้ว — รอ admin ตัดสินใจ refund/extend'
+             WHERE id = ANY($1::int[]) AND status = 'PENDING'
+            """,
             stale_ids
         )
-        logger.info("Auto-confirmed %d stale PENDING payments (already have active sub): %s", len(stale_ids), stale_ids)
+        logger.warning("Auto-flagged %d stale payments as REJECTED/DUPLICATE (was: auto-CONFIRM, dangerous): %s", len(stale_ids), stale_ids)
     return [dict(r) for r in rows]
 
 @router.get("/pending-expired")
@@ -172,13 +184,20 @@ async def pending_expired_payments(admin=Depends(get_current_admin)):
               AND s.start_date > p.created_at - interval '1 hour'
           )
     """)
+    # FIX 2025-05-21 (Phase D-2-business): หยุด auto-CONFIRM — ใช้ REJECTED + reject_reason แทน
     if stale:
         stale_ids = [r["id"] for r in stale]
         await pool.execute(
-            "UPDATE payments SET status = 'CONFIRMED', verified_by = 0, verified_at = NOW() WHERE id = ANY($1::int[])",
+            """
+            UPDATE payments
+               SET status = 'REJECTED',
+                   verified_by = 0, verified_at = NOW(),
+                   reject_reason = COALESCE(reject_reason, '') || ' [auto-DUPLICATE expired] ลูกค้ามี active sub อยู่แล้ว — รอ admin ตัดสินใจ refund/extend'
+             WHERE id = ANY($1::int[]) AND status = 'PENDING'
+            """,
             stale_ids
         )
-        logger.info("Auto-confirmed %d expired PENDING payments: %s", len(stale_ids), stale_ids)
+        logger.warning("Auto-flagged %d expired stale payments as REJECTED/DUPLICATE (was: auto-CONFIRM, dangerous): %s", len(stale_ids), stale_ids)
     
     rows = await pool.fetch("""
         SELECT p.*, u.username, u.first_name, u.telegram_id, pk.name as package_name
@@ -202,11 +221,13 @@ async def _telegram_api(token: str, method: str, payload: dict) -> dict:
         return data
 
 
-async def _generate_invite_links(package_id: int, user_telegram_id: int | None = None) -> dict[str, str]:
+async def _generate_invite_links(package_id: int, user_telegram_id: int | None = None, return_titles: bool = False):
     """Create one-time invite links for all groups the package grants access to.
     
     Uses Guardian Bot via Telegram API (createChatInviteLink).
-    Returns {group_slug: invite_link_url}.
+    Returns {group_slug: invite_link_url} by default.
+    FIX 2025-05-21 (Phase D-9-business): when return_titles=True, returns
+    {group_slug: {"url": link, "title": title}} so callers don't need an N+1 SELECT.
     """
     # Get package's groups_access
     pkg = await pool.fetchrow("SELECT groups_access FROM packages WHERE id = $1", package_id)
@@ -229,6 +250,8 @@ async def _generate_invite_links(package_id: int, user_telegram_id: int | None =
             group_slugs.append(PROMO_SONGKRAN_SLUG)
 
     invite_links = {}
+    # FIX 2025-05-21 (Phase D-9-business): also collect titles to avoid N+1 lookup in caller
+    titles: dict[str, str] = {}
     for slug in group_slugs:
         if slug == PROMO_SONGKRAN_SLUG:
             special = get_songkran_special_group()
@@ -250,72 +273,88 @@ async def _generate_invite_links(package_id: int, user_telegram_id: int | None =
             })
             if result.get("ok"):
                 invite_links[slug] = result["result"]["invite_link"]
+                titles[slug] = grp["title"] or get_group_display_title(slug)
             else:
                 logger.warning("Failed to create invite link for %s: %s", slug, result)
         except Exception as exc:
             logger.warning("Invite link creation error for %s: %s", slug, exc)
 
+    if return_titles:
+        return {slug: {"url": url, "title": titles.get(slug, get_group_display_title(slug))}
+                for slug, url in invite_links.items()}
     return invite_links
 
 
 @router.post("/{payment_id}/approve")
 async def approve_payment(payment_id: int, request: Request, admin=Depends(get_current_admin)):
-    pay = await pool.fetchrow("""
-        SELECT p.*, u.telegram_id as customer_telegram_id, u.first_name as customer_name
-        FROM payments p
-        JOIN users u ON p.user_id = u.id
-        WHERE p.id = $1
-    """, payment_id)
-    if not pay:
-        raise HTTPException(404, "Payment not found")
-    if pay["status"] != "PENDING":
-        raise HTTPException(400, f"Payment is already {pay['status']}")
-
+    # FIX 2025-05-21 (Phase D-1-business): wrap status update + subscription creation + total_spent
+    # in a single DB transaction with UPDATE ... WHERE status='PENDING' RETURNING * as the gate.
+    # ก่อนหน้านี้ admin 2 คนกดพร้อมกัน → INSERT subscription 2 รอบ, total_spent ซ้ำ, sheets log 2 บรรทัด,
+    # referral reward 2 ครั้ง. การ gate ด้วย WHERE status='PENDING' ทำให้แค่ transaction เดียวเท่านั้น
+    # ที่ผ่านไปสร้าง subscription ได้.
     telegram_errors = []
+    pkg = None
+    pay = None
 
-    # ── 1. Update payment status = CONFIRMED ──
-    await pool.execute(
-        "UPDATE payments SET status = 'CONFIRMED', verified_by = $1, verified_at = NOW() WHERE id = $2",
-        admin["telegram_id"], payment_id
-    )
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            pay = await conn.fetchrow("""
+                UPDATE payments
+                   SET status = 'CONFIRMED',
+                       verified_by = $1, verified_at = NOW()
+                 WHERE id = $2 AND status = 'PENDING'
+                 RETURNING *,
+                           (SELECT telegram_id FROM users WHERE id = user_id) AS customer_telegram_id,
+                           (SELECT first_name  FROM users WHERE id = user_id) AS customer_name
+            """, admin["telegram_id"], payment_id)
+            if pay is None:
+                existing = await conn.fetchrow("SELECT status FROM payments WHERE id=$1", payment_id)
+                if not existing:
+                    raise HTTPException(404, "Payment not found")
+                # already approved/rejected by someone else — 409 Conflict
+                raise HTTPException(409, f"Payment already {existing['status']}")
 
-    # ── 2. Create subscription (expire old active ones first) ──
-    pkg = await pool.fetchrow("SELECT * FROM packages WHERE id = $1", pay["package_id"])
-    if pkg:
-        # Expire existing active subscriptions
-        await pool.execute("""
-            UPDATE subscriptions SET status = 'EXPIRED'
-            WHERE user_id = $1 AND status = 'ACTIVE'
-        """, pay["user_id"])
+            # ── Load package + create subscription atomically within transaction ──
+            pkg = await conn.fetchrow("SELECT * FROM packages WHERE id = $1", pay["package_id"])
+            if not pkg:
+                # Roll back by raising — payment update will revert
+                raise HTTPException(404, "Package not found")
 
-        # Trial (tier 99) = 24 hours, others use duration_days
-        if pkg["tier"] == "99":
-            duration_expr = "NOW() + interval '24 hours'"
-        else:
-            duration_expr = f"NOW() + interval '{pkg['duration_days']} days'"
+            # Expire existing active subscriptions
+            await conn.execute("""
+                UPDATE subscriptions SET status = 'EXPIRED'
+                WHERE user_id = $1 AND status = 'ACTIVE'
+            """, pay["user_id"])
 
-        await pool.execute(f"""
-            INSERT INTO subscriptions (user_id, package_id, status, start_date, end_date, auto_renew, payment_id)
-            VALUES ($1, $2, 'ACTIVE', NOW(), {duration_expr}, FALSE, $3)
-        """, pay["user_id"], pay["package_id"], payment_id)
+            # Trial (tier 99) = 24 hours, others use duration_days
+            if pkg["tier"] == "99":
+                duration_expr = "NOW() + interval '24 hours'"
+            else:
+                duration_expr = f"NOW() + interval '{pkg['duration_days']} days'"
 
-        # Update user total_spent
-        await pool.execute("""
-            UPDATE users SET total_spent = COALESCE(total_spent, 0) + $1 WHERE id = $2
-        """, pay["amount"], pay["user_id"])
+            await conn.execute(f"""
+                INSERT INTO subscriptions (user_id, package_id, status, start_date, end_date, auto_renew, payment_id)
+                VALUES ($1, $2, 'ACTIVE', NOW(), {duration_expr}, FALSE, $3)
+            """, pay["user_id"], pay["package_id"], payment_id)
 
-    # ── 3. Generate invite links via Guardian Bot ──
+            # Update user total_spent (still inside transaction)
+            await conn.execute("""
+                UPDATE users SET total_spent = COALESCE(total_spent, 0) + $1 WHERE id = $2
+            """, pay["amount"], pay["user_id"])
+    # ── transaction committed ──
+
+    # ── 3. Generate invite links via Guardian Bot (best-effort, outside TX) ──
     invite_links = {}
     links_list = []
     try:
         if GUARDIAN_BOT_TOKEN and pkg:
-            invite_links = await _generate_invite_links(pay["package_id"], pay["customer_telegram_id"])
-            for slug, link in invite_links.items():
-                grp = await pool.fetchrow(
-                    "SELECT title FROM group_registry WHERE slug = $1", slug
-                ) if slug != PROMO_SONGKRAN_SLUG else None
-                title = grp["title"] if grp else get_group_display_title(slug)
-                links_list.append({"text": f"🚀 {title}", "url": link})
+            # FIX 2025-05-21 (Phase D-9-business): get title alongside link to avoid N+1 SELECT
+            invite_links_full = await _generate_invite_links(
+                pay["package_id"], pay["customer_telegram_id"], return_titles=True
+            )
+            for slug, info in invite_links_full.items():
+                invite_links[slug] = info["url"]
+                links_list.append({"text": f"🚀 {info['title']}", "url": info["url"]})
     except Exception as exc:
         logger.error("Failed to generate invite links: %s", exc)
         telegram_errors.append(f"สร้าง invite link ไม่ได้: {exc}")
@@ -466,12 +505,13 @@ async def reject_payment(payment_id: int, req: PaymentReject, request: Request, 
 
 @router.get("/summary")
 async def payment_summary(admin=Depends(require_role("admin"))):
+    # FIX 2025-05-21 (Phase D-7-business): ใช้ Asia/Bangkok ทั้งฝั่งซ้าย+ขวาให้สอดคล้องกับ summary อื่น
     row = await pool.fetchrow("""
         SELECT
-            COALESCE(SUM(CASE WHEN (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date THEN amount END), 0) as today,
-            COALESCE(SUM(CASE WHEN created_at >= date_trunc('week', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN amount END), 0) as week,
-            COALESCE(SUM(CASE WHEN created_at >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN amount END), 0) as month,
-            COALESCE(SUM(CASE WHEN created_at >= date_trunc('year', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN amount END), 0) as year
+            COALESCE(SUM(CASE WHEN (created_at AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date THEN amount END), 0) as today,
+            COALESCE(SUM(CASE WHEN (created_at AT TIME ZONE 'Asia/Bangkok')::date >= date_trunc('week', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN amount END), 0) as week,
+            COALESCE(SUM(CASE WHEN (created_at AT TIME ZONE 'Asia/Bangkok')::date >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN amount END), 0) as month,
+            COALESCE(SUM(CASE WHEN (created_at AT TIME ZONE 'Asia/Bangkok')::date >= date_trunc('year', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN amount END), 0) as year
         FROM payments WHERE status = 'CONFIRMED'
     """)
     return {k: float(v) for k, v in dict(row).items()}

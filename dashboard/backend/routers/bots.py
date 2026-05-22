@@ -11,10 +11,11 @@ Security: every write requires role="owner". Token values are returned masked
 """
 from __future__ import annotations
 
+import asyncio  # FIX 2025-05-21 (Phase D-10): for async subprocess
 import logging
 import os
 import re
-import subprocess
+import subprocess  # kept for backward-compat (FileNotFoundError detection); no longer used to spawn
 from pathlib import Path
 from typing import Optional
 
@@ -98,6 +99,8 @@ def _mask(token: str) -> str:
 
 async def _telegram_get_me(token: str) -> dict:
     """Call Telegram getMe with the given token. Returns dict with ok/username/error."""
+    # FIX 2025-05-21 (Phase D-9): never echo the token (or e.g. urllib3 reprs that may include URL)
+    # back to the client. Categorise errors instead.
     if not token:
         return {"ok": False, "error": "empty token"}
     url = f"https://api.telegram.org/bot{token}/getMe"
@@ -108,33 +111,50 @@ async def _telegram_get_me(token: str) -> dict:
         if j.get("ok"):
             return {"ok": True, "username": j["result"].get("username"), "id": j["result"].get("id")}
         return {"ok": False, "error": j.get("description", "unknown")}
-    except Exception as e:  # noqa: BLE001
-        return {"ok": False, "error": f"network: {e}"}
+    except httpx.HTTPError as e:
+        return {"ok": False, "error": f"network: {type(e).__name__}"}
+    except Exception:
+        logger.exception("telegram getMe failed")
+        return {"ok": False, "error": "internal"}
 
 
-def _restart_service(service: str) -> dict:
-    """Run `docker compose up -d <service>` from /app (compose dir mounted)."""
-    cmd = ["docker", "compose", "up", "-d", service]
+# FIX 2025-05-21 (Phase D-10): whitelist services + use async subprocess (avoid blocking event loop)
+_ALLOWED_SERVICES = {
+    "sales-bot",
+    "admin-bot",
+    "guardian-bot",
+    "content-bot",
+    "discord-bot",
+    "finance-scheduler",
+    "manager-agent",
+    "broadcast-worker",
+}
+
+
+async def _restart_service(service: str) -> dict:
+    """Run `docker compose up -d --force-recreate --no-deps <service>` asynchronously."""
+    if service not in _ALLOWED_SERVICES:
+        return {"ok": False, "error": "service not in whitelist"}
     try:
-        proc = subprocess.run(
-            cmd,
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "compose", "up", "-d", "--force-recreate", "--no-deps", "--", service,
             cwd=str(COMPOSE_DIR),
-            capture_output=True,
-            text=True,
-            timeout=120,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-        return {
-            "ok": proc.returncode == 0,
-            "stdout": proc.stdout[-2000:],
-            "stderr": proc.stderr[-2000:],
-            "returncode": proc.returncode,
-        }
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "error": "timeout"}
     except FileNotFoundError:
         return {"ok": False, "error": "docker CLI not installed in container"}
-    except Exception as e:  # noqa: BLE001
-        return {"ok": False, "error": str(e)}
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+    except asyncio.TimeoutError:
+        proc.kill()
+        return {"ok": False, "error": "timeout"}
+    return {
+        "ok": proc.returncode == 0,
+        "stdout": stdout.decode(errors="replace")[-2000:],
+        "stderr": stderr.decode(errors="replace")[-2000:],
+        "returncode": proc.returncode,
+    }
 
 
 async def _log_action(admin_id: int, action: str, target: str, payload: dict, ip: str | None) -> None:
@@ -210,11 +230,12 @@ async def update_bot(
     # Pre-validate the token against Telegram before saving
     test = await _telegram_get_me(body.token)
     if not test.get("ok"):
-        raise HTTPException(status_code=400, detail=f"telegram rejects token: {test.get('error')}")
+        # FIX 2025-05-21 (Phase D-9): don't echo telegram's error verbatim — it may include token-derived data
+        raise HTTPException(status_code=400, detail="telegram rejects token")
 
     _write_env_value(key, body.token)
     service = BOT_TOKEN_KEYS[key]
-    restart = _restart_service(service)
+    restart = await _restart_service(service)
 
     ip = request.client.host if request.client else None
     await _log_action(
@@ -274,33 +295,6 @@ async def add_admin_id(
     ids.append(body.telegram_id)
     _write_env_value(ADMIN_KEY, ",".join(str(i) for i in ids))
 
-    # Restart the bots that use the admin list
+    # FIX 2025-05-21 (Phase D-10): _restart_service is now async — await each call
     services = ["admin-bot", "content-bot", "sales-bot", "guardian-bot"]
-    restarts = {s: _restart_service(s) for s in services}
-
-    ip = request.client.host if request.client else None
-    await _log_action(admin["id"], "add_admin_id", str(body.telegram_id), {"ids_after": ids}, ip)
-
-    return {"ok": True, "ids": ids, "restarts": restarts}
-
-
-@router.delete("/admin-ids/{telegram_id}")
-async def remove_admin_id(
-    telegram_id: int,
-    request: Request,
-    admin=Depends(require_role("owner")),
-) -> dict:
-    env = _read_env()
-    ids = _parse_ids(env.get(ADMIN_KEY, ""))
-    if telegram_id not in ids:
-        raise HTTPException(status_code=404, detail="id not in admin list")
-    ids = [i for i in ids if i != telegram_id]
-    _write_env_value(ADMIN_KEY, ",".join(str(i) for i in ids))
-
-    services = ["admin-bot", "content-bot", "sales-bot", "guardian-bot"]
-    restarts = {s: _restart_service(s) for s in services}
-
-    ip = request.client.host if request.client else None
-    await _log_action(admin["id"], "remove_admin_id", str(telegram_id), {"ids_after": ids}, ip)
-
-    return {"ok": True, "ids": ids, "restarts": restarts}
+    resta
