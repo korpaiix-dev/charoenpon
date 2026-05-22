@@ -1,5 +1,5 @@
 """Charoenpon Dashboard — FastAPI Application."""
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -28,13 +28,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="เจริญพร Dashboard", version="1.0", lifespan=lifespan)
 
-# CORS
+# FIX 2025-05-21 (Phase D-4): CORS — wildcard "*" cannot be combined with credentials.
+# Use explicit allow-list from DASHBOARD_ALLOWED_ORIGINS env (comma-separated).
+_origins = os.getenv("DASHBOARD_ALLOWED_ORIGINS", "").split(",")
+_origins = [o.strip() for o in _origins if o.strip()] or ["http://localhost:8010"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # API Routers
@@ -61,12 +64,4 @@ if os.path.isdir(frontend_dir):
 async def health():
     return {"status": "ok", "service": "charoenpon-dashboard"}
 
-# SPA fallback — serve index.html for all non-API routes
-@app.get("/{full_path:path}")
-async def spa_fallback(full_path: str):
-    if full_path.startswith("api/"):
-        return {"error": "Not found"}
-    index = os.path.join(frontend_dir, "index.html")
-    if os.path.isfile(index):
-        return FileResponse(index)
-    return {"error": "Frontend not built", "hint": "Place index.html in dashboard/frontend/"}
+# SPA fallbac

@@ -26,6 +26,9 @@ async def activity_log(
     admin=Depends(get_current_admin)
 ):
     """Get dashboard activity log with filters."""
+    # FIX 2025-05-21 (Phase D-6-business): clamp pagination
+    per_page = max(1, min(per_page, 100))
+    page = max(1, page)
     offset = (page - 1) * per_page
     conditions = []
     params = []
@@ -71,16 +74,17 @@ async def activity_log_filters(admin=Depends(get_current_admin)):
 @router.get("/summary")
 async def summary(request: Request, admin=Depends(get_current_admin)):
     """Revenue summary: today, week, month with comparison."""
+    # FIX 2025-05-21 (Phase D-7-business): ใช้ AT TIME ZONE 'Asia/Bangkok' ฝั่ง created_at เพื่อให้เปรียบเทียบกับ business date ตรงกัน
     row = await pool.fetchrow("""
         SELECT
-            COALESCE(SUM(CASE WHEN p.created_at::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date THEN p.amount END), 0) as today,
-            COALESCE(SUM(CASE WHEN p.created_at::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date - 1 THEN p.amount END), 0) as yesterday,
-            COALESCE(SUM(CASE WHEN p.created_at >= date_trunc('week', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN p.amount END), 0) as week,
-            COALESCE(SUM(CASE WHEN p.created_at >= date_trunc('week', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) - interval '7 days'
-                              AND p.created_at < date_trunc('week', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN p.amount END), 0) as last_week,
-            COALESCE(SUM(CASE WHEN p.created_at >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN p.amount END), 0) as month,
-            COALESCE(SUM(CASE WHEN p.created_at >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) - interval '1 month'
-                              AND p.created_at < date_trunc('month', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN p.amount END), 0) as last_month
+            COALESCE(SUM(CASE WHEN (p.created_at AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date THEN p.amount END), 0) as today,
+            COALESCE(SUM(CASE WHEN (p.created_at AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date - 1 THEN p.amount END), 0) as yesterday,
+            COALESCE(SUM(CASE WHEN (p.created_at AT TIME ZONE 'Asia/Bangkok')::date >= date_trunc('week', (NOW() AT TIME ZONE 'Asia/Bangkok')::date)::date THEN p.amount END), 0) as week,
+            COALESCE(SUM(CASE WHEN (p.created_at AT TIME ZONE 'Asia/Bangkok')::date >= (date_trunc('week', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) - interval '7 days')::date
+                              AND (p.created_at AT TIME ZONE 'Asia/Bangkok')::date < date_trunc('week', (NOW() AT TIME ZONE 'Asia/Bangkok')::date)::date THEN p.amount END), 0) as last_week,
+            COALESCE(SUM(CASE WHEN (p.created_at AT TIME ZONE 'Asia/Bangkok')::date >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Bangkok')::date)::date THEN p.amount END), 0) as month,
+            COALESCE(SUM(CASE WHEN (p.created_at AT TIME ZONE 'Asia/Bangkok')::date >= (date_trunc('month', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) - interval '1 month')::date
+                              AND (p.created_at AT TIME ZONE 'Asia/Bangkok')::date < date_trunc('month', (NOW() AT TIME ZONE 'Asia/Bangkok')::date)::date THEN p.amount END), 0) as last_month
         FROM payments p WHERE p.status = 'CONFIRMED'
     """)
     def pct(curr, prev):
@@ -254,11 +258,12 @@ async def sales_analytics(
 
 @router.get("/members-stats")
 async def members_stats(admin=Depends(get_current_admin)):
+    # FIX 2025-05-21 (Phase D-7-business): TZ-shift created_at ก่อนเปรียบเทียบกับ Asia/Bangkok date
     row = await pool.fetchrow("""
         SELECT
             (SELECT COUNT(*) FROM subscriptions WHERE status = 'ACTIVE') as active,
             (SELECT COUNT(*) FROM subscriptions WHERE status = 'EXPIRED') as expired,
-            (SELECT COUNT(*) FROM users WHERE created_at::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date) as new_today,
+            (SELECT COUNT(*) FROM users WHERE (created_at AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date) as new_today,
             (SELECT COUNT(*) FROM users) as total_users
     """)
     return dict(row)
@@ -283,24 +288,26 @@ async def flash_sale_status(admin=Depends(get_current_admin)):
 
 @router.get("/dm-stats")
 async def dm_stats(admin=Depends(require_role("admin"))):
+    # FIX 2025-05-21 (Phase D-7-business): TZ-shift sent_at
     row = await pool.fetchrow("""
         SELECT
-            (SELECT COUNT(*) FROM comeback_dm_log WHERE sent_at::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date) as comeback_sent,
-            (SELECT COUNT(*) FROM comeback_dm_log WHERE sent_at::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date AND responded = TRUE) as comeback_respond,
-            (SELECT COUNT(*) FROM comeback_dm_log WHERE sent_at::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date AND purchased = TRUE) as comeback_convert,
-            (SELECT COUNT(*) FROM trial_dm_log WHERE sent_at::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date) as trial_sent,
-            (SELECT COUNT(*) FROM trial_dm_log WHERE sent_at::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date AND clicked = TRUE) as trial_click,
-            (SELECT COUNT(*) FROM trial_dm_log WHERE sent_at::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date AND purchased = TRUE) as trial_convert
+            (SELECT COUNT(*) FROM comeback_dm_log WHERE (sent_at AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date) as comeback_sent,
+            (SELECT COUNT(*) FROM comeback_dm_log WHERE (sent_at AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date AND responded = TRUE) as comeback_respond,
+            (SELECT COUNT(*) FROM comeback_dm_log WHERE (sent_at AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date AND purchased = TRUE) as comeback_convert,
+            (SELECT COUNT(*) FROM trial_dm_log WHERE (sent_at AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date) as trial_sent,
+            (SELECT COUNT(*) FROM trial_dm_log WHERE (sent_at AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date AND clicked = TRUE) as trial_click,
+            (SELECT COUNT(*) FROM trial_dm_log WHERE (sent_at AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date AND purchased = TRUE) as trial_convert
     """)
     return dict(row)
 
 @router.get("/content-stats")
 async def content_stats(admin=Depends(require_role("admin"))):
+    # FIX 2025-05-21 (Phase D-7-business): TZ-shift created_at + sent_at
     row = await pool.fetchrow("""
         SELECT
-            (SELECT COUNT(*) FROM teaser_clicks WHERE created_at::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date) as teaser_clicks_today,
+            (SELECT COUNT(*) FROM teaser_clicks WHERE (created_at AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date) as teaser_clicks_today,
             (SELECT COUNT(*) FROM content_queue WHERE is_used = FALSE) as queue_remaining,
-            (SELECT COUNT(*) FROM content_schedule WHERE is_sent = TRUE AND sent_at::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date) as teasers_sent_today
+            (SELECT COUNT(*) FROM content_schedule WHERE is_sent = TRUE AND (sent_at AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date) as teasers_sent_today
     """)
     return dict(row)
 
@@ -309,8 +316,9 @@ async def alerts(admin=Depends(get_current_admin)):
     pending_slips = await pool.fetchval(
         "SELECT COUNT(*) FROM payments WHERE status = 'PENDING' AND created_at >= NOW() - interval '24 hours'"
     )
+    # FIX 2025-05-21 (Phase D-7-business): TZ-shift end_date เพื่อเทียบกับ Asia/Bangkok date
     expiring_today = await pool.fetchval("""
-        SELECT COUNT(*) FROM subscriptions WHERE status = 'ACTIVE' AND end_date::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date
+        SELECT COUNT(*) FROM subscriptions WHERE status = 'ACTIVE' AND (end_date AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date
     """)
     sos_count = await pool.fetchval(
         "SELECT COUNT(*) FROM sos_alerts WHERE status = 'PENDING'"
@@ -385,6 +393,9 @@ async def sos_alerts(admin=Depends(get_current_admin)):
 @router.get("/sos-history")
 async def sos_history(status: str = "all", page: int = 1, per_page: int = 25, admin=Depends(get_current_admin)):
     """Get SOS alerts history (all statuses)."""
+    # FIX 2025-05-21 (Phase D-6-business): clamp pagination
+    per_page = max(1, min(per_page, 100))
+    page = max(1, page)
     offset = (page - 1) * per_page
     conditions = []
     params = []
@@ -463,8 +474,9 @@ async def sos_contact_customer(telegram_id: int, body: dict, admin=Depends(get_c
 
     # Log
     admin_name = admin.get("display_name", "Dashboard")
+    # FIX 2025-05-21 (Phase D-8-business): dashboard_activity_log.admin_id → dashboard_admins.id ไม่ใช่ telegram_id
     await log_admin_action(
-        admin_id=admin.get("telegram_id", 0),
+        admin_id=admin["id"],
         action="sos_contact_customer",
         target_type="sos",
         target_id=telegram_id,
@@ -483,8 +495,9 @@ async def sos_resolve_manual(telegram_id: int, admin=Depends(get_current_admin))
         WHERE telegram_id = $2 AND status = 'PENDING'
     """, admin_name, telegram_id)
 
+    # FIX 2025-05-21 (Phase D-8-business): ใช้ admin["id"] (FK ไป dashboard_admins.id)
     await log_admin_action(
-        admin_id=admin.get("telegram_id", 0),
+        admin_id=admin["id"],
         action="sos_resolve_manual",
         target_type="sos",
         target_id=telegram_id,

@@ -25,6 +25,9 @@ async def list_customers(
     page: int = 1, per_page: int = 25, search: str = "", status: str = "all",
     admin=Depends(get_current_admin)
 ):
+    # FIX 2025-05-21 (Phase D-6-business): clamp pagination
+    per_page = max(1, min(per_page, 100))
+    page = max(1, page)
     offset = (page - 1) * per_page
     conditions = []
     params = []
@@ -148,6 +151,11 @@ async def _telegram_api_file(token, method, chat_id, file_bytes, caption, file_t
         return resp.json()
 
 
+# FIX 2025-05-21 (Phase D-3-business): replaced synchronous HTTP loop with enqueue into
+# broadcasts table — picked up by `broadcast_worker` container (uses postgres SKIP LOCKED).
+# เดิม: ยิง HTTP 11k คน sync (18 นาที) — timeout, retry แล้วยิงซ้ำ.
+# ใหม่: 1 INSERT → return 202-ish ทันที, worker จัดการต่อ.
+import base64 as _base64
 @router.post("/broadcast")
 async def broadcast_message(
     request: Request,
@@ -157,93 +165,87 @@ async def broadcast_message(
     media: UploadFile | None = File(None),
     admin=Depends(require_role("admin")),
 ):
-    """Broadcast message (with optional photo/video) to target group via Sales Bot DM."""
-    if not SALES_BOT_TOKEN:
-        raise HTTPException(500, "SALES_BOT_TOKEN not configured")
+    """Enqueue a broadcast into the `broadcasts` queue — picked up by broadcast_worker."""
     if not message.strip():
         raise HTTPException(400, "Message cannot be empty")
 
-    # Read media if provided
-    media_bytes = None
-    media_type = None  # "photo" or "video"
-    if media and media.size and media.size > 0:
-        if media.size > 20 * 1024 * 1024:
-            raise HTTPException(400, "ไฟล์ใหญ่เกิน 20MB")
-        media_bytes = await media.read()
-        ct = media.content_type or ""
-        if ct.startswith("image/"):
-            media_type = "photo"
-        elif ct.startswith("video/"):
-            media_type = "video"
-        else:
-            raise HTTPException(400, f"ไม่รองรับไฟล์ประเภท {ct} (รองรับ image/*, video/*)")
+    # Validate target — must match _get_broadcast_users() keys
+    if target not in {"all", "active", "expired", "trial"}:
+        raise HTTPException(400, f"Invalid target: {target}")
 
-    users = await _get_broadcast_users(target)
-    total = len(users)
-    if total == 0:
-        return {"sent": 0, "failed": 0, "total": 0}
+    # Optional media — read chunked, validate size, store as base64 (worker decodes)
+    media_b64 = None
+    media_type = None
+    if media is not None:
+        media_bytes = b""
+        try:
+            chunk = await media.read(1024 * 1024)
+            while chunk:
+                media_bytes += chunk
+                if len(media_bytes) > 20 * 1024 * 1024:
+                    raise HTTPException(400, "ไฟล์ใหญ่เกิน 20MB")
+                chunk = await media.read(1024 * 1024)
+        finally:
+            await media.close()
+        if media_bytes:
+            ct = (media.content_type or "").lower()
+            if ct.startswith("image/"):
+                media_type = "photo"
+            elif ct.startswith("video/"):
+                media_type = "video"
+            else:
+                raise HTTPException(400, f"ไม่รองรับไฟล์ประเภท {ct} (รองรับ image/*, video/*)")
+            media_b64 = _base64.b64encode(media_bytes).decode("ascii")
 
-    sent = 0
-    failed = 0
-    batch_size = 30
+    # Resolve target user IDs (set) — re-use existing helper
+    user_rows = await _get_broadcast_users(target)
+    user_ids = [int(r["telegram_id"]) for r in user_rows if r["telegram_id"] is not None]
+    if not user_ids:
+        raise HTTPException(400, "ไม่มีผู้รับ — ยกเลิก broadcast")
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        for i in range(0, total, batch_size):
-            batch = users[i:i + batch_size]
-            for user in batch:
-                try:
-                    if media_type == "photo":
-                        result = await _telegram_api_file(
-                            SALES_BOT_TOKEN, "sendPhoto",
-                            user["telegram_id"], media_bytes, message, "photo",
-                        )
-                    elif media_type == "video":
-                        result = await _telegram_api_file(
-                            SALES_BOT_TOKEN, "sendVideo",
-                            user["telegram_id"], media_bytes, message, "video",
-                        )
-                    else:
-                        payload = {
-                            "chat_id": user["telegram_id"],
-                            "text": message,
-                        }
-                        if parse_mode:
-                            payload["parse_mode"] = parse_mode
-                        resp = await client.post(
-                            f"https://api.telegram.org/bot{SALES_BOT_TOKEN}/sendMessage",
-                            json=payload,
-                        )
-                        result = resp.json()
-
-                    if result.get("ok"):
-                        sent += 1
-                    else:
-                        failed += 1
-                except Exception:
-                    failed += 1
-
-            # Rate limit: wait 3 seconds between batches
-            if i + batch_size < total:
-                await asyncio.sleep(3)
+    # Enqueue — broadcast_worker container will pick this row up via SELECT ... FOR UPDATE SKIP LOCKED
+    broadcast_id = await pool.fetchval("""
+        INSERT INTO broadcasts (
+            message_text, message_photo_id, target_type, target_value,
+            total_count, sent_by, sent_by_username, status, target_user_ids,
+            started_at, parse_mode, media_type, media_b64
+        )
+        VALUES ($1, NULL, $2, $2, $3, $4, $5, 'PENDING', $6::jsonb,
+                NOW(), $7, $8, $9)
+        RETURNING id
+    """,
+        message, target, len(user_ids),
+        admin["id"], admin.get("display_name") or admin.get("username"),
+        json.dumps(user_ids), parse_mode, media_type, media_b64,
+    )
 
     ip = request.client.host if request.client else None
     await _log(
-        admin["id"], "broadcast", "system", None,
+        admin["id"], "broadcast_enqueue", "broadcast", broadcast_id,
         {
-            "target": target, "sent": sent, "failed": failed, "total": total,
+            "target": target, "total": len(user_ids),
             "message_preview": message[:100],
             "media_type": media_type,
         },
         ip,
     )
 
-    return {"sent": sent, "failed": failed, "total": total}
+    return {
+        "ok": True,
+        "queued": True,
+        "broadcast_id": broadcast_id,
+        "total": len(user_ids),
+        "eta_minutes": max(1, len(user_ids) // 1200),
+    }
 
 
 # ========== BROADCAST HISTORY ==========
 @router.get("/broadcast/history")
 async def broadcast_history(page: int = 1, per_page: int = 25, admin=Depends(get_current_admin)):
     """Get broadcast history from broadcast_log table."""
+    # FIX 2025-05-21 (Phase D-6-business): clamp pagination
+    per_page = max(1, min(per_page, 100))
+    page = max(1, page)
     offset = (page - 1) * per_page
     total = await pool.fetchval("SELECT COUNT(*) FROM broadcast_log")
     rows = await pool.fetch("""
@@ -331,10 +333,14 @@ async def extend_subscription(user_id: int, req: ExtendRequest, request: Request
     if not sub:
         raise HTTPException(400, "No active subscription")
     
-    await pool.execute(
-        "UPDATE subscriptions SET end_date = end_date + ($1 || ' days')::interval, updated_at = NOW() WHERE id = $2",
-        str(req.days), sub["id"]
-    )
+    # FIX 2025-05-21 (Phase D-4-business): ขยายจาก GREATEST(end_date, NOW()) — ป้องกัน sub ที่ end_date หมดอายุไปแล้ว
+    # ถูกขยายจากอดีต (ทำให้ลูกค้าได้วันน้อยกว่าที่จ่าย)
+    await pool.execute("""
+        UPDATE subscriptions
+           SET end_date = GREATEST(end_date, NOW()) + ($1 || ' days')::interval,
+               updated_at = NOW()
+         WHERE id = $2
+    """, str(req.days), sub["id"])
     ip = request.client.host if request.client else None
     await _log(admin["id"], "extend_subscription", "user", user_id, {"days": req.days}, ip)
     return {"ok": True, "message": f"Extended {req.days} days"}
@@ -366,12 +372,19 @@ async def kick_user(user_id: int, req: KickRequest, request: Request, admin=Depe
     if not user:
         raise HTTPException(404, "User not found")
     
+    # FIX 2025-05-21 (Phase D-10-business): fetch all groups in one query (was N+1)
     results = []
-    for gid in req.group_ids:
-        group = await pool.fetchrow("SELECT chat_id, title FROM group_registry WHERE id = $1", gid)
-        if group:
-            result = await kick_member(group["chat_id"], user["telegram_id"])
-            results.append({"group": group["title"], "result": result})
+    if req.group_ids:
+        groups = await pool.fetch(
+            "SELECT id, chat_id, title FROM group_registry WHERE id = ANY($1::int[])",
+            req.group_ids,
+        )
+        groups_by_id = {g["id"]: g for g in groups}
+        for gid in req.group_ids:
+            group = groups_by_id.get(gid)
+            if group:
+                result = await kick_member(group["chat_id"], user["telegram_id"])
+                results.append({"group": group["title"], "result": result})
     
     ip = request.client.host if request.client else None
     await _log(admin["id"], "kick_user", "user", user_id, {"groups": req.group_ids}, ip)

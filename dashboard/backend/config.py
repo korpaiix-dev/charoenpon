@@ -5,7 +5,13 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@postgre
 # Convert asyncpg URL for raw asyncpg usage
 DB_DSN = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://").replace("postgresql://", "postgresql://")
 
-JWT_SECRET = os.getenv("DASHBOARD_JWT_SECRET", "charoenpon-dashboard-secret-2026-kx9m")
+# FIX 2025-05-21 (Phase D-1): JWT secret must be set in env (>=32 chars), no default fallback
+JWT_SECRET = os.getenv("DASHBOARD_JWT_SECRET")
+if not JWT_SECRET or len(JWT_SECRET) < 32:
+    raise RuntimeError(
+        "DASHBOARD_JWT_SECRET must be set (>=32 chars). "
+        "Generate via: python -c 'import secrets; print(secrets.token_urlsafe(48))'"
+    )
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = 24
 

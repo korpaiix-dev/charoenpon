@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, Request, HTTPException
 from ..auth.dependencies import require_role
 from ..database import pool
 from ..services.telegram import create_invite_link, get_chat_member_count
+from ..models.schemas import GroupCreate, GroupUpdate
 import json
 
 router = APIRouter(prefix="/api/groups", tags=["groups"])
@@ -43,48 +44,44 @@ async def list_groups_categorized(admin=Depends(require_role("admin"))):
     return {"vip": vip, "free": free, "chat": chat}
 
 @router.post("")
-async def create_group(request: Request, admin=Depends(require_role("admin"))):
-    body = await request.json()
+async def create_group(req: GroupCreate, request: Request, admin=Depends(require_role("admin"))):
+    # FIX 2025-05-21 (Phase D-7): use Pydantic GroupCreate (validated) instead of raw request.json()
     row = await pool.fetchrow("""
         INSERT INTO group_registry (slug, chat_id, title, min_tier, is_active, member_count)
         VALUES ($1::groupslug, $2, $3, $4::packagetier, $5, 0)
         RETURNING id
-    """, body["slug"], body["chat_id"], body["title"], body["min_tier"], body.get("is_active", True))
+    """, req.slug, req.chat_id, req.title, req.min_tier, req.is_active)
     ip = request.client.host if request.client else None
-    await _log(admin["id"], "create_group", "group", row["id"], {"title": body["title"]}, ip)
+    await _log(admin["id"], "create_group", "group", row["id"], {"title": req.title}, ip)
     return {"ok": True, "id": row["id"]}
 
 @router.put("/{group_id}")
-async def update_group(group_id: int, request: Request, admin=Depends(require_role("admin"))):
-    body = await request.json()
+async def update_group(group_id: int, req: GroupUpdate, request: Request, admin=Depends(require_role("admin"))):
+    # FIX 2025-05-21 (Phase D-7): use Pydantic GroupUpdate; only whitelisted fields allowed
+    data = req.dict(exclude_none=True)
     updates = []
     params = []
     idx = 1
-    for field in ["title", "is_active"]:
-        if field in body:
-            updates.append(f"{field} = ${idx}")
-            params.append(body[field])
-            idx += 1
-    if "chat_id" in body:
-        updates.append(f"chat_id = ${idx}")
-        params.append(int(body["chat_id"]))
+    if "title" in data:
+        updates.append(f"title = ${idx}")
+        params.append(data["title"])
         idx += 1
-    if "slug" in body:
-        updates.append(f"slug = ${idx}::groupslug")
-        params.append(body["slug"])
+    if "is_active" in data:
+        updates.append(f"is_active = ${idx}")
+        params.append(data["is_active"])
         idx += 1
-    if "min_tier" in body:
+    if "min_tier" in data:
         updates.append(f"min_tier = ${idx}::packagetier")
-        params.append(body["min_tier"])
+        params.append(data["min_tier"])
         idx += 1
-    
-    updates.append("updated_at = NOW()")
+
     if not params:
         raise HTTPException(400, "No fields")
+    updates.append("updated_at = NOW()")
     params.append(group_id)
     await pool.execute(f"UPDATE group_registry SET {', '.join(updates)} WHERE id = ${idx}", *params)
     ip = request.client.host if request.client else None
-    await _log(admin["id"], "update_group", "group", group_id, body, ip)
+    await _log(admin["id"], "update_group", "group", group_id, data, ip)
     return {"ok": True}
 
 @router.delete("/{group_id}")
@@ -100,15 +97,19 @@ async def group_members(group_id: int, admin=Depends(require_role("admin"))):
     if not group:
         raise HTTPException(404, "Group not found")
     
-    # Get users who have active subscription matching this group's tier
+    # FIX 2025-05-21 (Phase D-7): match groups_access as JSONB array exact-element (was LIKE substring,
+    # which falsely matched e.g. 'TIER_2499_X' for slug 'TIER_249')
     rows = await pool.fetch("""
         SELECT u.id, u.telegram_id, u.username, u.first_name, s.status, s.end_date, p.name as package_name
         FROM users u
         JOIN subscriptions s ON s.user_id = u.id AND s.status = 'ACTIVE'
         JOIN packages p ON s.package_id = p.id
-        WHERE p.groups_access LIKE $1
+        WHERE EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(p.groups_access::jsonb) AS slug
+            WHERE slug = $1
+        )
         ORDER BY u.first_name LIMIT 100
-    """, f"%{group['slug']}%")
+    """, group["slug"])
     return [dict(r) for r in rows]
 
 @router.post("/{group_id}/invite-link")
@@ -117,7 +118,4 @@ async def gen_invite_link(group_id: int, request: Request, admin=Depends(require
     if not group:
         raise HTTPException(404, "Group not found")
     
-    result = await create_invite_link(group["chat_id"], f"Dashboard-{admin['display_name']}")
-    ip = request.client.host if request.client else None
-    await _log(admin["id"], "create_invite_link", "group", group_id, None, ip)
-    return result
+    result

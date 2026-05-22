@@ -144,11 +144,20 @@ async def create_promotion_campaign(req: PromotionCampaignCreate, request: Reque
     await _log(admin_id, "create_promotion_campaign", "promotion_campaign", row["id"], {"name": req.name}, ip)
     return {"ok": True, "id": row["id"]}
 
+# FIX 2025-05-21 (Phase D-5-business): whitelist for promotion_campaigns update
+PROMOTION_CAMPAIGN_ALLOWED_UPDATE_FIELDS = {
+    "name", "package_id", "normal_price", "promo_price", "starts_at", "ends_at",
+    "bot_badge", "bot_sales_text", "group_caption", "user_broadcast_caption",
+    "target_groups", "delivery_channels", "image_path", "is_active",
+}
+
 @router.put("/api/promotion-campaigns/{campaign_id}")
 async def update_promotion_campaign(campaign_id: int, req: PromotionCampaignUpdate, request: Request, admin=Depends(require_role("admin"))):
     await ensure_promo_campaign_tables()
     updates, params, idx = [], [], 1
     for field, val in req.dict(exclude_none=True).items():
+        if field not in PROMOTION_CAMPAIGN_ALLOWED_UPDATE_FIELDS:
+            continue
         if field in ("starts_at", "ends_at"):
             updates.append(f"{field} = ${idx}::timestamp")
             params.append(_to_dt(val))
@@ -294,12 +303,17 @@ async def create_flash_sale(req: FlashSaleCreate, request: Request, admin=Depend
     await _log(admin["id"], "create_flash_sale", "flash_sale", row["id"], {"name": req.name}, ip)
     return {"ok": True, "id": row["id"]}
 
+# FIX 2025-05-21 (Phase D-5-business): whitelist for flash_sales update
+FLASH_SALE_ALLOWED_UPDATE_FIELDS = {"name", "flash_price", "total_slots", "starts_at", "ends_at", "is_active"}
+
 @router.put("/api/flash-sales/{sale_id}")
 async def update_flash_sale(sale_id: int, req: FlashSaleUpdate, request: Request, admin=Depends(require_role("admin"))):
     updates = []
     params = []
     idx = 1
     for field, val in req.dict(exclude_none=True).items():
+        if field not in FLASH_SALE_ALLOWED_UPDATE_FIELDS:
+            continue
         if field in ("starts_at", "ends_at"):
             updates.append(f"{field} = ${idx}::timestamp")
             params.append(_to_dt(val))
@@ -354,12 +368,18 @@ async def create_promo_code(req: PromoCodeCreate, request: Request, admin=Depend
     await _log(admin["id"], "create_promo_code", "promo_code", row["id"], {"code": req.code}, ip)
     return {"ok": True, "id": row["id"]}
 
+# FIX 2025-05-21 (Phase D-5-business): whitelist field names + Pydantic-validated values
+PROMO_CODE_ALLOWED_UPDATE_FIELDS = {"discount_pct", "max_uses", "is_active", "expires_at"}
+
 @router.put("/api/promo-codes/{code_id}")
 async def update_promo_code(code_id: int, req: PromoCodeUpdate, request: Request, admin=Depends(require_role("admin"))):
     updates = []
     params = []
     idx = 1
     for field, val in req.dict(exclude_none=True).items():
+        # FIX 2025-05-21 (Phase D-5-business): drop fields ที่ไม่ได้ whitelist (กัน user ใส่ code/created_by ผ่าน body)
+        if field not in PROMO_CODE_ALLOWED_UPDATE_FIELDS:
+            continue
         if field == "expires_at":
             updates.append(f"{field} = ${idx}::timestamp")
             params.append(_to_dt(val))
@@ -406,12 +426,19 @@ async def create_scheduled(req: ScheduledPromotionCreate, request: Request, admi
     await _log(admin["id"], "create_scheduled_promo", "scheduled_promotion", row["id"], {"name": req.name}, ip)
     return {"ok": True, "id": row["id"]}
 
+# FIX 2025-05-21 (Phase D-5-business): whitelist for scheduled_promotions update
+SCHEDULED_PROMO_ALLOWED_UPDATE_FIELDS = {
+    "name", "message_text", "target_groups", "scheduled_at", "repeat_type", "is_active",
+}
+
 @router.put("/api/scheduled-promotions/{promo_id}")
 async def update_scheduled(promo_id: int, req: ScheduledPromotionUpdate, request: Request, admin=Depends(require_role("admin"))):
     updates = []
     params = []
     idx = 1
     for field, val in req.dict(exclude_none=True).items():
+        if field not in SCHEDULED_PROMO_ALLOWED_UPDATE_FIELDS:
+            continue
         if field == "target_groups":
             updates.append(f"{field} = ${idx}::jsonb")
             params.append(json.dumps(val))
