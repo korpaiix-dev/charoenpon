@@ -390,13 +390,14 @@ def create_application() -> Application:
         name="referral_reminder_v2_monday_1500",
     )
 
+    # DISABLED 2026-05-22 (boss request): Marketing Brain weekly analysis
     # --- Scheduler: Marketing Brain ทุกวันอาทิตย์ 20:00 ไทย ---
-    app.job_queue.run_daily(
-        run_brain_weekly_job,
-        time=dt_time(hour=20, minute=0, tzinfo=TH_TZ),
-        days=(6,),  # Sunday
-        name="marketing_brain_weekly_sunday_2000",
-    )
+    # app.job_queue.run_daily(
+    #     run_brain_weekly_job,
+    #     time=dt_time(hour=20, minute=0, tzinfo=TH_TZ),
+    #     days=(6,),  # Sunday
+    #     name="marketing_brain_weekly_sunday_2000",
+    # )
 
     return app
 
