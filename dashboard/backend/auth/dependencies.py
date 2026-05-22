@@ -46,3 +46,13 @@ async def get_current_admin(request: Request) -> dict:
         "jti": jti,
     }
 
+
+# FIX 2025-05-21 (Phase D-fix2): restore require_role helper (used by all routers)
+def require_role(min_role: str):
+    """Dependency that requires the current admin to have at least `min_role` level."""
+    async def checker(request: Request) -> dict:
+        admin = await get_current_admin(request)
+        if ROLE_LEVELS.get(admin["role"], 0) < ROLE_LEVELS.get(min_role, 0):
+            raise HTTPException(status_code=403, detail="Insufficient privileges")
+        return admin
+    return checker
