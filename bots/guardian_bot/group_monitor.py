@@ -868,7 +868,9 @@ async def check_and_kick_unauthorized(bot: Bot, job_queue=None) -> dict[str, int
         f"❌ Errors: {stats['errors']}"
     )
 
-    if stats["notified"] > 0 or stats["members_checked"] > 0:
+    # FIX 2026-05-22 (boss request): silent unless there's an actual issue
+    # — only notify when unauthorized member found OR errors occurred
+    if stats["notified"] > 0 or stats["errors"] > 0:
         await _send_discord(summary_msg.replace('<b>','**').replace('</b>','**'))
 
         # ส่ง Telegram log group

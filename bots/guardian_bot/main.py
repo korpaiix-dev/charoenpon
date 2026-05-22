@@ -332,11 +332,12 @@ def create_application() -> Application:
     )
 
     # Check unauthorized members (3-tier: DB → CSV → ถาม Admin)
+    # FIX 2026-05-22 (boss request): 30 min → 2 hours (was too frequent)
     job_queue.run_repeating(
         _job_check_unauthorized,
-        interval=timedelta(minutes=30),
+        interval=timedelta(hours=2),
         first=timedelta(minutes=10),
-        name="check_unauthorized_30min",
+        name="check_unauthorized_2h",
     )
 
     # Daily 22:00 TH: daily report
