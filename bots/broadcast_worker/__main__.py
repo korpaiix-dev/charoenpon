@@ -51,7 +51,7 @@ DB_PASSWORD = os.environ.get("DB_PASSWORD", "").strip()
 
 POLL_INTERVAL_SEC = int(os.environ.get("BROADCAST_POLL_SEC", "5"))
 CHECKPOINT_EVERY = int(os.environ.get("BROADCAST_CHECKPOINT_EVERY", "50"))
-SEND_DELAY_SEC = float(os.environ.get("BROADCAST_SEND_DELAY", "0.05"))
+SEND_DELAY_SEC = float(os.environ.get("BROADCAST_SEND_DELAY_SEC", "4.0"))  # FIX 2026-05-24: safe default)
 HEARTBEAT_STALE_MIN = int(os.environ.get("BROADCAST_HEARTBEAT_STALE_MIN", "5"))
 
 # --- Logging ---
@@ -267,6 +267,13 @@ async def run_job(pool: asyncpg.Pool, bot: Bot, job: dict) -> None:
         bid, start_idx, total, ok, fail,
     )
 
+    # FIX 2026-05-24 (safe): per-job delay override + 429 backoff + failure threshold
+    current_delay = SEND_DELAY_SEC
+    consecutive_429 = 0
+    consecutive_failures = 0
+    FAILURE_RATE_THRESHOLD = 0.30  # 30% fail → pause job
+    MIN_SAMPLES_BEFORE_CHECK = 50  # don't pause too early
+
     for idx in range(start_idx, total):
         if _shutdown.is_set():
             log.info("Shutdown signal — checkpoint and exit job %s", bid)
@@ -274,18 +281,59 @@ async def run_job(pool: asyncpg.Pool, bot: Bot, job: dict) -> None:
             return
 
         uid = int(targets[idx])
-        success, _reason = await send_one(bot, uid, text, parse_mode, photo_id, photo_bytes=photo_bytes, keyboard=keyboard)
+        # Personalize text if it contains {first_name}
+        send_text = text
+        if "{first_name}" in send_text:
+            # Try fetch first_name from DB
+            try:
+                async with pool.acquire() as conn:
+                    fn_row = await conn.fetchrow("SELECT first_name FROM users WHERE telegram_id=$1", uid)
+                fn = (fn_row["first_name"] if fn_row else None) or "คุณ"
+                send_text = send_text.replace("{first_name}", fn[:30])
+            except Exception:
+                send_text = send_text.replace("{first_name}", "คุณ")
+
+        success, reason = await send_one(bot, uid, send_text, parse_mode, photo_id, photo_bytes=photo_bytes, keyboard=keyboard)
         if success:
             ok += 1
+            consecutive_failures = 0
+            if consecutive_429 > 0:
+                consecutive_429 = max(0, consecutive_429 - 1)
         else:
             fail += 1
+            consecutive_failures += 1
+            if reason == "flood":  # 429
+                consecutive_429 += 1
+                # Exponential backoff: 4s → 8s → 16s → 32s → 60s cap
+                current_delay = min(60.0, current_delay * 2)
+                log.warning("Job %s — 429 detected (%d consecutive), delay → %.1fs",
+                            bid, consecutive_429, current_delay)
+                if consecutive_429 >= 5:
+                    log.error("Job %s — 5+ consecutive 429s, PAUSING job for safety", bid)
+                    await checkpoint(pool, bid, idx + 1, ok, fail)
+                    # Pause: mark status=PAUSED, can resume manually
+                    async with pool.acquire() as conn:
+                        await conn.execute("UPDATE broadcasts SET status='PAUSED' WHERE id=$1", bid)
+                    return
+
+        # Failure rate check (after warmup)
+        if (idx - start_idx + 1) >= MIN_SAMPLES_BEFORE_CHECK:
+            sent_so_far = (idx - start_idx + 1)
+            recent_failures = fail - (job.get("failed_count") or 0)
+            rate = recent_failures / sent_so_far if sent_so_far else 0
+            if rate > FAILURE_RATE_THRESHOLD:
+                log.error("Job %s — failure rate %.1f%% > threshold, PAUSING", bid, rate * 100)
+                await checkpoint(pool, bid, idx + 1, ok, fail)
+                async with pool.acquire() as conn:
+                    await conn.execute("UPDATE broadcasts SET status='PAUSED' WHERE id=$1", bid)
+                return
 
         # checkpoint every N
         if (idx + 1) % CHECKPOINT_EVERY == 0:
             await checkpoint(pool, bid, idx + 1, ok, fail)
-            log.info("Job %s checkpoint @ %s/%s ok=%s fail=%s", bid, idx + 1, total, ok, fail)
+            log.info("Job %s checkpoint @ %s/%s ok=%s fail=%s delay=%.1fs", bid, idx + 1, total, ok, fail, current_delay)
 
-        await asyncio.sleep(SEND_DELAY_SEC)
+        await asyncio.sleep(current_delay)
 
     await finish_job(pool, bid, ok, fail, status="COMPLETED")
     log.info("Job %s COMPLETED ok=%s fail=%s total=%s", bid, ok, fail, total)
