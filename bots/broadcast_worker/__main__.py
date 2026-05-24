@@ -95,7 +95,8 @@ async def pick_next_job(pool: asyncpg.Pool) -> dict | None:
             row = await conn.fetchrow(
                 """
                 SELECT id, message_text, message_photo_id, target_user_ids, last_processed_idx,
-                       success_count, failed_count, status
+                       success_count, failed_count, status,
+                       inline_buttons, photo_b64, parse_mode
                 FROM broadcasts
                 WHERE status = 'PENDING'
                    OR (status = 'IN_PROGRESS' AND
@@ -173,15 +174,28 @@ async def finish_job(
 
 
 # --- Send ---
-async def send_one(bot: Bot, user_id: int, text: str, parse_mode: str | None, photo_id: str | None = None) -> tuple[bool, str]:
+async def send_one(bot: Bot, user_id: int, text: str, parse_mode: str | None,
+                   photo_id: str | None = None, photo_bytes: bytes | None = None,
+                   keyboard=None) -> tuple[bool, str]:
     """Returns (ok, reason). reason is empty on success or 'blocked'/'badreq'/'flood'/'net'."""
     try:
-        if photo_id:
+        # FIX 2026-05-24: support inline keyboard + raw photo bytes
+        if photo_bytes:
+            import io
+            await bot.send_photo(
+                chat_id=user_id,
+                photo=io.BytesIO(photo_bytes),
+                caption=text,
+                parse_mode=parse_mode or "HTML",
+                reply_markup=keyboard,
+            )
+        elif photo_id:
             await bot.send_photo(
                 chat_id=user_id,
                 photo=photo_id,
                 caption=text,
                 parse_mode=parse_mode or "HTML",
+                reply_markup=keyboard,
             )
         else:
             await bot.send_message(
@@ -189,6 +203,7 @@ async def send_one(bot: Bot, user_id: int, text: str, parse_mode: str | None, ph
                 text=text,
                 parse_mode=parse_mode or None,
                 disable_web_page_preview=True,
+                reply_markup=keyboard,
             )
         return True, ""
     except Forbidden:
@@ -215,6 +230,28 @@ async def run_job(pool: asyncpg.Pool, bot: Bot, job: dict) -> None:
     parse_mode = job.get("parse_mode") or "HTML"
     photo_id = job.get("message_photo_id")
     raw_targets = job["target_user_ids"]
+    # FIX 2026-05-24: load photo_b64 + inline_buttons from job
+    import base64 as _b64lib
+    photo_b64_raw = job.get("photo_b64")
+    photo_bytes = _b64lib.b64decode(photo_b64_raw) if photo_b64_raw else None
+    keyboard = None
+    inline_buttons_raw = job.get("inline_buttons")
+    if inline_buttons_raw:
+        try:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            btns_data = inline_buttons_raw if isinstance(inline_buttons_raw, (list, dict)) else json.loads(inline_buttons_raw)
+            rows = []
+            for row in btns_data:
+                row_btns = []
+                for b in row:
+                    if b.get("url"):
+                        row_btns.append(InlineKeyboardButton(b["text"], url=b["url"]))
+                    elif b.get("callback_data"):
+                        row_btns.append(InlineKeyboardButton(b["text"], callback_data=b["callback_data"]))
+                rows.append(row_btns)
+            keyboard = InlineKeyboardMarkup(rows)
+        except Exception as e:
+            log.warning("Failed to parse inline_buttons: %s", e)
     if isinstance(raw_targets, str):
         targets = json.loads(raw_targets)
     else:
@@ -237,7 +274,7 @@ async def run_job(pool: asyncpg.Pool, bot: Bot, job: dict) -> None:
             return
 
         uid = int(targets[idx])
-        success, _reason = await send_one(bot, uid, text, parse_mode, photo_id)
+        success, _reason = await send_one(bot, uid, text, parse_mode, photo_id, photo_bytes=photo_bytes, keyboard=keyboard)
         if success:
             ok += 1
         else:
