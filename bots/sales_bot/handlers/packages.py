@@ -1,3 +1,4 @@
+# >>> MAY26_COMBO_PROMO <<<  # patched packages.py
 """Package display handler - Sales Bot แพร.
 
 แสดง 4 แพ็กเกจ: 300 / 500 / 1299 / 2499 พร้อมรายละเอียดกลุ่ม.
@@ -14,8 +15,12 @@ from shared.endmonth_vip_promo import (
     PROMO_2499_PRICE,
     PROMO_DATE_TEXT,
     PROMO_PRICE,
+    PROMO_500_PRICE,
+    PROMO_1299_PRICE,
+    PROMO_MAY_DATE_TEXT,
     get_promo_badge_for_tier,
     is_endmonth_vip_promo_active,
+    is_may_combo_promo_active,
 )
 from shared.songkran_promo import is_songkran_promo_window
 
@@ -135,7 +140,7 @@ def _build_package_list_text() -> str:
         f"{god_promo_note}"
         "────────────────────\n"
         "🥈 1,299.- | GOD MODE (3 เดือน)\n"
-        "💰 ราคา: 1,299 บาท / 90 วัน\n"
+        f"💰 ราคา: {('<s>1,299</s> 999 บาท / 90 วัน 🔥 โปรถึง 31 พ.ค.' if is_may_combo_promo_active() else '1,299 บาท / 90 วัน')}\n"
         "🏠 ห้อง\n"
         "- VIP ( 90 วัน )\n"
         "- SSS ( 90 วัน )\n"
@@ -148,7 +153,7 @@ def _build_package_list_text() -> str:
         f"{songkran_note}"
         "────────────────────\n"
         "👙 500.- | OnlyFans + VIP (30 วัน)\n"
-        "💰 ราคา: 500 บาท / 30 วัน\n"
+        f"💰 ราคา: {('<s>500</s> 349 บาท / 30 วัน 🔥 โปรถึง 31 พ.ค.' if is_may_combo_promo_active() else '500 บาท / 30 วัน')}\n"
         "🏠 ห้อง\n"
         "- VIP ( 30 วัน )\n"
         "- OnlyFans ( 30 วัน )\n\n"
@@ -169,8 +174,8 @@ def _build_package_keyboard() -> InlineKeyboardMarkup:
     god_label = "💎 GOD 2,499 เหลือ 2,000" if is_endmonth_vip_promo_active() else "💎 2,499 บาท"
     buttons = [
         [InlineKeyboardButton(vip_label, callback_data="pkg_300")],
-        [InlineKeyboardButton(f"🥈 500 บาท", callback_data="pkg_500")],
-        [InlineKeyboardButton(f"🥇 1,299 บาท", callback_data="pkg_1299")],
+        [InlineKeyboardButton("🔥 OF 500 เหลือ 349" if is_may_combo_promo_active() else "🥈 500 บาท", callback_data="pkg_500")],
+        [InlineKeyboardButton("🔥 GOD3M 1,299 เหลือ 999" if is_may_combo_promo_active() else "🥇 1,299 บาท", callback_data="pkg_1299")],
         [InlineKeyboardButton(god_label, callback_data="pkg_2499")],
         [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
     ]
@@ -290,18 +295,26 @@ async def buy_package_callback(
 
     # Store selected package in user context
     promo_active = tier in ("300", "2499") and is_endmonth_vip_promo_active()
+    may_promo_active = tier in ("500", "1299") and is_may_combo_promo_active()
     if promo_active and tier == "300":
         display_price = str(int(PROMO_PRICE))
     elif promo_active and tier == "2499":
         display_price = str(int(PROMO_2499_PRICE))
+    elif may_promo_active and tier == "500":
+        display_price = str(int(PROMO_500_PRICE))
+    elif may_promo_active and tier == "1299":
+        display_price = str(int(PROMO_1299_PRICE))
     else:
         display_price = pkg["price"]
+    promo_active = promo_active or may_promo_active
 
     context.user_data["selected_tier"] = tier
     context.user_data["selected_price"] = display_price.replace(",", "")
 
-    normal_price = "300" if tier == "300" else "2,499"
-    promo_line = f"🔥 โปรสิ้นเดือน: จาก {normal_price} เหลือ <b>{display_price} บาท</b> ({PROMO_DATE_TEXT})\n\n" if promo_active else ""
+    _np_map = {"300": "300", "2499": "2,499", "500": "500", "1299": "1,299"}
+    normal_price = _np_map.get(tier, pkg["price"])
+    _pdate = PROMO_MAY_DATE_TEXT if may_promo_active else PROMO_DATE_TEXT
+    promo_line = f"🔥 โปรสิ้นเดือน: จาก {normal_price} เหลือ <b>{display_price} บาท</b> ({_pdate})\n\n" if promo_active else ""
 
     text = (
         f"✅ <b>ยืนยันสมัคร {pkg['name']}</b>\n\n"

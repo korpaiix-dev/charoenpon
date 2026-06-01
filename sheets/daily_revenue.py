@@ -1,3 +1,4 @@
+# >>> FIX_TZ_VERIFIED_AT <<<  # standardized on verified_at (revenue recognition)
 """Sheet 'รายได้รายวัน' - อัปเดต real-time ทุกครั้งที่ชำระเงิน."""
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 TH_TZ = timezone(timedelta(hours=7))
 
 # Admin/test Telegram IDs — exclude from revenue calculations
-EXCLUDED_TELEGRAM_IDS = {8502597269, 8370054523, 8567926841, 8116134249}
+EXCLUDED_TELEGRAM_IDS = {8502597269, 8567926841, 8116134249}
 
 
 class DailyRevenueSheet:
@@ -56,8 +57,8 @@ class DailyRevenueSheet:
                 .join(User, Payment.user_id == User.id)
                 .where(
                     Payment.status == PaymentStatus.CONFIRMED,
-                    Payment.created_at >= day_start_utc,
-                    Payment.created_at < day_end_utc,
+                    Payment.verified_at >= day_start_utc,
+                    Payment.verified_at < day_end_utc,
                     User.telegram_id.notin_(EXCLUDED_TELEGRAM_IDS),
                 )
                 .group_by(Payment.method)
@@ -79,8 +80,8 @@ class DailyRevenueSheet:
                 .join(User, Payment.user_id == User.id)
                 .where(
                     Payment.status == PaymentStatus.CONFIRMED,
-                    Payment.created_at >= day_start_utc,
-                    Payment.created_at < day_end_utc,
+                    Payment.verified_at >= day_start_utc,
+                    Payment.verified_at < day_end_utc,
                     User.telegram_id.notin_(EXCLUDED_TELEGRAM_IDS),
                 )
                 .group_by(Package.tier)
@@ -93,8 +94,8 @@ class DailyRevenueSheet:
                 .join(User, Payment.user_id == User.id)
                 .where(
                     Payment.status == PaymentStatus.CONFIRMED,
-                    Payment.created_at >= day_start_utc,
-                    Payment.created_at < day_end_utc,
+                    Payment.verified_at >= day_start_utc,
+                    Payment.verified_at < day_end_utc,
                     User.telegram_id.notin_(EXCLUDED_TELEGRAM_IDS),
                 )
             )
