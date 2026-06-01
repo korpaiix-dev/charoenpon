@@ -793,7 +793,46 @@ async def handle_photo_slip(
         rejection = None
         rcv_ok, rcv_reason = receiver_is_boss(slip2go_data)
         if not rcv_ok:
-            rejection = f"ผู้รับไม่ใช่บัญชีเจริญพร ({rcv_reason})"
+            # # >>> OPTION_B_HARD_REJECT <<<
+            # HARD REJECT — Slip2Go confirms real bank tx but receiver is NOT us.
+            # Don't fall to AI, don't create payment, just inform customer + alert admin.
+            _rcv_name = ((slip2go_data.get("receiver", {}) or {}).get("account", {}) or {}).get("name") or "ไม่ทราบ"
+            await update.message.reply_text(
+                "❌ <b>สลิปนี้ใช้ไม่ได้</b>\n\n"
+                "ระบบตรวจสอบแล้วพบว่าคุณ <b>โอนเงินผิดบัญชี</b> ค่ะ\n"
+                f"📌 ผู้รับในสลิป: <b>{_rcv_name}</b>\n"
+                "📌 ผู้รับที่ถูก: <b>นาย ชาคริต กิ่งวงษา</b> (PromptPay 098-835-1578 / SCB 414-203-9642)\n\n"
+                "กรุณาโอนเข้าบัญชีของร้านเจริญพรเท่านั้น แล้วส่งสลิปใหม่ค่ะ 🙏",
+                parse_mode="HTML",
+            )
+            # Alert admin group (info only — no approve buttons)
+            try:
+                import telegram as tg, html as _h, os as _os
+                _admin_bot = tg.Bot(token=_os.environ.get("ADMIN_BOT_TOKEN", ""))
+                try:
+                    await _admin_bot.initialize()
+                    _admin_chat = int(_os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+                    _safe_tg = _h.escape(str(user.first_name or user.username or "ลูกค้า"))
+                    _safe_rcv = _h.escape(_rcv_name)
+                    _msg = (
+                        "⚠️ <b>WRONG-RECEIVER SLIP</b> (Slip2Go verified real, but not our account)\n"
+                        "━━━━━━━━━━━━━━\n"
+                        f"👤 Telegram: {_safe_tg} (<code>{user.id}</code>)\n"
+                        f"💰 Slip amount: <b>฿{int(slip2go_data.get('amount') or 0):,}</b>\n"
+                        f"🎯 Receiver in slip: <b>{_safe_rcv}</b>\n"
+                        f"🔖 transRef: <code>{(slip2go_data.get('transRef') or '')[:32]}</code>\n"
+                        f"📝 Reason: {_h.escape(rcv_reason or '-')}\n"
+                        f"\nลูกค้าได้รับข้อความแจ้งให้โอนใหม่แล้ว — ไม่มี action ต้องทำ"
+                    )
+                    await _admin_bot.send_message(chat_id=_admin_chat, text=_msg, parse_mode="HTML")
+                finally:
+                    try: await _admin_bot.shutdown()
+                    except Exception: pass
+            except Exception as _exc_an:
+                logger.warning("admin alert (wrong-receiver) failed: %s", _exc_an)
+            logger.warning("Hard reject (wrong receiver): user=%s amount=%s rcv=%s tref=%s",
+                           user.id, slip2go_data.get("amount"), _rcv_name, slip2go_data.get("transRef"))
+            return  # ← critical: do NOT fall through to AI path
         else:
             tier_match = amount_to_tier(s2g_amount)
             if not tier_match:
