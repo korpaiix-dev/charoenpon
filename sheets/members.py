@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 TH_TZ = timezone(timedelta(hours=7))
 
 # Admin/test Telegram IDs — never write to sheets
-EXCLUDED_TELEGRAM_IDS = {8502597269, 8567926841, 8116134249}
+EXCLUDED_TELEGRAM_IDS = {8502597269, 8567926841, 8116134249, 7387557933}
 
 
 class MembersSheet:
