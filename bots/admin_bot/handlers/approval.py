@@ -1,3 +1,4 @@
+# >>> MAY26_COMBO_PROMO <<<  # patched approval.py
 """Approval handlers - อนุมัติ/reject payment และ broadcast."""
 
 from __future__ import annotations
@@ -19,7 +20,10 @@ from shared.models import (
     SubscriptionStatus,
     User,
 )
-from shared.endmonth_vip_promo import PROMO_2499_PRICE, PROMO_PRICE, is_endmonth_vip_promo_active
+from shared.endmonth_vip_promo import (
+    PROMO_2499_PRICE, PROMO_PRICE, is_endmonth_vip_promo_active,
+    PROMO_500_PRICE, PROMO_1299_PRICE, is_may_combo_promo_active,
+)
 from shared.songkran_promo import get_group_display_title, is_songkran_bonus_slug
 from shared.utils import format_datetime_thai, format_thb, log_admin_action
 
@@ -179,7 +183,7 @@ async def approve_payment_callback(update: Update, context: ContextTypes.DEFAULT
         # Update user total spent
         user = await session.get(User, payment.user_id)
         if user:
-            user.total_spent = user.total_spent + payment.amount
+            # FIX2_TRUST_TRIGGER total_spent maintained by DB trigger
 
             # Mark teaser clicks as converted for this user
             from sqlalchemy import update as sa_update
@@ -715,7 +719,7 @@ async def approve_promo_callback(update: Update, context: ContextTypes.DEFAULT_T
                 end_date=end_date,
             )
             session.add(subscription)
-            db_user.total_spent = (db_user.total_spent or Decimal("0")) + Decimal(str(discounted_price))
+            # FIX2_TRUST_TRIGGER total_spent maintained by DB trigger
 
             # Mark teaser clicks as converted
             from sqlalchemy import update as sa_update
@@ -953,6 +957,27 @@ async def _verify_approve_amount(payment: "Payment", button_amount) -> tuple[boo
         )
     if pay == btn:
         return True, ""
+    # # >>> HOTFIX_PROMO_PAY_MATCH <<<
+    # Accept promo-price button against full-price payment record:
+    # button 349 vs payment 500 → OK during may combo promo (TIER_500 → 349)
+    # button 999 vs payment 1299 → OK during may combo promo (TIER_1299 → 999)
+    try:
+        from shared.endmonth_vip_promo import is_may_combo_promo_active
+        # >>> BUG8_BACKDATE_PROMO <<<
+        # Use payment.created_at — promo-active state when slip was submitted,
+        # not when admin reviews. Handles late-review after promo ends.
+        _at = getattr(payment, "created_at", None)
+        if is_may_combo_promo_active(_at):
+            if (btn == Decimal("349") and pay == Decimal("500")) or \
+               (btn == Decimal("999") and pay == Decimal("1299")):
+                return True, ""
+        from shared.endmonth_vip_promo import is_endmonth_vip_promo_active
+        if is_endmonth_vip_promo_active(_at):
+            if (btn == Decimal("200") and pay == Decimal("300")) or \
+               (btn == Decimal("2000") and pay == Decimal("2499")):
+                return True, ""
+    except Exception:
+        pass
     diff = abs(pay - btn)
     return False, (
         f"⚠️ AMOUNT MISMATCH: button={btn} payment={pay} "
@@ -1074,7 +1099,17 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
         # Find package by price
         async with get_session() as session:
             from shared.models import Package, PackageTier
-            tier_map = {"99": "99", "199": "300", "200": "300", "300": "300", "500": "500", "1299": "1299", "2000": "2499", "2499": "2499", "ADD500": "ADD500"}
+            tier_map = {"199": "300", "200": "300", "300": "300", "349": "500", "500": "500", "999": "1299", "1299": "1299", "2000": "2499", "2499": "2499", "ADD500": "ADD500"}
+            # >>> BUG2_TIER_MAP_GATE <<<
+            # Reject promo-price callbacks if their promo is no longer active.
+            # Otherwise admin clicking stale buttons after promo end would assign
+            # full-tier access at promo price (revenue leak).
+            if price in ("349", "999") and not is_may_combo_promo_active():
+                await query.answer("⛔ โปรพ.ค. หมดเขตแล้ว — ใช้ปุ่มราคาเต็ม", show_alert=True)
+                return
+            if price in ("200", "2000") and not is_endmonth_vip_promo_active():
+                await query.answer("⛔ โปรเม.ย. หมดเขตแล้ว — ใช้ปุ่มราคาเต็ม", show_alert=True)
+                return
             tier = tier_map.get(price)
             if not tier:
                 await query.answer(f"❌ ราคา {price} ไม่ถูกต้อง", show_alert=True)
@@ -1087,6 +1122,34 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
             if not package:
                 await query.answer("❌ ไม่พบแพ็กเกจ", show_alert=True)
                 return
+
+            # # >>> DOUBLE_APPROVE_GUARD_BOT <<<
+            # Guard: if user has a CONFIRMED payment in last 15 min already
+            # (e.g. just approved via Dashboard), refuse to avoid double-charge.
+            from datetime import datetime as _dt, timedelta as _td
+            _u_for_check = await session.execute(
+                select(User).where(User.telegram_id == target_user_id)
+            )
+            _u_row_chk = _u_for_check.scalar_one_or_none()
+            if _u_row_chk is not None:
+                # >>> BUG5_GUARD_PKG_MATCH <<<
+                # Only block if RECENT payment is for the SAME tier/package
+                # (legitimate case: ลูกค้าซื้อโปร แล้วซื้อ add-on add-500 ใน 5 นาที = OK)
+                _recent = await session.execute(
+                    select(Payment).where(
+                        Payment.user_id == _u_row_chk.id,
+                        Payment.status == PaymentStatus.CONFIRMED,
+                        Payment.package_id == package.id,
+                        Payment.created_at >= _dt.utcnow() - _td(minutes=15),
+                    ).order_by(Payment.created_at.desc()).limit(1)
+                )
+                _recent_pay = _recent.scalar_one_or_none()
+                if _recent_pay is not None:
+                    await query.answer(
+                        f"⛔ ลูกค้านี้เพิ่งถูกอนุมัติแล้ว (payment #{_recent_pay.id}, ฿{_recent_pay.amount}). อย่ากดซ้ำ",
+                        show_alert=True,
+                    )
+                    return
 
             # Find or create user
             user_result = await session.execute(
@@ -1115,10 +1178,19 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
                     .values(status=SubscriptionStatus.EXPIRED)
                 )
             else:
+                # >>> BUG7_LIFETIME_GUARD <<<
+                # Protect lifetime (TIER_2499) — never expire it when buying
+                # add-on or another tier. Same logic as Sales Bot Phase 2b.
                 from sqlalchemy import update as sa_update_sub
+                from shared.models import Package as _Pkg
+                _lifetime_pkgs_subq = select(_Pkg.id).where(_Pkg.tier == PackageTier.TIER_2499)
                 await session.execute(
                     sa_update_sub(Subscription)
-                    .where(Subscription.user_id == db_user.id, Subscription.status == SubscriptionStatus.ACTIVE)
+                    .where(
+                        Subscription.user_id == db_user.id,
+                        Subscription.status == SubscriptionStatus.ACTIVE,
+                        Subscription.package_id.notin_(_lifetime_pkgs_subq),
+                    )
                     .values(status=SubscriptionStatus.EXPIRED)
                 )
 
@@ -1137,13 +1209,22 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
                 end_date=end_date,
             )
             session.add(subscription)
+            # >>> BUG4_AMOUNT_FROM_PAY <<<
+            # Source of truth for amount_paid: actual slip amount (verify_payment.amount)
+            # if available. Falls back to button-derived promo price.
+            # Prevents revenue understatement when customer pays FULL price during promo.
+            _slip_amt = getattr(verify_payment, "amount", None) if "verify_payment" in dir() else None
             if price == "200" and tier == "300" and is_endmonth_vip_promo_active():
-                amount_paid = PROMO_PRICE
+                amount_paid = _slip_amt if _slip_amt and _slip_amt >= PROMO_PRICE else PROMO_PRICE
             elif price == "2000" and tier == "2499" and is_endmonth_vip_promo_active():
-                amount_paid = PROMO_2499_PRICE
+                amount_paid = _slip_amt if _slip_amt and _slip_amt >= PROMO_2499_PRICE else PROMO_2499_PRICE
+            elif price == "349" and tier == "500" and is_may_combo_promo_active():
+                amount_paid = _slip_amt if _slip_amt and _slip_amt >= PROMO_500_PRICE else PROMO_500_PRICE
+            elif price == "999" and tier == "1299" and is_may_combo_promo_active():
+                amount_paid = _slip_amt if _slip_amt and _slip_amt >= PROMO_1299_PRICE else PROMO_1299_PRICE
             else:
                 amount_paid = Decimal(str(price if price != "ADD500" else "500"))
-            db_user.total_spent = (db_user.total_spent or Decimal("0")) + amount_paid
+            # FIX2_TRUST_TRIGGER total_spent maintained by DB trigger
 
             # Mark teaser clicks as converted for this user
             from sqlalchemy import update as sa_update
