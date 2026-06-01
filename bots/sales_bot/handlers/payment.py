@@ -52,7 +52,7 @@ from shared.models import (
     SubscriptionStatus,
     User,
 )
-from shared.slip2go import verify_slip_image, Slip2GoError, receiver_is_boss, amount_to_tier
+from shared.slip2go import verify_slip_image, Slip2GoError, receiver_is_boss, receiver_match_pool, amount_to_tier
 from shared.endmonth_vip_promo import (
     PROMO_2499_PRICE,
     PROMO_DATE_TEXT,
@@ -791,7 +791,9 @@ async def handle_photo_slip(
 
         # ── Receiver match ──
         rejection = None
-        rcv_ok, rcv_reason = receiver_is_boss(slip2go_data)
+        # # >>> POOL_INTEGRATION <<< use pool-aware matcher (supports multiple receiver accounts)
+        from shared.slip2go import receiver_match_pool
+        rcv_ok, rcv_reason, _matched_account = await receiver_match_pool(slip2go_data)
         if not rcv_ok:
             # # >>> OPTION_B_HARD_REJECT <<<
             # HARD REJECT — Slip2Go confirms real bank tx but receiver is NOT us.
@@ -1123,6 +1125,32 @@ async def handle_photo_slip(
                                 color=0x00AA00,
                             )
                         except Exception: pass
+                    # # >>> POOL_CUMULATIVE <<<
+                    try:
+                        if _matched_account is not None:
+                            from shared.receiver_pool import record_payment_received
+                            _rec = await record_payment_received(_matched_account['id'], s2g_amount)
+                            if _rec.get('alert'):
+                                _alert_bot = tg.Bot(token=os.environ.get('ADMIN_BOT_TOKEN', ''))
+                                try:
+                                    await _alert_bot.initialize()
+                                    await _alert_bot.send_message(
+                                        chat_id=int(os.environ.get('ADMIN_GROUP_CHAT_ID', '-1003830920430')),
+                                        text=(
+                                            f"💰 <b>ยอดสะสมถึง milestone</b>\n"
+                                            f"━━━━━━━━━━━━━━\n"
+                                            f"บัญชี: <b>{_rec['owner_name']}</b>\n"
+                                            f"ยอดสะสมตอนนี้: <b>฿{int(_rec['cumulative']):,}</b>\n"
+                                            f"ผ่าน threshold: <b>฿{int(_rec['milestone']):,}</b>\n\n"
+                                            f"📌 พิจารณาถอนเงินออก แล้วใช้คำสั่ง /receivers reset เพื่อ reset counter"
+                                        ),
+                                        parse_mode='HTML',
+                                    )
+                                finally:
+                                    try: await _alert_bot.shutdown()
+                                    except Exception: pass
+                    except Exception as _exc_rec:
+                        logger.warning('record_payment_received fail: %s', _exc_rec)
                     return
 
     # ─── Slip2Go failed or unavailable — fall back to old AI path ───
