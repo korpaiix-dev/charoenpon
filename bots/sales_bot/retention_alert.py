@@ -180,11 +180,11 @@ def _build_retention_message(
         f"🎁 ต่ออายุวันนี้รับส่วนลด <b>{discount_pct}%</b>\n"
         f"💰 จ่ายแค่ <b>฿{discounted}</b> (จาก ฿{int(package_price)})\n"
         f"\n"
-        f"🎟 โค้ด: <code>{promo_code}</code>\n"
-        f"⏰ ใช้ได้ 48 ชม.\n"
+        # # >>> FIX_NO_CODE_WORDING <<<
+        f"⏰ ส่วนลดของคุณใช้ได้ 48 ชม.\n"
         f"\n"
         f"อย่าพลาดสัญญาณดีๆ นะคะ 🙏\n"
-        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">กดต่ออายุเลย</a>'
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">กดปุ่มต่ออายุเลย (ไม่ต้องกรอกโค้ด)</a>'
     )
 
 

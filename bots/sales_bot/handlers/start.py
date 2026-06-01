@@ -51,7 +51,9 @@ async def _handle_comeback_start(update: Update, context: ContextTypes.DEFAULT_T
     """Handle /start comeback_{code} deep link. Returns True if handled."""
     from bots.sales_bot.comeback_dm import validate_promo_code, mark_promo_responded, _calculate_discounted_price
 
-    promo = await validate_promo_code(promo_code)
+    # >>> FIX_PASS_TG_ID <<< — restrict code to the user it was issued to
+    _tg_id = update.effective_user.id if update.effective_user else None
+    promo = await validate_promo_code(promo_code, telegram_id=_tg_id)
     if not promo:
         await update.message.reply_text(
             "❌ โปรโมชั่นนี้หมดอายุหรือไม่ถูกต้องแล้วค่ะ\n\n"
