@@ -8,6 +8,32 @@ from __future__ import annotations
 
 import logging
 import os
+
+# >>> FIXALL_TOKEN_ALERT <<< Bug #19
+async def _slip2go_balance_check(context):
+    """Every 6h: alert Discord if Slip2Go token balance < SLIP2GO_TOKEN_ALERT_THRESHOLD (default 50 slips)."""
+    try:
+        from shared.slip2go import get_account_info, Slip2GoError
+        from bots.sales_bot.handlers.payment import _notify_discord
+        import os as _os
+        try:
+            info = await get_account_info()
+        except Slip2GoError as e:
+            await _notify_discord("🛑 Slip2Go API DOWN",
+                                   f"Cannot fetch account info: {e.code} {e.message}",
+                                   color=0xFF0000)
+            return
+        remaining_slips = info.get("estimatedQuotaSlip", 0)
+        threshold = int(_os.environ.get("SLIP2GO_TOKEN_ALERT_THRESHOLD", "50"))
+        if remaining_slips < threshold:
+            await _notify_discord(
+                f"⚠️ Slip2Go quota low ({remaining_slips} slips)",
+                f"เติม Slip2Go โทเคนด่วน — เหลือประมาณ {remaining_slips} สลิป (threshold={threshold})\nshop={info.get('shopName')} tokenRemaining={info.get('tokenRemaining')}",
+                color=0xFFA500,
+            )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("slip2go balance check failed: %s", e)
 from datetime import time as dt_time
 from datetime import timezone, timedelta
 
@@ -317,6 +343,15 @@ def create_application() -> Application:
         broadcast_songkran_promo,
         time=dt_time(hour=20, minute=0, tzinfo=TH_TZ),
         name="songkran_promo_broadcast_daily_2000",
+    )
+
+    # >>> FIXALL_TOKEN_REGISTER <<<
+    # Bug #19: Slip2Go balance check every 6 hours
+    app.job_queue.run_repeating(
+        _slip2go_balance_check,
+        interval=6 * 3600,
+        first=300,  # first check 5 min after startup
+        name="slip2go_balance_check_6h",
     )
 
     # --- Scheduler: Lead Follow-up DM ทุก 1 ชม. (v1 — replaced by v2) ---

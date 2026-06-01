@@ -134,6 +134,10 @@ class User(Base):
     leads: Mapped[list[Lead]] = relationship(back_populates="user", lazy="selectin")
     expiry_notifications: Mapped[list[ExpiryNotification]] = relationship(back_populates="user", lazy="selectin")
 
+    # >>> SLIP2GO_USER_FIELDS <<<
+    real_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_sender_bank: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_sender_account: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 class Package(Base):
     __tablename__ = "packages"
@@ -238,6 +242,12 @@ class Payment(Base):
         ),
     )
 
+    # >>> SLIP2GO_FIELDS <<<
+    slip_trans_ref: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
+    sender_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    sender_bank_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sender_bank_account: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    auto_approved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 class AdminLog(Base):
     __tablename__ = "admin_logs"
