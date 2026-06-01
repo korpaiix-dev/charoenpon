@@ -94,6 +94,41 @@ NON_SLIP_AD_KEYWORDS = (
     "รับฟรี",
     "โปรโมชันแนะนำ",
     "โปรโมชั่นแนะนำ",
+    # # >>> CASINO_BLOCK <<< — added 2026-06-02
+    # Casino brand names + slot keywords commonly seen in ads sent as fake slips
+    "nova777",
+    "nova 777",
+    ".online",
+    "knockout",
+    "dish delights",
+    "คอมโบทำเงิน",
+    "ทำเงิน",
+    "แตกแจกถอน",
+    "เบทละ",
+    "ก้อนโต",
+    "cashback",
+    "วงล้อนำโชค",
+    "วงล้อ",
+    "แนะนำเพื่อน",
+    "คลิกเลย",
+    "joker",
+    "pgslot",
+    "pg slot",
+    "สล็อต",
+    "slotxo",
+    "ufabet",
+    "ufa",
+    "lava",
+    "ฝากเครดิต",
+    "ฝาก-ถอน",
+    "ฝาก ถอน",
+    "ฟรีสปิน",
+    "free spin",
+    "bonus",
+    "โบนัส",
+    "หวย",
+    "บาคาร่า",
+    "baccarat",
 )
 
 
@@ -337,7 +372,7 @@ async def _ai_read_slip(b64_image: str) -> str | None:
 
     try:
         data = await call_openrouter(
-            model="google/gemini-2.0-flash-lite-001",
+            model="google/gemini-2.5-flash",
             messages=[
                 {
                     "role": "user",
@@ -390,7 +425,7 @@ async def _ai_screen_image(b64_image: str) -> str | None:
 
     try:
         data = await call_openrouter(
-            model="google/gemini-2.0-flash-lite-001",
+            model="google/gemini-2.5-flash",
             messages=[
                 {
                     "role": "user",
