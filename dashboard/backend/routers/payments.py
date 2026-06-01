@@ -314,16 +314,38 @@ async def approve_payment(payment_id: int, request: Request, admin=Depends(get_c
                 # already approved/rejected by someone else — 409 Conflict
                 raise HTTPException(409, f"Payment already {existing['status']}")
 
+            # # >>> DOUBLE_APPROVE_GUARD <<<
+            # Guard: if user has another CONFIRMED payment within last 15 min,
+            # this is likely a Telegram-bot vs Dashboard double approve. Refuse.
+            # >>> BUG5_DASH_PKG_MATCH <<<
+            # Only block duplicate approval for SAME package_id (legitimate add-on/re-buy passes through)
+            recent = await conn.fetchrow("""
+                SELECT id, amount, created_at FROM payments
+                WHERE user_id = $1 AND status = 'CONFIRMED' AND id <> $2
+                  AND package_id = $3
+                  AND created_at >= NOW() - INTERVAL '15 minutes'
+                ORDER BY created_at DESC LIMIT 1
+            """, pay["user_id"], payment_id, pay["package_id"])
+            if recent:
+                raise HTTPException(
+                    409,
+                    f"ลูกค้านี้เพิ่งถูกอนุมัติไปแล้ว (payment #{recent['id']}, ฿{recent['amount']}, {recent['created_at'].strftime('%H:%M:%S')}). กดอนุมัติซ้ำไม่ได้"
+                )
             # ── Load package + create subscription atomically within transaction ──
             pkg = await conn.fetchrow("SELECT * FROM packages WHERE id = $1", pay["package_id"])
             if not pkg:
                 # Roll back by raising — payment update will revert
                 raise HTTPException(404, "Package not found")
 
-            # Expire existing active subscriptions
+            # # >>> BUG7_DASH_LIFETIME <<<
+            # Protect lifetime (TIER_2499) — never expire it when buying
+            # other tier / add-on. Same as Sales Bot Phase 2b protection.
             await conn.execute("""
                 UPDATE subscriptions SET status = 'EXPIRED'
                 WHERE user_id = $1 AND status = 'ACTIVE'
+                  AND package_id NOT IN (
+                    SELECT id FROM packages WHERE tier = 'TIER_2499'
+                  )
             """, pay["user_id"])
 
             # Trial (tier 99) = 24 hours, others use duration_days
@@ -338,9 +360,8 @@ async def approve_payment(payment_id: int, request: Request, admin=Depends(get_c
             """, pay["user_id"], pay["package_id"], payment_id)
 
             # Update user total_spent (still inside transaction)
-            await conn.execute("""
-                UPDATE users SET total_spent = COALESCE(total_spent, 0) + $1 WHERE id = $2
-            """, pay["amount"], pay["user_id"])
+            # FIX2_TRUST_TRIGGER total_spent maintained by DB trigger
+            pass  # no-op: trigger handles it
     # ── transaction committed ──
 
     # ── 3. Generate invite links via Guardian Bot (best-effort, outside TX) ──
