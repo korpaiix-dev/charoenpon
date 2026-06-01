@@ -526,18 +526,23 @@ async def send_comeback_dm(
     return True
 
 
-async def validate_promo_code(promo_code: str) -> dict | None:
+async def validate_promo_code(promo_code: str, telegram_id: int | None = None) -> dict | None:
     """ตรวจสอบ promo code ว่าถูกต้อง + ยังไม่หมดอายุ (48 ชม.).
+
+    # >>> FIX_TIE_TG_ID <<<
+    If telegram_id is provided, the code only validates if it belongs to that
+    user — prevents code sharing.
 
     Returns dict with discount_pct, user_id, telegram_id or None if invalid.
     """
     async with get_session() as session:
-        result = await session.execute(
-            select(ComebackDmLog).where(
-                ComebackDmLog.promo_code == promo_code,
-                ComebackDmLog.purchased == False,  # noqa: E712
-            )
-        )
+        conds = [
+            ComebackDmLog.promo_code == promo_code,
+            ComebackDmLog.purchased == False,  # noqa: E712
+        ]
+        if telegram_id is not None:
+            conds.append(ComebackDmLog.telegram_id == telegram_id)
+        result = await session.execute(select(ComebackDmLog).where(*conds))
         dm_log = result.scalar_one_or_none()
 
     if not dm_log:
