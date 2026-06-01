@@ -1,3 +1,4 @@
+# >>> MAY26_COMBO_PROMO <<<  # patched payment.py
 """Payment handler - Sales Bot แพร.
 
 SOP ตรวจสลิป:
@@ -51,12 +52,17 @@ from shared.models import (
     SubscriptionStatus,
     User,
 )
+from shared.slip2go import verify_slip_image, Slip2GoError, receiver_is_boss, amount_to_tier
 from shared.endmonth_vip_promo import (
     PROMO_2499_PRICE,
     PROMO_DATE_TEXT,
     PROMO_PRICE,
+    PROMO_500_PRICE,
+    PROMO_1299_PRICE,
+    PROMO_MAY_DATE_TEXT,
     get_effective_price_for_tier,
     is_endmonth_vip_promo_active,
+    is_may_combo_promo_active,
 )
 from shared.songkran_promo import get_group_display_title
 from shared.utils import (
@@ -731,6 +737,356 @@ async def handle_photo_slip(
             return
         logger.warning("AI screen failed, proceeding with OCR: %s", exc)
 
+    # >>> SLIP2GO_INTEGRATION <<<
+    # >>> FIXALL_PAYMENT <<<
+    # Bug #4: compute slip_hash from CONTENT (image bytes) — file_id is unstable
+    # We compute it once below after downloading photo_bytes.
+    slip_hash = None  # will be set after download
+
+    # Bug #1: safe download with explicit exception handling
+    photo_bytes = None
+    try:
+        _tg_file = await context.bot.get_file(file_id)
+        import io as _io
+        _buf = _io.BytesIO()
+        await _tg_file.download_to_memory(_buf)
+        photo_bytes = _buf.getvalue()
+    except Exception as _exc_dl:
+        logger.error("Failed to download slip image: %s", _exc_dl)
+
+    # Bug #4: content-derived hash
+    if photo_bytes:
+        import hashlib as _hashlib
+        slip_hash = _hashlib.sha256(photo_bytes).hexdigest()[:64]
+    else:
+        slip_hash = compute_slip_hash(file_id)  # fallback to file_id hash
+
+    # ─── Slip2Go verification ───
+    slip2go_data = None
+    slip2go_err = None
+    if photo_bytes is None:
+        slip2go_err = Slip2GoError("DOWNLOAD_FAIL", "could not download slip image")
+    else:
+        try:
+            slip2go_data = await verify_slip_image(photo_bytes)
+        except Slip2GoError as _sg_err:
+            slip2go_err = _sg_err
+            logger.warning("Slip2Go verify failed for user %s: %s", user.id, _sg_err)
+        except Exception as _sg_err:
+            # Bug #1/10: catch generic exceptions too
+            slip2go_err = Slip2GoError("UNKNOWN", str(_sg_err)[:200])
+            logger.error("Slip2Go unexpected error: %s", _sg_err)
+
+    if slip2go_data:
+        # Successful Slip2Go response — try Smart Match auto-approve
+        from decimal import Decimal as _D
+        from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+        s2g_amount = _D(str(slip2go_data.get("amount") or "0"))
+        # Bug #17: empty string → None to avoid UNIQUE violation on ""
+        s2g_trans_ref = ((slip2go_data.get("transRef") or "").strip()[:64]) or None
+        s2g_sender = slip2go_data.get("sender", {}) or {}
+        s2g_sender_name = ((s2g_sender.get("account") or {}).get("name") or "")[:255]
+        s2g_sender_bank = ((s2g_sender.get("bank") or {}).get("name") or "")[:64]
+        s2g_sender_account = (((s2g_sender.get("account") or {}).get("bank") or {}).get("account") or "")[:64]
+
+        # ── Receiver match ──
+        rejection = None
+        rcv_ok, rcv_reason = receiver_is_boss(slip2go_data)
+        if not rcv_ok:
+            rejection = f"ผู้รับไม่ใช่บัญชีเจริญพร ({rcv_reason})"
+        else:
+            tier_match = amount_to_tier(s2g_amount)
+            if not tier_match:
+                # Bug #11: hand off to admin instead of hard reject
+                rejection = None  # let admin review
+                logger.info("Slip2Go: amount %s no tier match — routing to admin", s2g_amount)
+                slip2go_data = None  # fall through to AI/admin path
+                slip2go_err = Slip2GoError("NO_TIER", f"ยอด {int(s2g_amount)} ไม่ตรง tier ใดๆ")
+
+        if slip2go_data and rejection is None:
+            # Bug #2: do dup check + write in SAME session + catch IntegrityError
+            tier_str, tier_label, is_promo = tier_match  # type: ignore
+
+            tier_map_local = {
+                "99": PackageTier.TIER_99, "199": PackageTier.TIER_300, "200": PackageTier.TIER_300,
+                "300": PackageTier.TIER_300, "349": PackageTier.TIER_500, "500": PackageTier.TIER_500,
+                "999": PackageTier.TIER_1299, "1299": PackageTier.TIER_1299,
+                "2000": PackageTier.TIER_2499, "2499": PackageTier.TIER_2499,
+            }
+            target_tier_enum = tier_map_local.get(tier_str)
+
+            # Bug #13: TIER_ADD500 vs TIER_500 disambiguation
+            # If amount=500 AND user has active TIER_2499 lifetime → use TIER_ADD500
+            if int(s2g_amount) == 500 and tier_str == "500":
+                from sqlalchemy import select as _sel_pre
+                async with get_session() as _check_sess:
+                    _u_pre = (await _check_sess.execute(_sel_pre(User).where(User.telegram_id == user.id))).scalar_one_or_none()
+                    if _u_pre:
+                        _has_lifetime = (await _check_sess.execute(_sel_pre(Subscription).join(
+                            Package, Package.id == Subscription.package_id
+                        ).where(
+                            Subscription.user_id == _u_pre.id,
+                            Subscription.status == SubscriptionStatus.ACTIVE,
+                            Package.tier == PackageTier.TIER_2499,
+                        ))).first()
+                        if _has_lifetime:
+                            target_tier_enum = PackageTier.TIER_ADD500  # type: ignore
+                            tier_label = "Summer Fest Add-on"
+                            logger.info("Auto-detected ADD500 (user has lifetime): tg=%s", user.id)
+
+            # >>> FIX1_TIER_MISMATCH <<<
+            # If customer explicitly selected a tier but slip amount matches DIFFERENT tier
+            # → don't auto-approve; route to admin for verification
+            if selected_tier and target_tier_enum is not None:
+                try:
+                    _expected_enum_map = {
+                        "300": PackageTier.TIER_300, "500": PackageTier.TIER_500,
+                        "1299": PackageTier.TIER_1299, "2499": PackageTier.TIER_2499,
+                    }
+                    _selected_enum = _expected_enum_map.get(str(selected_tier))
+                    if _selected_enum is not None and _selected_enum != target_tier_enum:
+                        logger.warning(
+                            "Slip2Go tier mismatch: selected=%s tier_from_amount=%s amount=%s",
+                            selected_tier, target_tier_enum.value, s2g_amount,
+                        )
+                        slip2go_data = None
+                        slip2go_err = Slip2GoError(
+                            "TIER_MISMATCH",
+                            f"selected={selected_tier} but amount={int(s2g_amount)} → admin review",
+                        )
+                except Exception:
+                    pass
+
+            if not target_tier_enum:
+                logger.error("Smart match returned unmappable tier=%s", tier_str)
+                slip2go_data = None
+                slip2go_err = Slip2GoError("UNMAPPABLE", f"tier_str={tier_str}")
+            else:
+                # Bug #7: use ONE _now for all date calcs
+                _now = _dt.utcnow()
+                from sqlalchemy import select as _sel, update as _upd
+                from sqlalchemy.exc import IntegrityError as _IE
+
+                _approve_ok = False
+                _admin_alert_text = None
+                _link_rows = []
+                _pkg_name_safe = ""
+                _expiry_text_safe = ""
+                _new_pay_id = None
+
+                try:
+                    async with get_session() as _sess:
+                        # Bug #2: dup check INSIDE write session
+                        if s2g_trans_ref:
+                            _dup = await _sess.execute(_sel(Payment).where(
+                                Payment.slip_trans_ref == s2g_trans_ref
+                            ))
+                            if _dup.scalar_one_or_none():
+                                rejection = f"สลิปนี้เคยถูกใช้แล้ว (transRef: {s2g_trans_ref[:16]}...)"
+                                raise _IE("dup transRef", None, None)  # short-circuit
+
+                        # Find / create user
+                        _u = (await _sess.execute(_sel(User).where(User.telegram_id == user.id))).scalar_one_or_none()
+                        if not _u:
+                            _u = User(telegram_id=user.id, first_name=user.first_name, username=user.username)
+                            _sess.add(_u)
+                            await _sess.flush()
+                        _pkg = (await _sess.execute(_sel(Package).where(Package.tier == target_tier_enum))).scalar_one()
+
+                        # Bug #16: only set real_name on first purchase; log mismatch otherwise
+                        if s2g_sender_name and not _u.real_name:
+                            _u.real_name = s2g_sender_name
+                            _u.last_sender_bank = s2g_sender_bank
+                            _u.last_sender_account = s2g_sender_account
+                        elif s2g_sender_name and _u.real_name and _u.real_name != s2g_sender_name:
+                            logger.warning("Sender name mismatch: user=%s prev=%s new=%s",
+                                           user.id, _u.real_name, s2g_sender_name)
+                            # Update last_* anyway (latest sender)
+                            _u.last_sender_bank = s2g_sender_bank
+                            _u.last_sender_account = s2g_sender_account
+
+                        # Bug #3: lifetime guard — only protect lifetime when buying NON-lifetime
+                        _lifetime_pkgs = _sel(Package.id).where(Package.tier == PackageTier.TIER_2499)
+                        if target_tier_enum == PackageTier.TIER_2499:
+                            # Buying lifetime — expire EVERYTHING (including old lifetime — let new one take over)
+                            await _sess.execute(_upd(Subscription).where(
+                                Subscription.user_id == _u.id,
+                                Subscription.status == SubscriptionStatus.ACTIVE,
+                            ).values(status=SubscriptionStatus.EXPIRED))
+                        else:
+                            # Non-lifetime purchase — preserve any active lifetime sub
+                            await _sess.execute(_upd(Subscription).where(
+                                Subscription.user_id == _u.id,
+                                Subscription.status == SubscriptionStatus.ACTIVE,
+                                Subscription.package_id.notin_(_lifetime_pkgs),
+                            ).values(status=SubscriptionStatus.EXPIRED))
+
+                        # Bug #8: use sentinel date for lifetime
+                        if target_tier_enum == PackageTier.TIER_2499:
+                            _end = _dt(3000, 12, 31, 23, 59, 59)
+                        elif _pkg.tier == PackageTier.TIER_99:
+                            _end = _now + _td(hours=24)
+                        else:
+                            _end = _now + _td(days=_pkg.duration_days)
+
+                        # Create Payment
+                        _new_pay = Payment(
+                            user_id=_u.id, package_id=_pkg.id, amount=s2g_amount,
+                            method=PaymentMethod.SLIP, status=PaymentStatus.CONFIRMED,
+                            slip_file_id=file_id, slip_hash=slip_hash,
+                            slip_trans_ref=s2g_trans_ref,
+                            sender_name=s2g_sender_name or None,
+                            sender_bank_name=s2g_sender_bank or None,
+                            sender_bank_account=s2g_sender_account or None,
+                            auto_approved=True,
+                            verified_at=_now,
+                        )
+                        _sess.add(_new_pay)
+                        await _sess.flush()
+
+                        # Create Subscription
+                        _new_sub = Subscription(
+                            user_id=_u.id, package_id=_pkg.id, status=SubscriptionStatus.ACTIVE,
+                            start_date=_now, end_date=_end,
+                            auto_renew=False, payment_id=_new_pay.id,
+                        )
+                        _sess.add(_new_sub)
+                        _u.total_spent = (_u.total_spent or _D("0")) + s2g_amount
+                        _new_pay_id = _new_pay.id
+                        _pkg_name_safe = _pkg.name
+                        _pkg_id_safe = _pkg.id
+                        _pkg_dur_safe = _pkg.duration_days
+                        _user_id_safe = _u.id
+
+                    # Bug #2: only mark approved AFTER commit succeeded
+                    _approve_ok = True
+
+                except _IE as _ie:
+                    # dup transRef or DB constraint — treat as already-processed
+                    if not rejection:
+                        rejection = "สลิปนี้เคยถูกใช้แล้ว (concurrent)"
+                    logger.warning("Auto-approve IntegrityError: %s", _ie)
+                except Exception as _ie:
+                    logger.error("Auto-approve write failed: %s", _ie)
+                    rejection = f"ระบบขัดข้องชั่วคราว: {str(_ie)[:80]}"
+
+                if rejection:
+                    await update.message.reply_text(
+                        f"❌ <b>สลิปนี้ใช้ไม่ได้</b>\n\n{rejection}\n\n"
+                        f"ติดต่อแอดมิน <a href='https://t.me/jarernpon'>@jarernpon</a> ได้เลยค่ะ",
+                        parse_mode="HTML",
+                    )
+                    return
+
+                if _approve_ok:
+                    # ─── Generate invite links (Bug #14: try/finally for bot shutdown) ───
+                    import telegram as tg
+                    _invite_links = {}
+                    if target_tier_enum != PackageTier.TIER_ADD500:
+                        _guardian = tg.Bot(token=os.environ.get("GUARDIAN_BOT_TOKEN", ""))
+                        try:
+                            await _guardian.initialize()
+                            from bots.guardian_bot.group_monitor import generate_invite_links_for_user
+                            _invite_links = await generate_invite_links_for_user(_guardian, user.id, _pkg_id_safe)
+                        except Exception as _exc_inv:
+                            logger.error("Failed to generate invite links (auto): %s", _exc_inv)
+                        finally:
+                            try: await _guardian.shutdown()
+                            except Exception: pass
+                    else:
+                        # ADD500 — add-on, use Summer Fest groups only via a different path
+                        # For now, generate for the add-on package
+                        _guardian = tg.Bot(token=os.environ.get("GUARDIAN_BOT_TOKEN", ""))
+                        try:
+                            await _guardian.initialize()
+                            from bots.guardian_bot.group_monitor import generate_invite_links_for_user
+                            _invite_links = await generate_invite_links_for_user(_guardian, user.id, _pkg_id_safe)
+                        except Exception as _exc_inv:
+                            logger.error("Failed to generate invite links (ADD500): %s", _exc_inv)
+                        finally:
+                            try: await _guardian.shutdown()
+                            except Exception: pass
+
+                    # Build keyboard
+                    from shared.models import GroupRegistry as _GR
+                    async with get_session() as _gsess:
+                        for _slug, _link in _invite_links.items():
+                            _g = (await _gsess.execute(_sel(_GR).where(_GR.slug == _slug))).scalar_one_or_none()
+                            _title = _g.title if _g else _slug
+                            _link_rows.append([tg.InlineKeyboardButton(f"🚀 {_title}", url=_link)])
+
+                    # Bug #8/15: friendly expiry display (lifetime + TH timezone)
+                    if target_tier_enum == PackageTier.TIER_2499:
+                        _expiry_text_safe = "ตลอดชีพ (ไม่หมดอายุ)"
+                    elif _pkg_dur_safe and _pkg_dur_safe <= 1:
+                        # Trial — show hours
+                        _expiry_th = (_now + _td(hours=24)).replace(tzinfo=_tz.utc).astimezone(_tz(_td(hours=7)))
+                        _expiry_text_safe = _expiry_th.strftime("%d/%m %H:%M")
+                    else:
+                        _expiry_th = (_now + _td(days=_pkg_dur_safe)).replace(tzinfo=_tz.utc).astimezone(_tz(_td(hours=7)))
+                        _expiry_text_safe = _expiry_th.strftime("%d/%m/%Y")
+
+                    # Bug #20: warn if selected_tier mismatched (not error, just informational)
+                    _selected_note = ""
+                    if selected_tier and selected_tier != tier_str and selected_tier not in (None, ""):
+                        _selected_note = f"\n\nℹ️ คุณเลือก {selected_tier} แต่โอนยอด {int(s2g_amount)} → ระบบจัด <b>{_pkg_name_safe}</b> ให้แทน"
+
+                    await update.message.reply_text(
+                        f"✅ <b>อนุมัติอัตโนมัติเรียบร้อยค่ะ!</b>\n\n"
+                        f"📦 แพ็กเกจ: <b>{_pkg_name_safe}</b>\n"
+                        f"💰 ยอดชำระ: <b>฿{int(s2g_amount):,}</b>\n"
+                        f"⏰ หมดอายุ: <b>{_expiry_text_safe}</b>"
+                        f"{_selected_note}\n\n"
+                        f"กดลิงก์ด้านล่างเข้ากลุ่มได้เลย 👇" if _link_rows else
+                        f"✅ <b>อนุมัติอัตโนมัติเรียบร้อยค่ะ!</b>\n\n"
+                        f"📦 แพ็กเกจ: <b>{_pkg_name_safe}</b>\n"
+                        f"💰 ยอดชำระ: <b>฿{int(s2g_amount):,}</b>\n"
+                        f"⏰ หมดอายุ: <b>{_expiry_text_safe}</b>"
+                        f"{_selected_note}\n\n"
+                        f"ติดต่อแอดมินเพื่อขอลิงก์เข้ากลุ่ม: <a href='https://t.me/jarernpon'>@jarernpon</a>",
+                        parse_mode="HTML",
+                        reply_markup=tg.InlineKeyboardMarkup(_link_rows) if _link_rows else None,
+                        disable_web_page_preview=True,
+                    )
+
+                    # ── Admin notification (Bug #14, #18: try/finally + Discord fallback) ──
+                    try:
+                        ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+                        _admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
+                        try:
+                            await _admin_bot.initialize()
+                            import html as _h
+                            _safe_tg_name = _h.escape(str(user.first_name or user.username or "ลูกค้า"))
+                            _safe_real = _h.escape(s2g_sender_name or "-")
+                            _safe_bank = _h.escape(f"{s2g_sender_bank} {s2g_sender_account}".strip() or "-")
+                            _admin_msg = (
+                                f"🤖 <b>AUTO-APPROVED (Slip2Go)</b>\n"
+                                f"━━━━━━━━━━━━━━\n"
+                                f"📋 Pay #{_new_pay_id}\n"
+                                f"👤 Telegram: {_safe_tg_name} (<code>{user.id}</code>)\n"
+                                f"🆔 <b>ชื่อจริง:</b> {_safe_real}\n"
+                                f"🏦 จาก: {_safe_bank}\n"
+                                f"💰 ยอด: <b>฿{int(s2g_amount):,}</b>\n"
+                                f"📦 แพ็ก: <b>{_h.escape(_pkg_name_safe)}</b> {'🔥 (โปร)' if is_promo else ''}\n"
+                                f"🔖 transRef: <code>{s2g_trans_ref or '-'}</code>"
+                            )
+                            await _admin_bot.send_message(chat_id=ADMIN_GROUP_ID, text=_admin_msg, parse_mode="HTML")
+                        finally:
+                            try: await _admin_bot.shutdown()
+                            except Exception: pass
+                    except Exception as _exc_an:
+                        logger.warning("admin auto-approve notify failed: %s", _exc_an)
+                        # Bug #18: Discord fallback
+                        try:
+                            await _notify_discord(
+                                "🤖 AUTO-APPROVED (admin notify failed)",
+                                f"Pay #{_new_pay_id} ฿{int(s2g_amount)} {_pkg_name_safe} — admin tg send failed: {_exc_an}",
+                                color=0x00AA00,
+                            )
+                        except Exception: pass
+                    return
+
+    # ─── Slip2Go failed or unavailable — fall back to old AI path ───
     # OCR
     try:
         ocr_text = await _ocr_slip_image(context.bot, file_id)
@@ -800,8 +1156,7 @@ async def handle_photo_slip(
     if not date_ok:
         reasons.append("สลิปเกิน 24 ชั่วโมง")
 
-    # 3. Not duplicate (already checked above)
-    slip_hash = compute_slip_hash(file_id)
+    # 3. Not duplicate (already checked above) — Bug #21: slip_hash computed in early section
 
     # Create user if needed and get user_id
     async with get_session() as session:
@@ -952,6 +1307,12 @@ async def handle_photo_slip(
             promo_caption += f"\n🔥 <b>โปรสิ้นเดือน VIP:</b> 300 เหลือ {int(PROMO_PRICE)} บาท ({PROMO_DATE_TEXT})"
         if is_endmonth_vip_promo_active() and selected_tier == "2499":
             promo_caption += f"\n💎 <b>โปรสิ้นเดือน GOD:</b> 2,499 เหลือ {int(PROMO_2499_PRICE):,} บาท ({PROMO_DATE_TEXT})"
+        # >>> MAY26_COMBO_PROMO <<<
+        if is_may_combo_promo_active() and selected_tier == "500":
+            promo_caption += f"\n🔥 <b>โปรพ.ค.:</b> OF Combo 500 เหลือ {int(PROMO_500_PRICE)} บาท ({PROMO_MAY_DATE_TEXT})"
+        if is_may_combo_promo_active() and selected_tier == "1299":
+            promo_caption += f"\n🔥 <b>โปรพ.ค.:</b> GOD 3M 1,299 เหลือ {int(PROMO_1299_PRICE):,} บาท ({PROMO_MAY_DATE_TEXT})"
+        # <<< MAY26_COMBO_PROMO >>>
 
         # ── ดึงประวัติลูกค้าสำหรับแจ้งแอดมิน ──
         customer_tag = ""
@@ -1025,13 +1386,13 @@ async def handle_photo_slip(
         # Build keyboard rows — add promo price button if active promo
         kb_rows = [
             [
-                tg.InlineKeyboardButton("🆕 99 (Trial)", callback_data=f"approve_99_{user.id}", api_kwargs={"style": "success"}),
+                # TIER_99 button removed 2026-06-01
                 tg.InlineKeyboardButton("⚡ 199 (Flash)", callback_data=f"approve_199_{user.id}", api_kwargs={"style": "success"}),
                 tg.InlineKeyboardButton("🔥 200 (VIP โปร)", callback_data=f"approve_200_{user.id}", api_kwargs={"style": "success"}) if is_endmonth_vip_promo_active() else tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}", api_kwargs={"style": "success"}),
             ],
             [
-                tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{user.id}", api_kwargs={"style": "success"}),
-                tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{user.id}", api_kwargs={"style": "success"}),
+                tg.InlineKeyboardButton("🔥 349 (OF โปร)", callback_data=f"approve_349_{user.id}", api_kwargs={"style": "success"}) if is_may_combo_promo_active() else tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{user.id}", api_kwargs={"style": "success"}),
+                tg.InlineKeyboardButton("🔥 999 (3M โปร)", callback_data=f"approve_999_{user.id}", api_kwargs={"style": "success"}) if is_may_combo_promo_active() else tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{user.id}", api_kwargs={"style": "success"}),
             ],
             [
                 tg.InlineKeyboardButton("💎 2000 (GOD โปร)", callback_data=f"approve_2000_{user.id}", api_kwargs={"style": "success"}) if is_endmonth_vip_promo_active() else tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}", api_kwargs={"style": "success"}),
@@ -1243,13 +1604,13 @@ async def handle_truemoney_link(
             await admin_bot.initialize()
             keyboard = tg.InlineKeyboardMarkup([
                 [
-                    tg.InlineKeyboardButton("🆕 99 (Trial)", callback_data=f"approve_99_{user.id}", api_kwargs={"style": "success"}),
+                    # TIER_99 button removed 2026-06-01
                     tg.InlineKeyboardButton("⚡ 199 (Flash)", callback_data=f"approve_199_{user.id}", api_kwargs={"style": "success"}),
                     tg.InlineKeyboardButton("🔥 200 (VIP โปร)", callback_data=f"approve_200_{user.id}", api_kwargs={"style": "success"}) if is_endmonth_vip_promo_active() else tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}", api_kwargs={"style": "success"}),
                 ],
                 [
-                    tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{user.id}", api_kwargs={"style": "success"}),
-                    tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{user.id}", api_kwargs={"style": "success"}),
+                    tg.InlineKeyboardButton("🔥 349 (OF โปร)", callback_data=f"approve_349_{user.id}", api_kwargs={"style": "success"}) if is_may_combo_promo_active() else tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{user.id}", api_kwargs={"style": "success"}),
+                    tg.InlineKeyboardButton("🔥 999 (3M โปร)", callback_data=f"approve_999_{user.id}", api_kwargs={"style": "success"}) if is_may_combo_promo_active() else tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{user.id}", api_kwargs={"style": "success"}),
                 ],
                 [
                     tg.InlineKeyboardButton("💎 2000 (GOD โปร)", callback_data=f"approve_2000_{user.id}", api_kwargs={"style": "success"}) if is_endmonth_vip_promo_active() else tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}", api_kwargs={"style": "success"}),
@@ -1489,10 +1850,10 @@ async def handle_truemoney_link(
             keyboard = tg.InlineKeyboardMarkup([
                 [
                     tg.InlineKeyboardButton("🔥 200 (VIP โปร)", callback_data=f"approve_200_{user.id}", api_kwargs={"style": "success"}) if is_endmonth_vip_promo_active() else tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}", api_kwargs={"style": "success"}),
-                    tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{user.id}", api_kwargs={"style": "success"}),
+                    tg.InlineKeyboardButton("🔥 349 (OF โปร)", callback_data=f"approve_349_{user.id}", api_kwargs={"style": "success"}) if is_may_combo_promo_active() else tg.InlineKeyboardButton("✅ 500 (OF)", callback_data=f"approve_500_{user.id}", api_kwargs={"style": "success"}),
                 ],
                 [
-                    tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{user.id}", api_kwargs={"style": "success"}),
+                    tg.InlineKeyboardButton("🔥 999 (3M โปร)", callback_data=f"approve_999_{user.id}", api_kwargs={"style": "success"}) if is_may_combo_promo_active() else tg.InlineKeyboardButton("✅ 1299 (3M)", callback_data=f"approve_1299_{user.id}", api_kwargs={"style": "success"}),
                     tg.InlineKeyboardButton("💎 2000 (GOD โปร)", callback_data=f"approve_2000_{user.id}", api_kwargs={"style": "success"}) if is_endmonth_vip_promo_active() else tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}", api_kwargs={"style": "success"}),
                 ],
                 [
