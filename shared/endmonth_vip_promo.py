@@ -97,3 +97,37 @@ def get_group_2499_promo_caption(group_index: int | None = None) -> str:
         f'👉 <a href="{link}">สมัครสมาชิกกดที่นี่</a>\n'
         "━━━━━━━━━━━━━━━━━━"
     )
+
+# >>> MAY26_COMBO_PROMO <<<
+# May 2026 OnlyFans Combo + GOD 3M promo (independent of Apr endmonth)
+PROMO_500_TIER = "500"
+PROMO_500_NORMAL_PRICE = Decimal("500")
+PROMO_500_PRICE = Decimal("349")
+PROMO_1299_TIER = "1299"
+PROMO_1299_NORMAL_PRICE = Decimal("1299")
+PROMO_1299_PRICE = Decimal("999")
+PROMO_MAY_END_TH = datetime(2026, 6, 1, 0, 0, 0, tzinfo=TH_TZ)
+PROMO_MAY_TITLE = "OnlyFans Combo + GOD 90 วัน"
+PROMO_MAY_DATE_TEXT = "ถึงวันที่ 31 พฤษภาคมนี้เท่านั้น"
+
+def is_may_combo_promo_active(at=None) -> bool:
+    """True while May-end combo promo (TIER_500/1299) is active."""
+    current = at or now_th()
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=TH_TZ)
+    return current.astimezone(TH_TZ) < PROMO_MAY_END_TH
+
+def get_may_effective_price(tier: str, base_price):
+    if tier == PROMO_500_TIER and is_may_combo_promo_active():
+        return PROMO_500_PRICE
+    if tier == PROMO_1299_TIER and is_may_combo_promo_active():
+        return PROMO_1299_PRICE
+    return base_price
+
+def get_may_promo_badge(tier: str) -> str:
+    if tier == PROMO_500_TIER and is_may_combo_promo_active():
+        return f"🔥 โปร OF Combo 500 เหลือ 349 บาท — {PROMO_MAY_DATE_TEXT}"
+    if tier == PROMO_1299_TIER and is_may_combo_promo_active():
+        return f"🔥 โปร GOD 3M 1,299 เหลือ 999 บาท — {PROMO_MAY_DATE_TEXT}"
+    return ""
+# <<< MAY26_COMBO_PROMO >>>
