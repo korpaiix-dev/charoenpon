@@ -14,3 +14,23 @@ docker-compose.yml.bak.*
 .codex
 broadcast_new_users_*.jsonl
 backups/
+
+# === Slip2Go + Phase D backups (added 2026-06-01) ===
+*.pre_revert.*
+*.pre_phd
+promo_snapshot_*.json.pre_*
+*.bak.s2g.*
+*.bak.phd.*
+*.bak.phdx.*
+*.bak.hf.*
+*.bak.sh.*
+*.bak.fa.*
+*.bak.optA.*
+*.bak.p1.*
+*.bak.rst.*
+*.bak.cln.*
+*.bak.tm.*
+*.bak.cb.*
+*.bak.cap.*
+*.bak.j.*
+*.bak.s.*
