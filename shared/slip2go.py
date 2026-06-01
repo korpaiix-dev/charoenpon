@@ -135,3 +135,27 @@ def amount_to_tier(amount: Decimal) -> Optional[tuple[str, str, bool]]:
     if amt == 349 and _may_or_recent():      return ("349", "OF โปร (500→349)", True)
     if amt == 999 and _may_or_recent():      return ("999", "3M โปร (1299→999)", True)
     return None
+
+
+# # >>> RECEIVER_POOL_DYNAMIC <<<
+# New pool-aware receiver match — use this from payment handler.
+# Returns (ok, reason, matched_account_dict or None).
+async def receiver_match_pool(data: dict) -> tuple[bool, str, dict | None]:
+    """Match slip receiver against ANY enabled account in receiver_accounts table."""
+    try:
+        from shared.receiver_pool import list_enabled, match_receiver
+    except Exception as e:
+        return False, f"receiver_pool import fail: {e}", None
+    accounts = await list_enabled()
+    if not accounts:
+        return False, "NO_ENABLED_ACCOUNTS in pool", None
+    matched = match_receiver(data, accounts)
+    if matched:
+        return True, f"matched id={matched['id']} ({matched['owner_name']})", matched
+    # Build informative rejection reason
+    receiver = (data.get("receiver") or {})
+    acct = (receiver.get("account") or {})
+    name = acct.get("name") or ""
+    bank = ((acct.get("bank") or {}).get("account") or "")
+    proxy = ((acct.get("proxy") or {}).get("account") or "")
+    return False, f"INSUFFICIENT MATCH name='{name}' proxy='{proxy}' bank='{bank}'", None

@@ -340,7 +340,14 @@ async def buy_package_callback(
     await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
 
     # Send QR code PromptPay
-    QR_URL = "https://img2.pic.in.th/-2026-03-15-143743.png"
+    # # >>> POOL_QR <<< dynamic QR from receiver pool
+    _picked = None
+    try:
+        from shared.receiver_pool import pick_random as _pick
+        _picked = await _pick()
+    except Exception:
+        pass
+    QR_URL = (_picked["qr_url"] if _picked and _picked.get("qr_url") else "https://img2.pic.in.th/-2026-03-15-143743.png")
     try:
         await context.bot.send_photo(
             chat_id=query.message.chat_id,
@@ -382,7 +389,14 @@ async def summer_command(
     await update.message.reply_text(text, parse_mode="HTML")
 
     # Send QR
-    QR_URL = "https://img2.pic.in.th/-2026-03-15-143743.png"
+    # # >>> POOL_QR <<< dynamic QR from receiver pool
+    _picked = None
+    try:
+        from shared.receiver_pool import pick_random as _pick
+        _picked = await _pick()
+    except Exception:
+        pass
+    QR_URL = (_picked["qr_url"] if _picked and _picked.get("qr_url") else "https://img2.pic.in.th/-2026-03-15-143743.png")
     try:
         await context.bot.send_photo(
             chat_id=update.message.chat_id,
