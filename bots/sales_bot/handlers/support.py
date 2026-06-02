@@ -63,14 +63,14 @@ async def handle_support_text(
         if _time.time() - last_sos < 21600:  # 6 hours
             await update.message.reply_text(
                 "📩 แพรรับเรื่องไว้แล้วค่ะ แอดมินกำลังดูอยู่นะคะ\n"
-                "ถ้ารอนานไป ทักแอดมินได้เลย → https://t.me/zeinju_bunker"
+                "ถ้ารอนานไป ทักแอดมินได้เลย @sperm6969"
             )
             return
         context.user_data["last_sos_time"] = _time.time()
 
         await update.message.reply_text(
             "📩 รับทราบค่า แพรส่งเรื่องให้แอดมินดูแล้วนะ\n"
-            "รอสักครู่นะคะ ถ้านานไป ทักแอดมินได้เลย → https://t.me/zeinju_bunker"
+            "รอสักครู่นะคะ ถ้านานไป ทักแอดมินได้เลย @sperm6969"
         )
         # Save SOS to database for dashboard
         try:

@@ -480,13 +480,29 @@ async def send_comeback_dm(
     else:
         message = _build_comeback_message_round1(user["first_name"], discount_pct, promo_code, new_clips)
 
+    # WINBACK_IMG_V1 — try photo first, fallback to text on error
+    img_path = None
     try:
-        await bot.send_message(
-            chat_id=user["telegram_id"],
-            text=message,
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-        )
+        from bots.sales_bot.handlers.social_proof import pick_campaign_image
+        img_path = pick_campaign_image("winback")
+    except Exception:
+        img_path = None
+    try:
+        if img_path and img_path.exists():
+            with open(img_path, "rb") as _f:
+                await bot.send_photo(
+                    chat_id=user["telegram_id"],
+                    photo=_f,
+                    caption=message,
+                    parse_mode="HTML",
+                )
+        else:
+            await bot.send_message(
+                chat_id=user["telegram_id"],
+                text=message,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
     except Forbidden:
         logger.info(
             "Cannot DM user %s (tg:%d) — never started bot or blocked",

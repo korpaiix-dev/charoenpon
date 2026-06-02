@@ -17,6 +17,7 @@ from telegram.ext import (
 
 from shared.database import get_session
 from shared.models import Lead, LeadStatus, User
+from bots.sales_bot.handlers import social_proof  # SOCIAL_PROOF_V1
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ MAIN_KEYBOARD = InlineKeyboardMarkup(
             InlineKeyboardButton("👀 ดูตัวอย่างงาน", url="https://t.me/+Q0Qf-4t8TQo3YTBl"),
         ],
         [InlineKeyboardButton("🆓 ห้องฟรี", url="https://t.me/addlist/2xN-ag15W4U2MTNl")],
-        [InlineKeyboardButton("👩‍💼 ติดต่อแอดมิน", url="https://t.me/zeinju_bunker")],
+        [InlineKeyboardButton("👩‍💼 ติดต่อแอดมิน", url="https://t.me/sperm6969")],
     ]
 )
 
@@ -112,6 +113,76 @@ async def _handle_comeback_start(update: Update, context: ContextTypes.DEFAULT_T
         logger.warning("Failed to send QR for comeback: %s", exc)
 
     return True
+
+
+
+
+async def _navigate(query, text: str, kb, img_path=None) -> None:
+    """Show a new screen after a callback. Handles both photo-message and text-message originals.
+
+    edit_message_text fails when original is a photo (welcome msg now sends photo).
+    So we delete original + send new message (or new photo).
+    """
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+    try:
+        if img_path is not None:
+            with open(img_path, "rb") as f:
+                await query.message.chat.send_photo(
+                    photo=f, caption=text, parse_mode="HTML", reply_markup=kb,
+                )
+        else:
+            await query.message.chat.send_message(
+                text, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True,
+            )
+    except Exception as exc:
+        # Last-resort fallback
+        try:
+            await query.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+        except Exception:
+            pass
+
+
+async def _build_main_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
+    """Build the main menu keyboard dynamically.
+
+    - Flash Sale button: only show if active flash sale exists (no fake button)
+    - Upgrade button: only for VIP active users
+    - Referral button: always shown
+    """
+    rows = []
+    # Flash sale — only if active in DB
+    try:
+        from bots.sales_bot.handlers.flash_sale import _get_active_flash_sale
+        flash = await _get_active_flash_sale()
+        if flash and flash.sold_slots < flash.total_slots:
+            rows.append([InlineKeyboardButton("⚡ FLASH SALE — กำลังลด!", callback_data="view_flashsale")])
+    except Exception:
+        pass
+
+    # Upgrade — only for VIP active
+    try:
+        from bots.sales_bot.handlers.referral import _is_vip_active
+        if await _is_vip_active(telegram_id):
+            rows.append([InlineKeyboardButton("🆙 อัพเกรดเป็น GOD MODE", callback_data="view_upgrade")])
+    except Exception:
+        pass
+
+    # Referral — always
+    rows.append([InlineKeyboardButton("🎁 ชวนเพื่อน ได้ VIP ฟรี!", callback_data="referral_menu")])
+
+    rows.extend([
+        [InlineKeyboardButton("📦 ดูแพ็กเกจ", callback_data="view_packages")],
+        [
+            InlineKeyboardButton("📋 เช็คเครดิต/รีวิว", url="https://t.me/+hv7uXYj4bxFhODZl"),
+            InlineKeyboardButton("👀 ดูตัวอย่างงาน", url="https://t.me/+Q0Qf-4t8TQo3YTBl"),
+        ],
+        [InlineKeyboardButton("🆓 ห้องฟรี", url="https://t.me/addlist/2xN-ag15W4U2MTNl")],
+        [InlineKeyboardButton("👩‍💼 ติดต่อแอดมิน", url="https://t.me/sperm6969")],
+    ])
+    return InlineKeyboardMarkup(rows)
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -230,65 +301,48 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await view_packages_command(update, context)
         return
 
-    # Build dynamic keyboard — show trial button if eligible
-    keyboard_rows = [
-        [InlineKeyboardButton("⚡ Flash Sale", callback_data="view_flashsale")],
-    ]
+    # MAIN_KBD_V2 — unified builder w/ flash-sale conditional
+    dynamic_keyboard = await _build_main_keyboard(tg_user.id)
 
-    # เช็คสิทธิ์ trial — ปิดแล้ว (ยกเลิกโปร 99)
-    # try:
-    #     from bots.sales_bot.handlers.trial import _check_trial_eligible
-    #     trial_eligible = await _check_trial_eligible(tg_user.id)
-    #     if trial_eligible:
-    #         keyboard_rows.append(
-    #             [InlineKeyboardButton("🆕 ทดลอง VIP 24 ชม. ฿99", callback_data="view_trial")]
-    #         )
-    # except Exception:
-    #     pass
-
-    # เช็ค VIP Active สำหรับปุ่มอัพเกรด
+    # SOCIAL_PROOF_V1 — send welcome photo + dynamic caption + dynamic keyboard
     try:
-        from bots.sales_bot.handlers.referral import _is_vip_active
-        is_vip = await _is_vip_active(tg_user.id)
-        if is_vip:
-            keyboard_rows.append(
-                [InlineKeyboardButton("🆙 อัพเกรด", callback_data="view_upgrade")]
+        caption = await social_proof.build_welcome_caption(tg_user.first_name)
+        img_path = social_proof.pick_welcome_image()
+        if img_path and img_path.exists():
+            with open(img_path, "rb") as f:
+                await update.message.reply_photo(
+                    photo=f,
+                    caption=caption,
+                    parse_mode="HTML",
+                    reply_markup=dynamic_keyboard,
+                )
+        else:
+            await update.message.reply_text(
+                caption,
+                parse_mode="HTML",
+                reply_markup=dynamic_keyboard,
+                disable_web_page_preview=True,
             )
-    except Exception:
-        pass
-
-    # ปุ่มชวนเพื่อน — แสดงให้ทุกคนเห็น (VIP + non-VIP)
-    keyboard_rows.append(
-        [InlineKeyboardButton("🎁 ชวนเพื่อน ได้ VIP ฟรี!", callback_data="referral_menu")]
-    )
-
-    keyboard_rows.extend([
-        [InlineKeyboardButton("📦 ดูแพ็กเกจ", callback_data="view_packages")],
-        [
-            InlineKeyboardButton("📋 เช็คเครดิต/รีวิว", url="https://t.me/+hv7uXYj4bxFhODZl"),
-            InlineKeyboardButton("👀 ดูตัวอย่างงาน", url="https://t.me/+Q0Qf-4t8TQo3YTBl"),
-        ],
-        [InlineKeyboardButton("🆓 ห้องฟรี", url="https://t.me/addlist/2xN-ag15W4U2MTNl")],
-        [InlineKeyboardButton("👩‍💼 ติดต่อแอดมิน", url="https://t.me/zeinju_bunker")],
-    ])
-
-    dynamic_keyboard = InlineKeyboardMarkup(keyboard_rows)
-
-    from bots.sales_bot.handlers.packages import view_packages_command
-    await view_packages_command(update, context)
+    except Exception as exc:
+        logger.warning("SOCIAL_PROOF_V1 welcome send failed: %s", exc)
+        from bots.sales_bot.handlers.packages import view_packages_command
+        await view_packages_command(update, context)
 
 
 async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Callback: return to the main menu."""
+    """Callback: return to the main menu (uses dynamic kbd w/ referral button)."""
     query = update.callback_query
-    if not query:
+    if not query or not update.effective_user:
         return
     await query.answer()
-    await query.edit_message_text(
-        WELCOME_TEXT,
-        parse_mode="HTML",
-        reply_markup=MAIN_KEYBOARD,
-    )
+    tg_user = update.effective_user
+    kb = await _build_main_keyboard(tg_user.id)
+    try:
+        caption = await social_proof.build_welcome_caption(tg_user.first_name)
+    except Exception:
+        caption = WELCOME_TEXT
+    # SAFE_NAV — handles photo origin
+    await _navigate(query, caption, kb)
 
 
 async def free_room_callback(
@@ -313,7 +367,7 @@ async def free_room_callback(
             [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
         ]
     )
-    await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
+    await _navigate(query, text, keyboard)
 
 
 async def contact_admin_callback(
@@ -335,7 +389,7 @@ async def contact_admin_callback(
     keyboard = InlineKeyboardMarkup(
         [[InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")]]
     )
-    await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
+    await _navigate(query, text, keyboard)
 
 
 async def referral_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -353,38 +407,53 @@ async def referral_menu_callback(update: Update, context: ContextTypes.DEFAULT_T
         from bots.sales_bot.handlers.referral import _get_invite_link_callback
         await _get_invite_link_callback(update, context)
     else:
-        # Non-VIP → prompt to subscribe first
+        # Non-VIP → prompt to subscribe first (with referral image)
         text = (
             "🎁 <b>ชวนเพื่อน ได้ VIP ฟรี!</b>\n\n"
             "สมัคร VIP ก่อน แล้วชวนเพื่อนได้เลยค่ะ\n"
-            "ชวน 1 คน = ได้ VIP ฟรี 7 วัน!\n\n"
-            '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=packages">📦 ดูแพ็กเกจ VIP เจริญพร</a>'
+            "ชวน 1 คน = ได้ VIP ฟรี 7 วัน\n"
+            "ชวน 5 คน = ได้ VIP ฟรี 30 วัน!\n\n"
+            "👉 กดดูแพ็กเกจ VIP เจริญพร แล้วสมัครได้เลย"
         )
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("📦 ดูแพ็กเกจ", callback_data="view_packages")],
             [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
         ])
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
+        try:
+            img_path = social_proof.pick_campaign_image("referral")
+        except Exception:
+            img_path = None
+        try:
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            if img_path and img_path.exists():
+                with open(img_path, "rb") as f:
+                    await query.message.chat.send_photo(
+                        photo=f, caption=text, parse_mode="HTML", reply_markup=keyboard,
+                    )
+            else:
+                await query.message.chat.send_message(
+                    text, parse_mode="HTML", reply_markup=keyboard,
+                )
+        except Exception:
+            await _navigate(query, text, keyboard)
 
 
 async def view_upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Callback: show GOD MODE upgrade info."""
+    """Callback: show GOD MODE upgrade info + buy buttons (UPG_BUY)."""
     query = update.callback_query
     if not query:
         return
     await query.answer()
-
     from bots.sales_bot.handlers.upsell import UPGRADE_TEXT
-
-    keyboard = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")]]
-    )
-    await query.edit_message_text(
-        UPGRADE_TEXT,
-        parse_mode="HTML",
-        reply_markup=keyboard,
-        disable_web_page_preview=True,
-    )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💎 GOD MODE 90 วัน ฿1,299", callback_data="buy_1299")],
+        [InlineKeyboardButton("👑 GOD MODE ถาวร ฿2,499", callback_data="buy_2499")],
+        [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
+    ])
+    await _navigate(query, UPGRADE_TEXT, keyboard)
 
 
 def get_start_handlers() -> list:

@@ -1492,7 +1492,7 @@ async def reject_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await sales_bot.initialize()
         await sales_bot.send_message(
             chat_id=target_user_id,
-            text="❌ <b>สลิปไม่ผ่านการตรวจสอบค่ะ</b>\nกรุณาส่งสลิปใหม่ หรือติดต่อแอดมิน https://t.me/zeinju_bunker",
+            text="❌ <b>สลิปไม่ผ่านการตรวจสอบค่ะ</b>\nกรุณาส่งสลิปใหม่ หรือติดต่อแอดมิน https://t.me/sperm6969",
             parse_mode="HTML",
         )
     except Exception as exc:
@@ -1901,7 +1901,7 @@ async def sos_deny_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 text=(
                     "❌ ขออภัยค่ะ ตรวจสอบแล้วไม่พบสิทธิ์การเข้ากลุ่ม\n\n"
                     "หากคิดว่ามีข้อผิดพลาด กรุณาติดต่อแอดมิน:\n"
-                    "→ https://t.me/zeinju_bunker"
+                    "→ https://t.me/sperm6969"
                 ),
             )
 
@@ -1979,7 +1979,7 @@ async def sos_ban_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             try:
                 await sales_bot.send_message(
                     chat_id=target_user_id,
-                    text="🚫 บัญชีของคุณถูกระงับการใช้งาน\nหากมีข้อสงสัย ติดต่อแอดมิน → https://t.me/zeinju_bunker",
+                    text="🚫 บัญชีของคุณถูกระงับการใช้งาน\nหากมีข้อสงสัย ติดต่อแอดมิน → https://t.me/sperm6969",
                 )
             except Exception:
                 pass
