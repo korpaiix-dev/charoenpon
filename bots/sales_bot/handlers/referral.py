@@ -337,7 +337,7 @@ async def send_referral_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
                 await admin_bot.send_message(
                     chat_id=ADMIN_GROUP_ID,
                     text=(
-                        f"🎁 <b>Referral Reminder Report</b>\n\n"
+                        f"🎁 <b>รายงานชวนเพื่อน</b>\n\n"
                         f"ส่ง DM เตือนชวนเพื่อน: <b>{sent}</b> คน\n"
                         f"ส่งไม่ได้: {failed} คน"
                     ),
@@ -409,7 +409,7 @@ async def invite_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     text += f"\n{next_reward_text}\n{remaining_text}"
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 ดูรายละเอียด Referral", callback_data="my_referrals")],
+        [InlineKeyboardButton("📋 ดูรายละเอียดชวนเพื่อน", callback_data="my_referrals")],
         [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
     ])
 
@@ -528,35 +528,65 @@ async def _get_invite_link_callback(update: Update, context: ContextTypes.DEFAUL
     stats = await _get_referral_stats(user_id)
 
     completed = stats["completed"]
-    if completed < 5:
-        remaining_to_5 = 5 - completed
-        next_reward_text = f"🎯 ชวนอีก {remaining_to_5} คน = ได้ VIP ฟรี 30 วัน!"
+    earned_days = stats.get("total_reward_days", 0)
+    remaining_to_3 = max(0, 3 - completed)
+
+    if remaining_to_3 > 0:
+        next_milestone = f"🎯 ชวนอีก <b>{remaining_to_3} คน</b> = รับ VIP 30 วัน ฟรี! (มูลค่า ฿300)"
     else:
-        next_reward_text = f"🎯 ชวนอีก 1 คน = ได้ VIP ฟรี {REWARD_PER_REFERRAL} วัน!"
+        next_milestone = "🎉 ครบ 3 คนแล้ว! ทุกคนต่อจากนี้ = +7 วัน VIP ฟรี"
 
     ref_link = f"https://t.me/NamwarnJarern_bot?start=ref_{code}"
     text = (
-        "🎁 <b>ชวนเพื่อนมา VIP เจริญพร!</b>\n\n"
-        "ชวน 1 คน = ได้ VIP ฟรี 7 วัน\n"
-        "ชวน 5 คน = ได้ VIP ฟรี 30 วัน!\n\n"
-        "ลิงก์ชวนเพื่อนของคุณ:\n"
-        f'👉 <a href="{ref_link}">🔗 กดส่งลิงก์ให้เพื่อน</a>\n\n'
-        "📋 <b>ข้อความชวนเพื่อน (กดคัดลอกส่งได้เลย):</b>\n"
-        f"<code>มา VIP เจริญพร กัน! คลิปเต็มไม่เบลอ 10,000+ คลิป สมัครที่ {ref_link}</code>\n\n"
+        "🎁 <b>ชวนเพื่อน รับ ฿100</b> (= +7 วัน VIP ฟรี)\n\n"
+        "💎 ชวน 1 คน = +7 วัน VIP ฟรี\n"
+        "👑 ครบ 3 คน = รับ VIP 30 วัน ฟรี! (โบนัส)\n"
+        "🏆 ครบ 5 คน = รับ VIP 30 วัน ฟรี (อีกครั้ง!)\n\n"
         "📊 <b>สถิติของคุณ:</b>\n"
-        f"ชวนสำเร็จ: {completed} คน | ได้ฟรี: {stats['total_reward_days']} วัน\n\n"
-        f"{next_reward_text}"
+        f"   ✅ ชวนสำเร็จ: <b>{completed} คน</b>\n"
+        f"   🎁 ได้ฟรี: <b>{earned_days} วัน</b>\n\n"
+        f"{next_milestone}\n\n"
+        "🔗 <b>ลิงก์ชวนเพื่อนของคุณ:</b>\n"
+        f"<code>{ref_link}</code>\n\n"
+        "📋 <b>ข้อความตัวอย่าง (กดคัดลอกส่งได้เลย):</b>\n"
+        f"<code>มา VIP เจริญพร กัน! คลิปเต็มไม่เบลอ 10,000+ คลิป สมัครที่ {ref_link}</code>"
     )
 
+    # Single share CTA + back — no sub-menu needed
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 ดูรายละเอียด Referral", callback_data="my_referrals")],
+        [InlineKeyboardButton(
+            "📨 ส่งลิงก์ให้เพื่อนเลย",
+            url=f"https://t.me/share/url?url={ref_link}&text=มา%20VIP%20เจริญพร%20กัน!%20คลิปเต็มไม่เบลอ%2010%2C000%2B%20คลิป",
+        )],
         [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
     ])
 
+    # REFERRAL_V3_IMG — send photo with caption (no raw URL exposure)
     try:
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
+        from bots.sales_bot.handlers.social_proof import pick_campaign_image
+        img_path = pick_campaign_image("referral")
     except Exception:
-        await query.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
+        img_path = None
+    try:
+        # Delete prev text msg so we can send photo
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        if img_path and img_path.exists():
+            with open(img_path, "rb") as f:
+                await query.message.chat.send_photo(
+                    photo=f, caption=text, parse_mode="HTML", reply_markup=keyboard,
+                )
+        else:
+            await query.message.chat.send_message(
+                text, parse_mode="HTML", reply_markup=keyboard, disable_web_page_preview=True,
+            )
+    except Exception:
+        try:
+            await query.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
+        except Exception:
+            pass
 
 
 # ─── Deep Link Handler ────────────────────────────────────────────────────────
@@ -749,7 +779,7 @@ async def process_referral_reward(referred_telegram_id: int, bot) -> None:
         await admin_bot.send_message(
             chat_id=admin_group,
             text=(
-                f"🎁 <b>Referral สำเร็จ!</b>\n\n"
+                f"🎁 <b>ชวนเพื่อนสำเร็จ!</b>\n\n"
                 f"👤 ผู้ชวน: TG ID <code>{referrer_telegram_id}</code>\n"
                 f"👥 เพื่อน: TG ID <code>{referred_telegram_id}</code>\n"
                 f"🎯 ชวนสำเร็จรวม: {total_completed} คน\n"

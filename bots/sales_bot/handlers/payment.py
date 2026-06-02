@@ -747,7 +747,7 @@ async def handle_photo_slip(
                     "📩 ได้รับรูปแล้วค่า แต่ดูเหมือนไม่ใช่สลิปนะ\n\n"
                     "ถ้ามีคำถามหรือมีปัญหา พิมพ์บอกได้เลยค่ะ เดี๋ยวแอดมินช่วยดูให้ 🙏\n"
                     "ถ้าเข้ากลุ่มไม่ได้ กลุ่มหาย หรือลิงก์มีปัญหา พิมพ์บอกได้เลยนะคะ\n\n"
-                    "ติดต่อแอดมินโดยตรง: https://t.me/zeinju_bunker"
+                    "ติดต่อแอดมินโดยตรง: @sperm6969"
                 )
                 return
     except Exception as exc:
@@ -767,7 +767,7 @@ async def handle_photo_slip(
             await update.message.reply_text(
                 "⏳ ระบบประมวลผลสลิปอัตโนมัติหยุดทำงานชั่วคราวค่ะ\n\n"
                 "กรุณาส่งสลิปอีกครั้งใน 30 นาที หรือทักแอดมินโดยตรง 🙏\n"
-                "ติดต่อแอดมิน: https://t.me/zeinju_bunker"
+                "ติดต่อแอดมิน: @sperm6969"
             )
             return
         logger.warning("AI screen failed, proceeding with OCR: %s", exc)
@@ -888,7 +888,27 @@ async def handle_photo_slip(
                 "300": PackageTier.TIER_300, "349": PackageTier.TIER_500, "500": PackageTier.TIER_500,
                 "999": PackageTier.TIER_1299, "1299": PackageTier.TIER_1299,
                 "2000": PackageTier.TIER_2499, "2499": PackageTier.TIER_2499,
+                # COMEBACK_PROMO_PRICES — TIER_300 with discount applied
+                "180": PackageTier.TIER_300, "210": PackageTier.TIER_300,
             }
+            # COMEBACK_PROMO_VALIDATE — safety check: only auto-approve if user has active promo in DB
+            if tier_str in ("180", "210"):
+                _active_promo = await _get_active_promo_for_user(user.id)
+                if not _active_promo:
+                    logger.warning(
+                        "Slip2Go: comeback price %s but no active promo for user %s — fallback to admin",
+                        tier_str, user.id,
+                    )
+                    slip2go_data = None
+                    slip2go_err = Slip2GoError("NO_COMEBACK_PROMO",
+                        f"ยอด {tier_str} (Comeback) — ผู้ใช้ไม่มี promo active ใน DB")
+                    tier_match = None
+                else:
+                    # Inject promo into user_data so _approve_payment can mark it purchased
+                    context.user_data["comeback_promo"] = _active_promo.get("promo_code")
+                    context.user_data["comeback_discount"] = _active_promo.get("discount_pct")
+                    logger.info("Slip2Go comeback auto-match: user=%s code=%s discount=%s",
+                                user.id, _active_promo.get("promo_code"), _active_promo.get("discount_pct"))
             target_tier_enum = tier_map_local.get(tier_str)
 
             # Bug #13: TIER_ADD500 vs TIER_500 disambiguation
@@ -1212,7 +1232,7 @@ async def handle_photo_slip(
             return
         logger.error("OCR failed: %s", exc)
         await update.message.reply_text(
-            "⚠️ ไม่สามารถอ่านสลิปได้ค่ะ กรุณาส่งรูปที่ชัดขึ้น หรือติดต่อแอดมิน (https://t.me/zeinju_bunker)ค่ะ"
+            "⚠️ ไม่สามารถอ่านสลิปได้ค่ะ กรุณาส่งรูปที่ชัดขึ้น หรือติดต่อแอดมิน @sperm6969ค่ะ"
         )
         return
 
@@ -1650,7 +1670,7 @@ async def handle_truemoney_link(
         )
         package = pkg_result.scalar_one_or_none()
         if not package:
-            await update.message.reply_text("ไม่พบแพ็กเกจในระบบค่ะ ติดต่อแอดมิน (https://t.me/zeinju_bunker)นะคะ")
+            await update.message.reply_text("ไม่พบแพ็กเกจในระบบค่ะ ติดต่อแอดมิน @sperm6969นะคะ")
             return
 
         # Duplicate payment guard: same user + same amount within 60 seconds
@@ -1692,7 +1712,7 @@ async def handle_truemoney_link(
         await update.message.reply_text("❌ ซองนี้เป็นของร้านเอง (เติมไม่ได้ค่ะ)")
         return
     elif tm_error == "wallet_not_found":
-        await update.message.reply_text("❌ เบอร์วอลเล็ทร้านผิด ติดต่อแอดมินค่ะ → https://t.me/zeinju_bunker")
+        await update.message.reply_text("❌ เบอร์วอลเล็ทร้านผิด ติดต่อแอดมินค่ะ @sperm6969")
         return
     elif tm_error in ("forbidden", "timeout"):
         await update.message.reply_text("⚠️ บอทรับซองไม่ได้ ส่งให้แอดมินกดรับเองนะคะ")
@@ -1920,7 +1940,7 @@ async def handle_truemoney_link(
         await update.message.reply_text(
             f"❌ <b>ซอง TrueMoney ไม่ผ่านการตรวจสอบค่ะ</b>\n\n"
             f"<b>เหตุผล:</b>\n{reasons_text}\n\n"
-            f"กรุณาส่งลิงก์ใหม่ที่ถูกต้อง หรือติดต่อแอดมิน (https://t.me/zeinju_bunker)ค่ะ\n"
+            f"กรุณาส่งลิงก์ใหม่ที่ถูกต้อง หรือติดต่อแอดมิน @sperm6969ค่ะ\n"
             f"หมายเลขอ้างอิง: #PAY{payment_id}",
             parse_mode="HTML",
         )

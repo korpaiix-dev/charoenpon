@@ -134,6 +134,9 @@ def amount_to_tier(amount: Decimal) -> Optional[tuple[str, str, bool]]:
     if amt == 2000 and _endmonth_or_recent():  return ("2000", "GOD โปร (2499→2000)", True)
     if amt == 349 and _may_or_recent():      return ("349", "OF โปร (500→349)", True)
     if amt == 999 and _may_or_recent():      return ("999", "3M โปร (1299→999)", True)
+    # COMEBACK_PROMO_PRICES — always-on (per-user validation in payment.py)
+    if amt == 180:   return ("180", "Comeback ลด 40% (300→180)", True)
+    if amt == 210:   return ("210", "Comeback ลด 30% (300→210)", True)
     return None
 
 
