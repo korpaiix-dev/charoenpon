@@ -29,6 +29,8 @@ from shared.models import (
     User,
 )
 
+from bots.sales_bot.handlers._safe import safe_edit
+
 logger = logging.getLogger(__name__)
 
 TRIAL_COOLDOWN_DAYS = 30  # จำกัด 1 ครั้ง / 30 วัน
@@ -170,12 +172,9 @@ async def trial_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
         ])
 
-        await query.edit_message_text(
-            TRIAL_TEXT,
+        await safe_edit(query, TRIAL_TEXT,
             parse_mode="HTML",
-            reply_markup=keyboard,
-        )
-
+            reply_markup=keyboard,)
         # Send QR code as separate message
         try:
             await context.bot.send_photo(
@@ -192,13 +191,9 @@ async def trial_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
         ])
 
-        await query.edit_message_text(
-            ALREADY_USED_TEXT,
+        await safe_edit(query, ALREADY_USED_TEXT,
             parse_mode="HTML",
-            reply_markup=keyboard,
-        )
-
-
+            reply_markup=keyboard,)
 def get_trial_handlers() -> list:
     """Return all handlers for the trial module."""
     return [
