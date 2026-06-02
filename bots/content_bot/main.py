@@ -636,6 +636,65 @@ async def post_endmonth_god_promo_to_free_groups(context: ContextTypes.DEFAULT_T
     )
 
 
+
+
+# === VIP_PROMO_V2 — Posts VIP เจริญพร promo using 01_welcome.png ===
+async def post_vip_promo_to_free_groups(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Post VIP เจริญพร general promo (รูป + caption) to all free groups.
+
+    Replaces jarern4-auto-poster role: generic VIP membership promo.
+    Uses campaign image 01_welcome.png + rotated Thai captions.
+    """
+    bot = context.bot
+    success = 0
+    failed = 0
+    logger.info("Starting VIP promo post to %d groups", len(FREE_GROUPS))
+
+    # Find welcome image (relative path inside container = /app/assets/campaigns/01_welcome.png)
+    from pathlib import Path as _P
+    img_path = _P(__file__).resolve().parents[2] / "assets" / "campaigns" / "01_welcome.png"
+
+    # Rotated VIP promo captions (6 variants)
+    vip_captions = [
+        ("🌟 <b>VIP เจริญพร 18+</b> 🌟\n\nสมาชิก 100,000+ คน ใช้แล้วบอกต่อ\n💎 คลิป HD 10,000+ ชิ้น อัพเดททุกวัน\n🔥 VIP 30วัน ฿300 | GOD 90วัน ฿1,299 | ถาวร ฿2,499\n\n👉 <a href='https://t.me/NamwarnJarern_bot?start=packages'>กดสมัครเลย</a>"),
+        ("💖 <b>เจริญพร VIP — คลิปเต็มไม่เบลอ</b> 💖\n\n✅ สมาชิก 100,000+ คน\n✅ อัพเดทใหม่ทุกวัน\n✅ ดูได้ตลอด — ราคาดีงาม\n\n🛒 <a href='https://t.me/NamwarnJarern_bot?start=packages'>ดูแพ็คเกจทั้งหมด</a>"),
+        ("🔥 <b>VIP เจริญพร 👑</b>\n\nสายเซฟตัวจริง รวมที่นี่!\n10,000+ คลิป HD ทุกแนว ทุกสาย\n\n👉 <a href='https://t.me/NamwarnJarern_bot?start=packages'>สมัคร VIP เลย</a>"),
+        ("💎 <b>เจริญพร VIP — ทดลองวันแรก ติดใจเลย!</b>\n\n🎬 คลิป Exclusive ทุกวัน\n🛡 ปลอดภัย • มั่นใจ\n⭐ 4.8/5 จาก 200+ รีวิว\n\n🔗 <a href='https://t.me/NamwarnJarern_bot?start=packages'>เริ่มต้นที่นี่</a>"),
+        ("🌹 <b>VIP เจริญพร 👑</b>\n\nครอบครัว 100,000+ คน ที่มั่นใจเลือกเรา\nงานดี งานเด็ด ห้ามพลาด\n\n👉 <a href='https://t.me/NamwarnJarern_bot?start=packages'>เข้าร่วม VIP</a>"),
+        ("⚡ <b>VIP เจริญพร — งานดี ห้ามพลาด!</b> ⚡\n\n🎁 ชวนเพื่อน รับ VIP ฟรี!\n📦 GOD MODE 90วัน ฿1,299 คุ้มสุด\n\n👉 <a href='https://t.me/NamwarnJarern_bot?start=packages'>กดเลย!</a>"),
+    ]
+    import random as _r
+    caption = _r.choice(vip_captions)
+
+    for group_index, group_id in enumerate(FREE_GROUPS):
+        try:
+            if img_path.exists():
+                with open(img_path, "rb") as _f:
+                    await bot.send_photo(
+                        chat_id=group_id, photo=_f, caption=caption,
+                        parse_mode="HTML",
+                    )
+            else:
+                await bot.send_message(
+                    chat_id=group_id, text=caption, parse_mode="HTML",
+                    disable_web_page_preview=True,
+                )
+            success += 1
+            await asyncio.sleep(1.2)
+        except Exception as exc:
+            failed += 1
+            logger.warning("VIP promo failed group %d: %s", group_id, exc)
+
+    logger.info("VIP promo round done: %d/%d", success, len(FREE_GROUPS))
+    try:
+        await _send_discord_content_log(
+            f"💎 **VIP Promo Round Complete**\n"
+            f"✅ {success} / ❌ {failed} / Total {len(FREE_GROUPS)} groups"
+        )
+    except Exception:
+        pass
+
+
 async def post_teaser_to_free_groups(context: ContextTypes.DEFAULT_TYPE) -> None:
     """โพสต์ teaser (ข้อความอย่างเดียว) ไปทุกกลุ่มฟรี."""
     bot = context.bot
@@ -1196,35 +1255,38 @@ def main() -> None:
         handle_authorized_photo,
     ))
 
-    # Schedule teaser posts (เวลาไทย)
+    # SCHEDULE_V2 — redesigned 2026-06-02 (jarern4 disabled, content_bot is sole publisher)
     job_queue = app.job_queue
-    schedule_times = [
-        dt_time(hour=12, minute=30, tzinfo=TH_TZ),  # 12:30
-        dt_time(hour=18, minute=0, tzinfo=TH_TZ),   # 18:00
-        dt_time(hour=21, minute=0, tzinfo=TH_TZ),   # 21:00
-        dt_time(hour=23, minute=0, tzinfo=TH_TZ),   # 23:00
+
+    # TEASER posts — 5 rounds/day, spaced 1.5-2h, anchored to peak hours
+    teaser_times = [
+        dt_time(hour=1,  minute=0,  tzinfo=TH_TZ),   # late-night viewers
+        dt_time(hour=7,  minute=30, tzinfo=TH_TZ),   # morning peak
+        dt_time(hour=11, minute=0,  tzinfo=TH_TZ),   # late morning
+        dt_time(hour=13, minute=0,  tzinfo=TH_TZ),   # lunchtime
+        dt_time(hour=17, minute=0,  tzinfo=TH_TZ),   # afternoon
+        dt_time(hour=21, minute=0,  tzinfo=TH_TZ),   # peak evening
+        dt_time(hour=23, minute=0,  tzinfo=TH_TZ),   # late
     ]
-    for i, t in enumerate(schedule_times):
+    for i, t in enumerate(teaser_times):
         job_queue.run_daily(scheduled_teaser, time=t, name=f"teaser_{i}")
 
-    # 01:00 next day
-    job_queue.run_daily(
-        scheduled_teaser,
-        time=dt_time(hour=1, minute=0, tzinfo=TH_TZ),
-        name="teaser_late",
-    )
+    # VIP PROMO — 2 rounds/day (replaces jarern4-auto-poster role)
+    vip_promo_times = [
+        dt_time(hour=9,  minute=30, tzinfo=TH_TZ),
+        dt_time(hour=19, minute=30, tzinfo=TH_TZ),
+    ]
+    for i, t in enumerate(vip_promo_times):
+        job_queue.run_daily(post_vip_promo_to_free_groups, time=t, name=f"vip_promo_{i}")
 
-    # โปรสิ้นเดือน GOD MODE 2,499 -> 2,000
-    # ปิดไว้ก่อนจนกว่าบอสจะอนุมัติ creative ใหม่ (2026-04-28)
+    # GOD MODE end-month promo — REDUCED from 4 to 1 round/day (avoid spam)
+    # Only runs when is_endmonth_vip_promo_active() returns True
     if os.environ.get("ENABLE_ENDMONTH_GOD_PROMO_SCHEDULE", "true").lower() == "true":
-        god_promo_times = [
-            dt_time(hour=8, minute=0, tzinfo=TH_TZ),
-            dt_time(hour=14, minute=0, tzinfo=TH_TZ),
-            dt_time(hour=20, minute=0, tzinfo=TH_TZ),
-            dt_time(hour=23, minute=45, tzinfo=TH_TZ),
-        ]
-        for i, t in enumerate(god_promo_times):
-            job_queue.run_daily(post_endmonth_god_promo_to_free_groups, time=t, name=f"endmonth_god_promo_{i}")
+        job_queue.run_daily(
+            post_endmonth_god_promo_to_free_groups,
+            time=dt_time(hour=15, minute=0, tzinfo=TH_TZ),
+            name="endmonth_god_promo_daily",
+        )
 
     # Schedule daily report ทุกวัน 23:30 ไทย
     job_queue.run_daily(
