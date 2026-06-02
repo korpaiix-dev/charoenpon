@@ -23,7 +23,7 @@ from shared.models import Payment, PaymentStatus, User
 logger = logging.getLogger(__name__)
 
 # ─── Assets ───────────────────────────────────────────────────────────────────
-ASSETS_DIR = Path("/root/charoenpon/assets/campaigns")
+ASSETS_DIR = Path(__file__).resolve().parents[3] / "assets" / "campaigns"
 WELCOME_IMAGE_GLOB = "01_welcome*.png"
 
 # ─── Brand constants (boss-configured) ────────────────────────────────────────
@@ -100,8 +100,41 @@ def mask_telegram_name(name: str | None, fallback: str = "ลูกค้า VIP
     return name[:2] + "***"
 
 
+async def _get_active_flash() -> object | None:
+    """Return active FlashSale row or None."""
+    try:
+        from bots.sales_bot.handlers.flash_sale import _get_active_flash_sale
+        flash = await _get_active_flash_sale()
+        if flash and flash.sold_slots < flash.total_slots:
+            return flash
+    except Exception:
+        pass
+    return None
+
+
+async def pick_welcome_image_dynamic() -> Path | None:
+    """Active-aware welcome image picker.
+
+    - Flash Sale active → 03_flash1.png
+    - else → 01_welcome*.png (random from pool)
+    """
+    flash = await _get_active_flash()
+    if flash is not None:
+        candidates = list(ASSETS_DIR.glob("03_flash1*.png"))
+        if candidates:
+            return random.choice(candidates)
+    # Fallback to welcome pool
+    try:
+        candidates = list(ASSETS_DIR.glob(WELCOME_IMAGE_GLOB))
+        if candidates:
+            return random.choice(candidates)
+    except Exception as exc:
+        logger.warning("pick_welcome_image_dynamic failed: %s", exc)
+    return None
+
+
 def pick_welcome_image() -> Path | None:
-    """Pick a random welcome image from assets dir."""
+    """Sync fallback (legacy callers) — returns regular welcome only."""
     try:
         candidates = list(ASSETS_DIR.glob(WELCOME_IMAGE_GLOB))
         if not candidates:
@@ -134,11 +167,11 @@ def pick_campaign_image(campaign: str) -> Path | None:
 async def build_welcome_caption(tg_user_first_name: str | None = None) -> str:
     """Build dynamic welcome caption with social proof + 1 rotating review.
 
+    Auto-prepends Flash Sale banner if active flash sale exists.
     Returns HTML-formatted text suitable for Telegram parse_mode='HTML'.
     """
     stats = await get_stats()
     ever_paid = stats.get("ever_paid", 400)
-    # Floor to keep number "round" + impressive
     ever_paid_display = f"{(ever_paid // 50) * 50:,}+"
 
     quote, tier_label = get_random_review()
@@ -147,7 +180,19 @@ async def build_welcome_caption(tg_user_first_name: str | None = None) -> str:
     if tg_user_first_name:
         greet = f"สวัสดีค่ะ คุณ{tg_user_first_name}"
 
+    # FLASH_SALE_BANNER — prepend if active
+    flash_banner = ""
+    flash = await _get_active_flash()
+    if flash is not None:
+        flash_banner = (
+            f"⚡ <b>FLASH SALE กำลังลด!</b> ⚡\n"
+            f"🔥 ลดสูงสุด 30% — เหลือ {max(0, flash.total_slots - flash.sold_slots)} สิทธิ์\n"
+            f"⏰ กดปุ่ม <b>⚡ FLASH SALE — กำลังลด!</b> ด้านล่าง\n"
+            f"━━━━━━━━━━━━━━━\n\n"
+        )
+
     return (
+        f"{flash_banner}"
         f"{greet} 👋 ยินดีต้อนรับสู่ <b>VIP เจริญพร</b> 👑\n\n"
         f"🔥 สมาชิกเครือข่ายเรา <b>{NETWORK_MEMBERS_TOTAL:,}+ คน</b>\n"
         f"💎 ลูกค้า VIP จ่ายจริง <b>{ever_paid_display} คน</b>\n"

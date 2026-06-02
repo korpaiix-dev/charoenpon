@@ -307,9 +307,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     dynamic_keyboard = await _build_main_keyboard(tg_user.id)
 
     # SOCIAL_PROOF_V1 — send welcome photo + dynamic caption + dynamic keyboard
+    # FLASH_AWARE: pick image based on active flash sale (03_flash1.png if active)
     try:
         caption = await social_proof.build_welcome_caption(tg_user.first_name)
-        img_path = social_proof.pick_welcome_image()
+        img_path = await social_proof.pick_welcome_image_dynamic()
         if img_path and img_path.exists():
             with open(img_path, "rb") as f:
                 await update.message.reply_photo(
