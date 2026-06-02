@@ -36,8 +36,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger("broadcast_campaign")
 
 # ─── Config ────────────────────────────────────────────────────────────────
-ASSETS_DIR = Path("/root/charoenpon/assets/campaigns")
-ENV_FILE = "/root/charoenpon/.env"
+ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets" / "campaigns"
+ENV_FILE = os.environ.get("ENV_FILE", "/root/charoenpon/.env")
 
 CAMPAIGN_MAP = {
     "welcome":  ("01_welcome.png",  "🎉 ยินดีต้อนรับสู่ VIP เจริญพร — คลิป HD 10,000+ ชิ้น อัพเดททุกวัน!"),
@@ -66,12 +66,22 @@ def load_env() -> dict:
 
 
 async def get_group_ids(env: dict) -> list[int]:
-    """Get all กลุ่มฟรี chat IDs from .env (TG_GROUP_*)."""
-    ids = []
-    for k, v in env.items():
-        if k.startswith("TG_GROUP_") and v.lstrip("-").isdigit():
-            ids.append(int(v))
-    return ids
+    """Get all กลุ่มฟรี chat IDs from group_registry table (min_tier=FREE, is_active=true)."""
+    db_url = env.get("DATABASE_URL", "")
+    if db_url.startswith("postgresql+asyncpg://"):
+        db_url = db_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    if not db_url:
+        # Fallback to .env
+        return [int(v) for k, v in env.items()
+                if k.startswith("TG_GROUP_") and v.lstrip("-").isdigit()]
+    conn = await asyncpg.connect(db_url)
+    try:
+        rows = await conn.fetch(
+            "SELECT chat_id FROM group_registry WHERE min_tier=\'FREE\' AND is_active=true ORDER BY slug"
+        )
+        return [r["chat_id"] for r in rows]
+    finally:
+        await conn.close()
 
 
 async def get_warm_user_ids(db_url: str) -> list[int]:
