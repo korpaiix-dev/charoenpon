@@ -11,6 +11,35 @@ import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
+
+# === SAFE_EDIT — handles photo-original messages ===
+async def _safe_edit(query, text: str, reply_markup=None, parse_mode="HTML",
+                      disable_web_page_preview=True) -> None:
+    """Edit message text safely. Falls back to delete+send when original is a photo."""
+    try:
+        await _safe_edit(query, text, parse_mode=parse_mode, reply_markup=reply_markup,
+            disable_web_page_preview=disable_web_page_preview,)
+    except Exception:
+        # Original is photo → can't edit text. Delete + send new.
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        try:
+            await query.message.chat.send_message(
+                text, parse_mode=parse_mode, reply_markup=reply_markup,
+                disable_web_page_preview=disable_web_page_preview,
+            )
+        except Exception:
+            try:
+                await query.message.reply_text(
+                    text, parse_mode=parse_mode, reply_markup=reply_markup,
+                )
+            except Exception:
+                pass
+
+
+
 from shared.endmonth_vip_promo import (
     PROMO_2499_PRICE,
     PROMO_DATE_TEXT,
@@ -249,13 +278,9 @@ async def view_packages_callback(
     if not query:
         return
     await query.answer()
-    await query.edit_message_text(
-        _build_package_list_text(),
+    await _safe_edit(query, _build_package_list_text(),
         parse_mode="HTML",
-        reply_markup=_build_package_keyboard(),
-    )
-
-
+        reply_markup=_build_package_keyboard(),)
 async def package_detail_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -268,16 +293,12 @@ async def package_detail_callback(
     tier = query.data.replace("pkg_", "")
     text = _build_package_detail_text(tier)
     if not text:
-        await query.edit_message_text("ไม่พบแพ็กเกจที่เลือกค่ะ ลองใหม่นะคะ")
+        await _safe_edit(query, "ไม่พบแพ็กเกจที่เลือกค่ะ ลองใหม่นะคะ")
         return
 
-    await query.edit_message_text(
-        text,
+    await _safe_edit(query, text,
         parse_mode="HTML",
-        reply_markup=_build_detail_keyboard(tier),
-    )
-
-
+        reply_markup=_build_detail_keyboard(tier),)
 async def buy_package_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -290,7 +311,7 @@ async def buy_package_callback(
     tier = query.data.replace("buy_", "")
     pkg = next((p for p in PACKAGES if p["tier"] == tier), None)
     if not pkg:
-        await query.edit_message_text("ไม่พบแพ็กเกจค่ะ")
+        await _safe_edit(query, "ไม่พบแพ็กเกจค่ะ")
         return
 
     # Store selected package in user context
@@ -337,8 +358,7 @@ async def buy_package_callback(
         ]
     )
 
-    await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
-
+    await _safe_edit(query, text, parse_mode="HTML", reply_markup=keyboard)
     # Send QR code PromptPay
     # # >>> POOL_QR <<< dynamic QR from receiver pool
     _picked = None

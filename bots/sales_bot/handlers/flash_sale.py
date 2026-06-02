@@ -17,6 +17,8 @@ from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 from shared.database import get_session
 from shared.models import FlashSale, Package, PackageTier
 
+from bots.sales_bot.handlers._safe import safe_edit
+
 logger = logging.getLogger(__name__)
 
 TH_TZ = timezone(timedelta(hours=7))
@@ -132,22 +134,18 @@ async def flashsale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     flash = await _get_active_flash_sale()
     if not flash:
-        await query.edit_message_text(
-            "⚡ Flash Sale หมดแล้วค่ะ หรือยังไม่เปิด\n\n"
+        await safe_edit(query, "⚡ Flash Sale หมดแล้วค่ะ หรือยังไม่เปิด\n\n"
             "Flash Friday เปิดทุกวันศุกร์ 21:00 - 23:59 น.\n"
-            "📦 ดูแพ็กเกจปกติ → /packages"
-        )
+            "📦 ดูแพ็กเกจปกติ → /packages")
         return
 
     remaining = flash.total_slots - flash.sold_slots
     if remaining <= 0:
-        await query.edit_message_text(
-            "😱 <b>Flash Sale หมดแล้วค่ะ!</b>\n\n"
+        await safe_edit(query, "😱 <b>Flash Sale หมดแล้วค่ะ!</b>\n\n"
             f"ขายครบ {flash.total_slots}/{flash.total_slots} slot แล้ว\n"
             "ไว้ศุกร์หน้ามาใหม่นะคะ 💕\n\n"
             "📦 สนใจแพ็กเกจปกติ → /packages",
-            parse_mode="HTML",
-        )
+            parse_mode="HTML",)
         return
 
     text = _build_flash_sale_text(flash, remaining)
@@ -156,9 +154,7 @@ async def flashsale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         [InlineKeyboardButton("📦 ดูแพ็กเกจอื่น", callback_data="view_packages")],
         [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
     ])
-    await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
-
-
+    await safe_edit(query, text, parse_mode="HTML", reply_markup=keyboard)
 async def buy_flash_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Callback: user wants to buy flash sale."""
     query = update.callback_query
@@ -168,16 +164,14 @@ async def buy_flash_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     flash = await _get_active_flash_sale()
     if not flash:
-        await query.edit_message_text("⚡ Flash Sale หมดแล้วหรือยังไม่เปิดค่ะ")
+        await safe_edit(query, "⚡ Flash Sale หมดแล้วหรือยังไม่เปิดค่ะ")
         return
 
     remaining = flash.total_slots - flash.sold_slots
     if remaining <= 0:
-        await query.edit_message_text(
-            "😱 <b>หมดแล้วค่ะ!</b> ขายครบ {0}/{0} slot\n"
+        await safe_edit(query, "😱 <b>หมดแล้วค่ะ!</b> ขายครบ {0}/{0} slot\n"
             "ไว้ศุกร์หน้ามาใหม่นะคะ 💕".format(flash.total_slots),
-            parse_mode="HTML",
-        )
+            parse_mode="HTML",)
         return
 
     # Set flash sale tier in user context — uses tier 300 (VIP 30 วัน) but at flash price
@@ -204,8 +198,7 @@ async def buy_flash_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         [InlineKeyboardButton("📦 ดูแพ็กเกจอื่น", callback_data="view_packages")],
     ])
 
-    await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
-
+    await safe_edit(query, text, parse_mode="HTML", reply_markup=keyboard)
     # Send QR
     try:
         await context.bot.send_photo(
