@@ -17,8 +17,10 @@ async def _safe_edit(query, text: str, reply_markup=None, parse_mode="HTML",
                       disable_web_page_preview=True) -> None:
     """Edit message text safely. Falls back to delete+send when original is a photo."""
     try:
-        await _safe_edit(query, text, parse_mode=parse_mode, reply_markup=reply_markup,
-            disable_web_page_preview=disable_web_page_preview,)
+        await query.edit_message_text(
+            text, parse_mode=parse_mode, reply_markup=reply_markup,
+            disable_web_page_preview=disable_web_page_preview,
+        )
     except Exception:
         # Original is photo → can't edit text. Delete + send new.
         try:
