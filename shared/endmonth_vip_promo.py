@@ -131,3 +131,15 @@ def get_may_promo_badge(tier: str) -> str:
         return f"🔥 โปร GOD 3M 1,299 เหลือ 999 บาท — {PROMO_MAY_DATE_TEXT}"
     return ""
 # <<< MAY26_COMBO_PROMO >>>
+
+
+# MID_MONTH_FLASH — 15-17 มิ.ย. 2026 (BKK)
+def is_mid_month_flash_active() -> bool:
+    """Mid-Month Flash Sale window: 15-17 มิ.ย. 2026 BKK."""
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone(timedelta(hours=7)))
+    return (now.year == 2026 and now.month == 6 and 15 <= now.day <= 17)
+
+MID_FLASH_VIP_PRICE = 199
+MID_FLASH_OF_PRICE = 349
+MID_FLASH_GOD3M_PRICE = 999

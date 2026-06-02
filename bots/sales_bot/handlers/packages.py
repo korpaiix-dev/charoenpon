@@ -43,6 +43,7 @@ async def _safe_edit(query, text: str, reply_markup=None, parse_mode="HTML",
 
 
 from shared.endmonth_vip_promo import (
+    is_mid_month_flash_active,
     PROMO_2499_PRICE,
     PROMO_DATE_TEXT,
     PROMO_PRICE,
@@ -147,13 +148,25 @@ PACKAGES = [
 
 def _build_package_list_text() -> str:
     """Build the text for the package overview."""
+    flash = is_mid_month_flash_active()
+    flash_header = "⚡ <b>FLASH SALE 48 ชม. — ลดทุก tier!</b> ⚡\n🔥 หมดเขต 17 มิ.ย. เท่านั้น!\n━━━━━━━━━━━━━━━━━━━━━\n\n" if flash else ""
     songkran_bonus = "- โปรโมชั่นสงกรานต์ (โบนัสเฉพาะคนซื้อช่วงโปร)\n" if is_songkran_promo_window() else ""
     songkran_note = "🎁 ซื้อช่วงโปร 7 วันนี้ แถมกลุ่ม โปรโมชั่นสงกรานต์\n\n" if is_songkran_promo_window() else ""
-    vip_price_line = "💰 ราคา: <s>300</s> 200 บาท / 30 วัน 🔥 โปรถึง 30 เม.ย.\n" if is_endmonth_vip_promo_active() else "💰 ราคา: 300 บาท / 30 วัน\n"
-    god_price_line = "💰 ราคา: <s>2,499</s> 2,000 บาท / ถาวร 🔥 โปรถึง 30 เม.ย.\n" if is_endmonth_vip_promo_active() else "💰 ราคา: 2,499 บาท / ถาวร\n"
-    vip_promo_note = f"🔥 <b>โปรสิ้นเดือน:</b> VIP เจริญพร 18+ จาก 300 เหลือ 200 บาท — {PROMO_DATE_TEXT}\n\n" if is_endmonth_vip_promo_active() else ""
-    god_promo_note = f"💎 <b>โปรสิ้นเดือน:</b> GOD MODE ถาวร จาก 2,499 เหลือ 2,000 บาท — {PROMO_DATE_TEXT}\n\n" if is_endmonth_vip_promo_active() else ""
+    # FLASH overrides end-month VIP promo (more aggressive discount)
+    if flash:
+        vip_price_line = "💰 ราคา: <s>300</s> 199 บาท / 30 วัน ⚡ FLASH!\n"
+        god_price_line = "💰 ราคา: 2,499 บาท / ถาวร (ถาวรห้ามลด)\n"
+    elif is_endmonth_vip_promo_active():
+        vip_price_line = "💰 ราคา: <s>300</s> 200 บาท / 30 วัน 🔥 โปรถึง 30 เม.ย.\n"
+        god_price_line = "💰 ราคา: <s>2,499</s> 2,000 บาท / ถาวร 🔥 โปรถึง 30 เม.ย.\n"
+    else:
+        vip_price_line = "💰 ราคา: 300 บาท / 30 วัน\n"
+        god_price_line = "💰 ราคา: 2,499 บาท / ถาวร\n"
+    vip_promo_note = f"🔥 <b>โปรสิ้นเดือน:</b> VIP เจริญพร 18+ จาก 300 เหลือ 200 บาท — {PROMO_DATE_TEXT}\n\n" if (is_endmonth_vip_promo_active() and not flash) else ""
+    god_promo_note = f"💎 <b>โปรสิ้นเดือน:</b> GOD MODE ถาวร จาก 2,499 เหลือ 2,000 บาท — {PROMO_DATE_TEXT}\n\n" if (is_endmonth_vip_promo_active() and not flash) else ""
     return (
+        flash_header +
+        (
         "<b>📦 แพ็กเกจ VIP ทั้งหมด</b>\n\n"
         "เลือกแพ็กเกจที่สนใจได้เลยค่ะ 👇\n\n"
         "────────────────────\n"
@@ -171,7 +184,7 @@ def _build_package_list_text() -> str:
         f"{god_promo_note}"
         "────────────────────\n"
         "🥈 1,299.- | GOD MODE (3 เดือน)\n"
-        f"💰 ราคา: {('<s>1,299</s> 999 บาท / 90 วัน 🔥 โปรถึง 31 พ.ค.' if is_may_combo_promo_active() else '1,299 บาท / 90 วัน')}\n"
+        f"💰 ราคา: {('<s>1,299</s> 999 บาท / 90 วัน ⚡ FLASH!' if flash else ('<s>1,299</s> 999 บาท / 90 วัน 🔥 โปรถึง 31 พ.ค.' if is_may_combo_promo_active() else '1,299 บาท / 90 วัน'))}\n"
         "🏠 ห้อง\n"
         "- VIP ( 90 วัน )\n"
         "- SSS ( 90 วัน )\n"
@@ -184,7 +197,7 @@ def _build_package_list_text() -> str:
         f"{songkran_note}"
         "────────────────────\n"
         "👙 500.- | OnlyFans + VIP (30 วัน)\n"
-        f"💰 ราคา: {('<s>500</s> 349 บาท / 30 วัน 🔥 โปรถึง 31 พ.ค.' if is_may_combo_promo_active() else '500 บาท / 30 วัน')}\n"
+        f"💰 ราคา: {('<s>500</s> 349 บาท / 30 วัน ⚡ FLASH!' if flash else ('<s>500</s> 349 บาท / 30 วัน 🔥 โปรถึง 31 พ.ค.' if is_may_combo_promo_active() else '500 บาท / 30 วัน'))}\n"
         "🏠 ห้อง\n"
         "- VIP ( 30 วัน )\n"
         "- OnlyFans ( 30 วัน )\n\n"
@@ -196,17 +209,26 @@ def _build_package_list_text() -> str:
         f"{vip_promo_note}"
         "────────────────────\n"
         "กดเลือกแพ็กเกจเพื่อดูรายละเอียดเพิ่มเติมค่ะ"
-    )
+    ))
 
 
 def _build_package_keyboard() -> InlineKeyboardMarkup:
-    """Build inline keyboard for package selection."""
-    vip_label = "🔥 VIP 300 เหลือ 200" if is_endmonth_vip_promo_active() else "🥉 300 บาท"
-    god_label = "💎 GOD 2,499 เหลือ 2,000" if is_endmonth_vip_promo_active() else "💎 2,499 บาท"
+    """Build inline keyboard for package selection. Flash > end-month > combo > normal."""
+    flash = is_mid_month_flash_active()
+    if flash:
+        vip_label = "⚡ VIP 300→199 FLASH"
+        of_label = "⚡ OF 500→349 FLASH"
+        god3m_label = "⚡ GOD3M 1,299→999 FLASH"
+        god_label = "💎 GOD ถาวร 2,499"
+    else:
+        vip_label = "🔥 VIP 300 เหลือ 200" if is_endmonth_vip_promo_active() else "🥉 300 บาท"
+        god_label = "💎 GOD 2,499 เหลือ 2,000" if is_endmonth_vip_promo_active() else "💎 2,499 บาท"
+        of_label = "🔥 OF 500 เหลือ 349" if is_may_combo_promo_active() else "🥈 500 บาท"
+        god3m_label = "🔥 GOD3M 1,299 เหลือ 999" if is_may_combo_promo_active() else "🥇 1,299 บาท"
     buttons = [
         [InlineKeyboardButton(vip_label, callback_data="pkg_300")],
-        [InlineKeyboardButton("🔥 OF 500 เหลือ 349" if is_may_combo_promo_active() else "🥈 500 บาท", callback_data="pkg_500")],
-        [InlineKeyboardButton("🔥 GOD3M 1,299 เหลือ 999" if is_may_combo_promo_active() else "🥇 1,299 บาท", callback_data="pkg_1299")],
+        [InlineKeyboardButton(of_label, callback_data="pkg_500")],
+        [InlineKeyboardButton(god3m_label, callback_data="pkg_1299")],
         [InlineKeyboardButton(god_label, callback_data="pkg_2499")],
         [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
     ]
