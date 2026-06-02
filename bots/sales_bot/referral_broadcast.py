@@ -145,70 +145,18 @@ async def _create_broadcast_log_table():
 
 
 async def _create_referral_promo_image() -> bytes | None:
-    """Create promotional image for referral system."""
-    try:
-        from bots.content_bot.main import fetch_latest_vip_content
-        from PIL import Image, ImageDraw, ImageFont
-        import io
-        import httpx
-
-        # Get a VIP content image for background
-        content = await fetch_latest_vip_content()
-        if not content:
-            return None
-
-        photo_url = content.get("photo_url")
-        if not photo_url:
-            return None
-
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(photo_url)
-            if resp.status_code != 200:
-                return None
-            img_bytes = resp.content
-
-        img = Image.open(io.BytesIO(img_bytes))
-        img = img.resize((800, 800))
-
-        # Apply heavy blur
-        from PIL import ImageFilter
-        img = img.filter(ImageFilter.GaussianBlur(radius=25))
-
-        # Dark overlay
-        overlay = Image.new("RGBA", img.size, (0, 0, 0, 160))
-        img = img.convert("RGBA")
-        img = Image.alpha_composite(img, overlay)
-
-        draw = ImageDraw.Draw(img)
-
-        # Text overlay
-        try:
-            font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40)
-            font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
-        except Exception:
-            font_large = ImageFont.load_default()
-            font_medium = font_large
-
-        # Title
-        draw.text((400, 150), "🎁 VIP เจริญพร", fill="white", font=font_large, anchor="mm")
-        draw.text((400, 220), "ชวนเพื่อนได้ VIP ฟรี!", fill="#FFD700", font=font_large, anchor="mm")
-
-        # Benefits
-        draw.text((400, 340), "ชวน 1 คน = +7 วัน VIP ฟรี", fill="white", font=font_medium, anchor="mm")
-        draw.text((400, 400), "ชวน 5 คน = +30 วัน VIP ฟรี!", fill="#00FF88", font=font_medium, anchor="mm")
-
-        # CTA
-        draw.text((400, 550), "สมัคร VIP แล้วชวนเพื่อนเลย!", fill="#FFD700", font=font_medium, anchor="mm")
-        draw.text((400, 620), "@NamwarnJarern_bot", fill="white", font=font_medium, anchor="mm")
-
-        # Save
-        buf = io.BytesIO()
-        img.convert("RGB").save(buf, format="JPEG", quality=85)
-        return buf.getvalue()
-
-    except Exception as exc:
-        logger.warning("Failed to create referral promo image: %s", exc)
+    """Return the 02_referral.png banner bytes (new branding)."""
+    from pathlib import Path as _P
+    img_path = _P("/root/charoenpon/assets/campaigns/02_referral.png")
+    if not img_path.exists():
+        logger.warning("Referral campaign image not found at %s", img_path)
         return None
+    try:
+        return img_path.read_bytes()
+    except Exception as exc:
+        logger.warning("Failed to read referral promo image: %s", exc)
+        return None
+
 
 
 async def broadcast_dm_vip_active(bot: Bot) -> dict:
