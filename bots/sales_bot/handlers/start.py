@@ -56,11 +56,13 @@ async def _handle_comeback_start(update: Update, context: ContextTypes.DEFAULT_T
     _tg_id = update.effective_user.id if update.effective_user else None
     promo = await validate_promo_code(promo_code, telegram_id=_tg_id)
     if not promo:
+        # FIX: use dynamic keyboard so referral button shows
+        kb = await _build_main_keyboard(update.effective_user.id) if update.effective_user else MAIN_KEYBOARD
         await update.message.reply_text(
             "❌ โปรโมชั่นนี้หมดอายุหรือไม่ถูกต้องแล้วค่ะ\n\n"
             "กดดูแพ็กเกจราคาปกติได้เลยนะคะ 👇",
             parse_mode="HTML",
-            reply_markup=MAIN_KEYBOARD,
+            reply_markup=kb,
         )
         return True
 
