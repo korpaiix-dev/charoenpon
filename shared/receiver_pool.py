@@ -49,7 +49,13 @@ def match_receiver(slip_data: dict, accounts: Sequence[dict]) -> Optional[dict]:
     bank_digits = "".join(c for c in bank_account if c.isdigit())
 
     for a in accounts:
-        name_ok = a["name_keyword"] in name if a["name_keyword"] else False
+        # MULTI_KEYWORD — name_keyword may be comma-separated; match ANY
+        raw_kw = (a["name_keyword"] or "").strip()
+        if raw_kw:
+            keywords = [k.strip() for k in raw_kw.split(",") if k.strip()]
+            name_ok = any(k.lower() in name.lower() for k in keywords)
+        else:
+            name_ok = False
         if not name_ok:
             continue
         proxy_ok = a["proxy_last4"] and proxy_digits.endswith(a["proxy_last4"])

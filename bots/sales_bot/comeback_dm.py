@@ -383,7 +383,16 @@ async def get_expired_customers(days_since_expire: int = 3) -> list[dict]:
             .scalar_subquery()
         )
 
-        # ดึง user ที่มี subscription EXPIRED + end_date < cutoff + ยังไม่เคยส่ง DM
+        # COMEBACK_ACTIVE_SUB_GUARD — users with ANY active sub (renewed) — exclude
+        from sqlalchemy import exists as _exists
+        Sub2 = Subscription.__table__.alias("sub_active_check")
+        users_with_active = (
+            select(Sub2.c.user_id)
+            .where(Sub2.c.status == SubscriptionStatus.ACTIVE)
+            .scalar_subquery()
+        )
+
+        # ดึง user ที่มี subscription EXPIRED + end_date < cutoff + ยังไม่เคยส่ง DM + ไม่มี sub active อื่น
         result = await session.execute(
             select(User, Subscription)
             .join(Subscription, Subscription.user_id == User.id)
@@ -391,6 +400,7 @@ async def get_expired_customers(days_since_expire: int = 3) -> list[dict]:
                 Subscription.status == SubscriptionStatus.EXPIRED,
                 Subscription.end_date < cutoff,
                 User.id.notin_(already_sent),
+                User.id.notin_(users_with_active),  # FIX: exclude users who renewed
                 User.is_banned == False,  # noqa: E712
             )
             .order_by(Subscription.end_date.desc())
