@@ -856,12 +856,30 @@ async def handle_photo_slip(
                         "━━━━━━━━━━━━━━\n"
                         f"👤 Telegram: {_safe_tg} (<code>{user.id}</code>)\n"
                         f"💰 Slip amount: <b>฿{int(slip2go_data.get('amount') or 0):,}</b>\n"
-                        f"🎯 Receiver in slip: <b>{_safe_rcv}</b>\n"
+                        f"🎯 <b>Receiver in slip:</b> {_safe_rcv}\n"
+                        f"❌ <b>เข้าบัญชีเรา:</b> ไม่ใช่ (ผู้รับไม่ตรง)\n"
                         f"🔖 transRef: <code>{(slip2go_data.get('transRef') or '')[:32]}</code>\n"
                         f"📝 Reason: {_h.escape(rcv_reason or '-')}\n"
                         f"\nลูกค้าได้รับข้อความแจ้งให้โอนใหม่แล้ว — ไม่มี action ต้องทำ"
                     )
-                    await _admin_bot.send_message(chat_id=_admin_chat, text=_msg, parse_mode="HTML")
+                    # Try send slip photo with caption
+                    _wr_sent = False
+                    try:
+                        if update.message and update.message.photo:
+                            import io as _io2
+                            _slip_file = await context.bot.get_file(update.message.photo[-1].file_id)
+                            _buf2 = _io2.BytesIO()
+                            await _slip_file.download_to_memory(_buf2)
+                            _buf2.seek(0)
+                            await _admin_bot.send_photo(
+                                chat_id=_admin_chat, photo=_buf2,
+                                caption=_msg, parse_mode="HTML",
+                            )
+                            _wr_sent = True
+                    except Exception as _exc_wrp:
+                        logger.warning("wrong-receiver slip photo failed: %s", _exc_wrp)
+                    if not _wr_sent:
+                        await _admin_bot.send_message(chat_id=_admin_chat, text=_msg, parse_mode="HTML")
                 finally:
                     try: await _admin_bot.shutdown()
                     except Exception: pass
@@ -1155,18 +1173,43 @@ async def handle_photo_slip(
                             _safe_tg_name = _h.escape(str(user.first_name or user.username or "ลูกค้า"))
                             _safe_real = _h.escape(s2g_sender_name or "-")
                             _safe_bank = _h.escape(f"{s2g_sender_bank} {s2g_sender_account}".strip() or "-")
+                            # SLIP_TO_ADMIN — include our receiver bank info
+                            _recv_label = "-"
+                            if _matched_account:
+                                _recv_label = _h.escape(
+                                    f"{_matched_account.get('owner_name','?')} "
+                                    f"({_matched_account.get('bank_name_th','')} {_matched_account.get('account_no','')})"
+                                )
                             _admin_msg = (
                                 f"🤖 <b>AUTO-APPROVED (Slip2Go)</b>\n"
                                 f"━━━━━━━━━━━━━━\n"
                                 f"📋 Pay #{_new_pay_id}\n"
                                 f"👤 Telegram: {_safe_tg_name} (<code>{user.id}</code>)\n"
                                 f"🆔 <b>ชื่อจริง:</b> {_safe_real}\n"
-                                f"🏦 จาก: {_safe_bank}\n"
+                                f"🏦 <b>จาก:</b> {_safe_bank}\n"
+                                f"🎯 <b>เข้าบัญชีเรา:</b> {_recv_label}\n"
                                 f"💰 ยอด: <b>฿{int(s2g_amount):,}</b>\n"
                                 f"📦 แพ็ก: <b>{_h.escape(_pkg_name_safe)}</b> {'🔥 (โปร)' if is_promo else ''}\n"
                                 f"🔖 transRef: <code>{s2g_trans_ref or '-'}</code>"
                             )
-                            await _admin_bot.send_message(chat_id=ADMIN_GROUP_ID, text=_admin_msg, parse_mode="HTML")
+                            # Try send slip photo with caption; fallback to text if no file_id
+                            _slip_sent = False
+                            try:
+                                if update.message and update.message.photo:
+                                    import io as _io
+                                    _slip_file = await context.bot.get_file(update.message.photo[-1].file_id)
+                                    _buf = _io.BytesIO()
+                                    await _slip_file.download_to_memory(_buf)
+                                    _buf.seek(0)
+                                    await _admin_bot.send_photo(
+                                        chat_id=ADMIN_GROUP_ID, photo=_buf,
+                                        caption=_admin_msg, parse_mode="HTML",
+                                    )
+                                    _slip_sent = True
+                            except Exception as _exc_p:
+                                logger.warning("slip photo to admin failed: %s", _exc_p)
+                            if not _slip_sent:
+                                await _admin_bot.send_message(chat_id=ADMIN_GROUP_ID, text=_admin_msg, parse_mode="HTML")
                         finally:
                             try: await _admin_bot.shutdown()
                             except Exception: pass
