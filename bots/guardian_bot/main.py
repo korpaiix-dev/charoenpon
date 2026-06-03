@@ -31,6 +31,10 @@ from bots.guardian_bot.group_monitor import (
     _log_kick_action,
     _log_member_join,
 )
+from bots.guardian_bot.content_distributor import (
+    distribute_pending_content,
+    get_distributor_handlers,
+)
 from bots.guardian_bot.scheduler import (
     check_unauthorized_members,
     generate_daily_report,
@@ -313,6 +317,10 @@ def create_application() -> Application:
         CallbackQueryHandler(handle_guardian_callback, pattern=r"^guardian_(keep|kick)_")
     )
 
+    # --- Content distributor: capture media from source group ---
+    for h in get_distributor_handlers():
+        app.add_handler(h)
+
     # --- Scheduled jobs ---
     job_queue = app.job_queue
 
@@ -347,6 +355,31 @@ def create_application() -> Application:
         name="daily_report_2200",
     )
 
+    # Content distributor — runs every N minutes (interval from distribution_config DB)
+    # First fetch interval; default 60 min if config missing
+    import asyncio as _asyncio
+    async def _get_interval() -> int:
+        from shared.database import get_session as _gs
+        from sqlalchemy import text as _t
+        try:
+            async with _gs() as _s:
+                r = await _s.execute(_t("SELECT value FROM distribution_config WHERE key='schedule_interval_minutes'"))
+                row = r.fetchone()
+                return int(row[0]) if row else 60
+        except Exception:
+            return 60
+    try:
+        loop = _asyncio.get_event_loop()
+        interval_min = loop.run_until_complete(_get_interval()) if not loop.is_running() else 60
+    except Exception:
+        interval_min = 60
+    job_queue.run_repeating(
+        distribute_pending_content,
+        interval=timedelta(minutes=interval_min),
+        first=timedelta(minutes=2),
+        name=f"content_distribute_{interval_min}m",
+    )
+
     return app
 
 
@@ -363,7 +396,7 @@ def main() -> None:
     app = create_application()
     logger.info("Starting Guardian Bot (ยาม)...")
     app.run_polling(
-        allowed_updates=[Update.CHAT_MEMBER, Update.CALLBACK_QUERY],
+        allowed_updates=[Update.CHAT_MEMBER, Update.CALLBACK_QUERY, Update.MESSAGE, Update.CHANNEL_POST],
         drop_pending_updates=True,
     )
 
