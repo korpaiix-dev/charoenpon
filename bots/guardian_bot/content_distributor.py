@@ -1,56 +1,54 @@
-"""Content Distributor — listener + scheduler.
+"""Content Distributor v2 — adds Topic-aware routing.
 
-Listener: captures media from "คลังกระจายสินค้า" (source group)
-Scheduler: distributes content to VIP groups based on tags + tier mapping
-
-Architecture:
-- Source: -1004258570047 (คลังกระจายสินค้า)
-- Targets: G300/G500/VGOD/INTER/SSS/SERIES/RANDOM/SUMMER (group_registry where min_tier IN VIP tiers)
-- Tag → tier-set routing:
-    no tag / #vip   → TIER_300+   (all 8 VIP groups)
-    #of            → TIER_500+   (7 groups)
-    #god           → TIER_1299+  (6 groups)
-    #sss/#series/#inter — special routing (specific slugs)
-- Method: copyMessage (raw forward, no source attribution)
-- Dedup: distribution_log UNIQUE(content_id, target_chat_id)
+NEW in v2:
+- Topic routing: per (chat_id, tag) → message_thread_id
+- /set_topic <tag> command: bot picks up current topic when admin uses it
+- /unset_topic <tag> command: remove mapping
+- /show_topics command: list topic mappings for current chat
+- Distributor uses message_thread_id if mapped
 """
 from __future__ import annotations
 
 import logging
+import os
 import re
-from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import text
-from telegram import Update, Message
+from telegram import Update
 from telegram.error import Forbidden, BadRequest, RetryAfter
-from telegram.ext import ContextTypes, MessageHandler, filters
+from telegram.ext import (
+    CommandHandler, ContextTypes, MessageHandler, filters,
+)
 
 from shared.database import get_session
 
 logger = logging.getLogger(__name__)
 
-# ── Tier routing ────────────────────────────────────────────────────────────
-# Higher tiers see all lower-tier content.
-# tier_rank: G300=1, G500=2, GOD=3 (used to compare)
+# Admin telegram_ids that can manage topic routes
+ADMIN_IDS = set(
+    int(x) for x in os.environ.get("ADMIN_TELEGRAM_IDS", "").split(",") if x.strip().lstrip("-").isdigit()
+)
+
+# ── Tier routing (unchanged from v1) ─────────────────────────────────────────
 TAG_TO_MIN_TIER = {
     "vip": "TIER_300",
     "of":  "TIER_500",
     "god": "TIER_1299",
-    "sss": "TIER_1299",       # special category — but tier 1299+
+    "sss": "TIER_1299",
     "series": "TIER_1299",
     "inter": "TIER_1299",
 }
 
-# Slug-level routing for specialized tags
 TAG_TO_SLUGS = {
     "sss":    {"SSS", "RANDOM", "SUMMER"},
     "series": {"SERIES", "RANDOM", "SUMMER"},
     "inter":  {"INTER", "RANDOM", "SUMMER"},
-    # generic tier-based tags use tier mapping below
 }
 
 TIER_RANK = {"TIER_300": 1, "TIER_500": 2, "TIER_1299": 3, "TIER_2499": 4, "TIER_ADD500": 4}
+
+VALID_TAGS = {"vip", "of", "god", "sss", "series", "inter", "new", "rare"}
 
 
 async def _get_config(key: str, default: Optional[str] = None) -> Optional[str]:
@@ -61,14 +59,12 @@ async def _get_config(key: str, default: Optional[str] = None) -> Optional[str]:
 
 
 def _parse_tags(caption: Optional[str]) -> list[str]:
-    """Parse hashtags from caption — returns lowercase list without #."""
     if not caption:
         return []
     return [t.lstrip("#").lower() for t in re.findall(r"#\w+", caption)]
 
 
 def _resolve_min_tier(tags: list[str]) -> str:
-    """Resolve minimum tier based on tags. Default = TIER_300 (#vip)."""
     if not tags:
         return "TIER_300"
     highest = "TIER_300"
@@ -81,46 +77,37 @@ def _resolve_min_tier(tags: list[str]) -> str:
     return highest
 
 
-# ── Listener (called by guardian-bot) ───────────────────────────────────────
+# ── Capture from storage group ──────────────────────────────────────────────
 async def capture_storage_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Capture media messages from source group → save to queue."""
     msg = update.message or update.channel_post
     if not msg:
         return
-
     src = await _get_config("source_chat_id", "0")
     try:
         src_id = int(src or "0")
     except ValueError:
-        src_id = 0
+        return
     if msg.chat_id != src_id:
-        return  # not from storage group
+        return
 
-    # Determine media type + file_id
     media_type = None
     file_id = None
     if msg.photo:
-        media_type = "photo"
-        file_id = msg.photo[-1].file_id
+        media_type, file_id = "photo", msg.photo[-1].file_id
     elif msg.video:
-        media_type = "video"
-        file_id = msg.video.file_id
+        media_type, file_id = "video", msg.video.file_id
     elif msg.animation:
-        media_type = "animation"
-        file_id = msg.animation.file_id
+        media_type, file_id = "animation", msg.animation.file_id
     elif msg.document:
-        media_type = "document"
-        file_id = msg.document.file_id
+        media_type, file_id = "document", msg.document.file_id
     elif msg.video_note:
-        media_type = "video_note"
-        file_id = msg.video_note.file_id
+        media_type, file_id = "video_note", msg.video_note.file_id
     else:
-        return  # text-only message — ignore
+        return
 
     caption = msg.caption or ""
     tags = _parse_tags(caption)
     min_tier = _resolve_min_tier(tags)
-    media_group_id = msg.media_group_id
 
     try:
         async with get_session() as s:
@@ -131,7 +118,7 @@ async def capture_storage_message(update: Update, context: ContextTypes.DEFAULT_
                 ON CONFLICT (source_chat_id, source_msg_id) DO NOTHING
             """), {
                 "cid": msg.chat_id, "mid": msg.message_id, "mt": media_type,
-                "fid": file_id, "mgid": media_group_id, "cap": caption,
+                "fid": file_id, "mgid": msg.media_group_id, "cap": caption,
                 "tags": tags, "tier": min_tier,
             })
             await s.commit()
@@ -140,55 +127,134 @@ async def capture_storage_message(update: Update, context: ContextTypes.DEFAULT_
         logger.error("Failed to capture msg %d: %s", msg.message_id, exc)
 
 
-# ── Distributor (scheduled job) ─────────────────────────────────────────────
-async def _get_target_groups(min_tier: str, specific_slugs: Optional[set] = None) -> list[tuple[int, str]]:
-    """Get target VIP group chat_ids based on minimum tier or specific slugs."""
-    async with get_session() as s:
-        if specific_slugs:
-            placeholders = ",".join(f"'{slug}'" for slug in specific_slugs)
-            q = text(f"""
-                SELECT chat_id, slug FROM group_registry
-                WHERE slug IN ({placeholders}) AND is_active=true
-            """)
-            r = await s.execute(q)
+# ── Topic management commands ───────────────────────────────────────────────
+async def cmd_set_topic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/set_topic <tag> — map current topic to tag (admin only)."""
+    msg = update.message
+    if not msg or not update.effective_user:
+        return
+    if update.effective_user.id not in ADMIN_IDS:
+        await msg.reply_text("❌ admin เท่านั้น")
+        return
+    args = context.args or []
+    if len(args) != 1 or args[0].lstrip("#").lower() not in VALID_TAGS:
+        await msg.reply_text(
+            f"❌ ใช้: /set_topic <tag>\nValid tags: {', '.join(sorted(VALID_TAGS))}"
+        )
+        return
+    tag = args[0].lstrip("#").lower()
+    topic_id = msg.message_thread_id
+    if not topic_id:
+        await msg.reply_text("❌ คำสั่งนี้ต้องใช้ใน topic ของกลุ่ม (กลุ่ม Forum mode) — กดเข้า topic ที่ต้องการก่อน")
+        return
+
+    topic_name = None
+    if msg.reply_to_message and getattr(msg.reply_to_message, "forum_topic_created", None):
+        topic_name = msg.reply_to_message.forum_topic_created.name
+    if not topic_name:
+        topic_name = f"topic_{topic_id}"
+
+    try:
+        async with get_session() as s:
+            await s.execute(text("""
+                INSERT INTO group_topic_routes (chat_id, tag, topic_id, topic_name, set_by)
+                VALUES (:c, :t, :tid, :tn, :u)
+                ON CONFLICT (chat_id, tag) DO UPDATE
+                SET topic_id=EXCLUDED.topic_id, topic_name=EXCLUDED.topic_name,
+                    set_by=EXCLUDED.set_by, updated_at=NOW()
+            """), {"c": msg.chat_id, "t": tag, "tid": topic_id, "tn": topic_name, "u": update.effective_user.id})
+            await s.commit()
+        await msg.reply_text(
+            f"✅ Mapping saved!\n"
+            f"กลุ่ม: {msg.chat.title}\n"
+            f"Topic: {topic_name} (id={topic_id})\n"
+            f"Tag: #{tag}\n\n"
+            f"Content ที่มี #{tag} จะถูก post ใน topic นี้"
+        )
+    except Exception as exc:
+        await msg.reply_text(f"❌ Error: {exc}")
+        logger.error("set_topic failed: %s", exc)
+
+
+async def cmd_unset_topic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/unset_topic <tag> — remove mapping for current group + tag."""
+    msg = update.message
+    if not msg or not update.effective_user:
+        return
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+    args = context.args or []
+    if len(args) != 1:
+        await msg.reply_text("❌ ใช้: /unset_topic <tag>")
+        return
+    tag = args[0].lstrip("#").lower()
+    try:
+        async with get_session() as s:
+            r = await s.execute(text("""
+                DELETE FROM group_topic_routes WHERE chat_id=:c AND tag=:t RETURNING topic_name
+            """), {"c": msg.chat_id, "t": tag})
+            row = r.fetchone()
+            await s.commit()
+        if row:
+            await msg.reply_text(f"✅ ลบ mapping #{tag} → {row[0]}")
         else:
-            min_rank = TIER_RANK[min_tier]
-            # all VIP groups whose tier rank >= min
-            valid_tiers = [t for t, r in TIER_RANK.items() if r >= min_rank]
-            placeholders = ",".join(f"'{t}'" for t in valid_tiers)
-            q = text(f"""
-                SELECT chat_id, slug FROM group_registry
-                WHERE min_tier IN ({placeholders}) AND is_active=true
-                  AND slug NOT IN ('STORAGE')  -- never post back to source
-            """)
-            r = await s.execute(q)
-        return [(row[0], row[1]) for row in r.fetchall()]
+            await msg.reply_text(f"⚠️ ไม่พบ mapping #{tag} ในกลุ่มนี้")
+    except Exception as exc:
+        await msg.reply_text(f"❌ Error: {exc}")
 
 
-def _resolve_target_slugs(tags: list[str], min_tier: str) -> tuple[Optional[set], str]:
-    """Decide if tag matches specific slugs OR fall back to tier-based.
-    Returns (specific_slugs_set | None, min_tier)."""
-    for t in tags:
-        if t in TAG_TO_SLUGS:
-            return TAG_TO_SLUGS[t], min_tier
-    return None, min_tier
+async def cmd_show_topics(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/show_topics — list topic mappings for current chat."""
+    msg = update.message
+    if not msg or not update.effective_user:
+        return
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+    try:
+        async with get_session() as s:
+            r = await s.execute(text("""
+                SELECT tag, topic_id, topic_name FROM group_topic_routes
+                WHERE chat_id=:c ORDER BY tag
+            """), {"c": msg.chat_id})
+            rows = r.fetchall()
+        if not rows:
+            await msg.reply_text("ℹ️ ยังไม่มี topic mapping ในกลุ่มนี้\nใช้ /set_topic <tag> ใน topic ที่ต้องการ map")
+            return
+        lines = [f"📌 <b>Topic Mappings — {msg.chat.title}</b>\n"]
+        for tag, tid, tname in rows:
+            lines.append(f"  #{tag} → {tname} (id={tid})")
+        await msg.reply_text("\n".join(lines), parse_mode="HTML")
+    except Exception as exc:
+        await msg.reply_text(f"❌ Error: {exc}")
+
+
+# ── Distributor (with topic-aware routing) ───────────────────────────────────
+async def _get_topic_for(chat_id: int, tags: list[str]) -> Optional[int]:
+    """Find topic_id for (chat_id, tag) — priority: most-specific tag wins."""
+    if not tags:
+        tags = ["vip"]  # default
+    async with get_session() as s:
+        for tag in tags:  # try each tag in order
+            r = await s.execute(text("""
+                SELECT topic_id FROM group_topic_routes WHERE chat_id=:c AND tag=:t
+            """), {"c": chat_id, "t": tag})
+            row = r.fetchone()
+            if row:
+                return int(row[0])
+    return None  # post to general topic
 
 
 async def distribute_pending_content(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Scheduled job — pick K items per group, copyMessage to each."""
     if (await _get_config("enabled", "true")).lower() != "true":
-        logger.info("Distributor disabled by config")
         return
 
     items_per_round = int(await _get_config("items_per_round_per_group", "2"))
     rate_limit = float(await _get_config("rate_limit_seconds", "2"))
-    source_chat_id = int(await _get_config("source_chat_id", "0"))
-
     bot = context.bot
-    logger.info("🔄 Distribution round starting — %d items/group", items_per_round)
-    import asyncio
 
-    # For each VIP group, pick K items that haven't been posted to it yet
+    import asyncio
+    logger.info("🔄 Distribution round (topic-aware)")
+
     async with get_session() as s:
         all_targets = await s.execute(text("""
             SELECT chat_id, slug, min_tier FROM group_registry
@@ -197,10 +263,8 @@ async def distribute_pending_content(context: ContextTypes.DEFAULT_TYPE) -> None
         """))
         targets = [(r[0], r[1], r[2]) for r in all_targets.fetchall()]
 
-    total_posted = 0
-    total_failed = 0
+    total_posted = total_failed = 0
     for chat_id, slug, group_tier in targets:
-        # Pick items that match group's tier and haven't been posted to this chat
         group_rank = TIER_RANK[group_tier]
         valid_tier_list = [t for t in TIER_RANK if TIER_RANK[t] <= group_rank]
         async with get_session() as s:
@@ -221,17 +285,23 @@ async def distribute_pending_content(context: ContextTypes.DEFAULT_TYPE) -> None
 
         for item in items:
             content_id, media_type, file_id, caption, src_cid, src_mid, tags = item
-            # Specific tag routing: skip group if tag specifies other slugs
-            specific_slugs, _ = _resolve_target_slugs(tags or [], group_tier)
+            # Specific tag → only certain slugs?
+            specific_slugs = None
+            for t in (tags or []):
+                if t in TAG_TO_SLUGS:
+                    specific_slugs = TAG_TO_SLUGS[t]
+                    break
             if specific_slugs and slug not in specific_slugs:
-                continue  # this content is meant for other slugs only
+                continue
+
+            # Resolve topic for this chat + tags
+            topic_id = await _get_topic_for(chat_id, tags or [])
 
             try:
-                sent = await bot.copy_message(
-                    chat_id=chat_id,
-                    from_chat_id=src_cid,
-                    message_id=src_mid,
-                )
+                send_kwargs = {"chat_id": chat_id, "from_chat_id": src_cid, "message_id": src_mid}
+                if topic_id is not None:
+                    send_kwargs["message_thread_id"] = topic_id
+                sent = await bot.copy_message(**send_kwargs)
                 async with get_session() as s:
                     await s.execute(text("""
                         INSERT INTO distribution_log
@@ -241,14 +311,12 @@ async def distribute_pending_content(context: ContextTypes.DEFAULT_TYPE) -> None
                     """), {"cid": content_id, "tcid": chat_id, "slug": slug, "tmid": sent.message_id})
                     await s.commit()
                 total_posted += 1
-                logger.info("  ✓ posted content %d → %s (%s)", content_id, slug, chat_id)
+                logger.info("  ✓ content %d → %s topic=%s", content_id, slug, topic_id or "general")
             except RetryAfter as rex:
-                wait = rex.retry_after + 1
-                logger.warning("  Rate limit; sleeping %ds", wait)
-                await asyncio.sleep(wait)
+                await asyncio.sleep(rex.retry_after + 1)
             except (Forbidden, BadRequest) as exc:
                 total_failed += 1
-                logger.warning("  ✗ failed content %d → %s: %s", content_id, slug, exc)
+                logger.warning("  ✗ content %d → %s: %s", content_id, slug, exc)
                 async with get_session() as s:
                     await s.execute(text("""
                         INSERT INTO distribution_log
@@ -259,17 +327,20 @@ async def distribute_pending_content(context: ContextTypes.DEFAULT_TYPE) -> None
                     await s.commit()
             except Exception as exc:
                 total_failed += 1
-                logger.error("  unexpected error content %d → %s: %s", content_id, slug, exc)
+                logger.error("  unexpected: %s", exc)
             await asyncio.sleep(rate_limit)
 
-    logger.info("🏁 Round done: posted=%d failed=%d", total_posted, total_failed)
+    logger.info("🏁 Round done posted=%d failed=%d", total_posted, total_failed)
 
 
-# ── Handler factory ─────────────────────────────────────────────────────────
 def get_distributor_handlers() -> list:
-    """Return MessageHandlers for guardian-bot to register."""
+    """Handlers for guardian-bot to register."""
     return [
-        # Capture all media from source group (chat filter applied inside handler)
+        # Topic management commands
+        CommandHandler("set_topic", cmd_set_topic),
+        CommandHandler("unset_topic", cmd_unset_topic),
+        CommandHandler("show_topics", cmd_show_topics),
+        # Capture all media (chat filter applied inside handler)
         MessageHandler(
             (filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.Document.ALL | filters.VIDEO_NOTE)
             & ~filters.ChatType.PRIVATE,
