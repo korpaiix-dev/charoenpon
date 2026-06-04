@@ -115,9 +115,22 @@ async def _get_active_flash() -> object | None:
 async def pick_welcome_image_dynamic() -> Path | None:
     """Active-aware welcome image picker.
 
+    Priority:
+    - Lucky 6.6 active → 06_lucky66.png
     - Flash Sale active → 03_flash1.png
-    - else → 01_welcome*.png (random from pool)
+    - else → 01_welcome*.png (random pool)
+    Auto-reverts when the active windows end (date-based checks).
     """
+    # Lucky 6.6 first (highest priority — most aggressive sale)
+    try:
+        from shared.endmonth_vip_promo import is_lucky_6_active
+        if is_lucky_6_active():
+            candidates = list(ASSETS_DIR.glob("06_lucky66*.png"))
+            if candidates:
+                return random.choice(candidates)
+    except Exception:
+        pass
+    # Mid-month flash
     flash = await _get_active_flash()
     if flash is not None:
         candidates = list(ASSETS_DIR.glob("03_flash1*.png"))
@@ -180,16 +193,28 @@ async def build_welcome_caption(tg_user_first_name: str | None = None) -> str:
     if tg_user_first_name:
         greet = f"สวัสดีค่ะ คุณ{tg_user_first_name}"
 
-    # FLASH_SALE_BANNER — prepend if active
+    # SALE_BANNER — Lucky 6.6 > Flash (priority)
     flash_banner = ""
-    flash = await _get_active_flash()
-    if flash is not None:
-        flash_banner = (
-            f"⚡ <b>FLASH SALE กำลังลด!</b> ⚡\n"
-            f"🔥 ลดสูงสุด 30% — เหลือ {max(0, flash.total_slots - flash.sold_slots)} สิทธิ์\n"
-            f"⏰ กดปุ่ม <b>⚡ FLASH SALE — กำลังลด!</b> ด้านล่าง\n"
-            f"━━━━━━━━━━━━━━━\n\n"
-        )
+    try:
+        from shared.endmonth_vip_promo import is_lucky_6_active
+        if is_lucky_6_active():
+            flash_banner = (
+                "🍀 <b>LUCKY 6.6 SALE — วันนี้วันเดียว!</b> 🍀\n"
+                "🔥 VIP ฿166 | OF ฿266 | GOD ฿666 | ถาวร ฿2,266\n"
+                "🎁 +6 วันฟรี ทุก tier — หมดเขต 23:59 คืนนี้\n"
+                "━━━━━━━━━━━━━━━\n\n"
+            )
+    except Exception:
+        pass
+    if not flash_banner:
+        flash = await _get_active_flash()
+        if flash is not None:
+            flash_banner = (
+                f"⚡ <b>FLASH SALE กำลังลด!</b> ⚡\n"
+                f"🔥 ลดสูงสุด 30% — เหลือ {max(0, flash.total_slots - flash.sold_slots)} สิทธิ์\n"
+                f"⏰ กดปุ่ม <b>⚡ FLASH SALE — กำลังลด!</b> ด้านล่าง\n"
+                f"━━━━━━━━━━━━━━━\n\n"
+            )
 
     return (
         f"{flash_banner}"
