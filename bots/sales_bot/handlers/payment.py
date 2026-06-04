@@ -908,6 +908,9 @@ async def handle_photo_slip(
                 "2000": PackageTier.TIER_2499, "2499": PackageTier.TIER_2499,
                 # COMEBACK_PROMO_PRICES — TIER_300 with discount applied
                 "180": PackageTier.TIER_300, "210": PackageTier.TIER_300,
+                # LUCKY_6.6 prices
+                "166": PackageTier.TIER_300, "266": PackageTier.TIER_500,
+                "666": PackageTier.TIER_1299, "2266": PackageTier.TIER_2499,
             }
             # COMEBACK_PROMO_VALIDATE — safety check: only auto-approve if user has active promo in DB
             if tier_str in ("180", "210"):
