@@ -44,6 +44,7 @@ async def _safe_edit(query, text: str, reply_markup=None, parse_mode="HTML",
 
 from shared.endmonth_vip_promo import (
     is_mid_month_flash_active,
+    is_lucky_6_active,
     PROMO_2499_PRICE,
     PROMO_DATE_TEXT,
     PROMO_PRICE,
@@ -148,12 +149,21 @@ PACKAGES = [
 
 def _build_package_list_text() -> str:
     """Build the text for the package overview."""
-    flash = is_mid_month_flash_active()
-    flash_header = "⚡ <b>FLASH SALE 48 ชม. — ลดทุก tier!</b> ⚡\n🔥 หมดเขต 17 มิ.ย. เท่านั้น!\n━━━━━━━━━━━━━━━━━━━━━\n\n" if flash else ""
+    lucky6 = is_lucky_6_active()
+    flash = is_mid_month_flash_active() and not lucky6
+    if lucky6:
+        flash_header = "🍀 <b>LUCKY 6.6 SALE — วันเดียวเท่านั้น!</b> 🍀\n🔥 ลด -45% to -49% + ฟรี 6 วัน\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+    elif flash:
+        flash_header = "⚡ <b>FLASH SALE 48 ชม. — ลดทุก tier!</b> ⚡\n🔥 หมดเขต 17 มิ.ย. เท่านั้น!\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+    else:
+        flash_header = ""
     songkran_bonus = "- โปรโมชั่นสงกรานต์ (โบนัสเฉพาะคนซื้อช่วงโปร)\n" if is_songkran_promo_window() else ""
     songkran_note = "🎁 ซื้อช่วงโปร 7 วันนี้ แถมกลุ่ม โปรโมชั่นสงกรานต์\n\n" if is_songkran_promo_window() else ""
-    # FLASH overrides end-month VIP promo (more aggressive discount)
-    if flash:
+    # LUCKY 6.6 > FLASH > end-month VIP promo (priority)
+    if lucky6:
+        vip_price_line = "💰 ราคา: <s>300</s> 166 บาท / 30 วัน 🍀 LUCKY 6.6! +ฟรี 6 วัน\n"
+        god_price_line = "💰 ราคา: <s>2,499</s> 2,266 บาท / ถาวร 🍀 LUCKY 6.6! +ฟรี 6 วัน\n"
+    elif flash:
         vip_price_line = "💰 ราคา: <s>300</s> 199 บาท / 30 วัน ⚡ FLASH!\n"
         god_price_line = "💰 ราคา: 2,499 บาท / ถาวร (ถาวรห้ามลด)\n"
     elif is_endmonth_vip_promo_active():
@@ -184,7 +194,7 @@ def _build_package_list_text() -> str:
         f"{god_promo_note}"
         "────────────────────\n"
         "🥈 1,299.- | GOD MODE (3 เดือน)\n"
-        f"💰 ราคา: {('<s>1,299</s> 999 บาท / 90 วัน ⚡ FLASH!' if flash else ('<s>1,299</s> 999 บาท / 90 วัน 🔥 โปรถึง 31 พ.ค.' if is_may_combo_promo_active() else '1,299 บาท / 90 วัน'))}\n"
+        f"💰 ราคา: {('<s>1,299</s> 666 บาท / 90 วัน 🍀 LUCKY 6.6!' if lucky6 else ('<s>1,299</s> 999 บาท / 90 วัน ⚡ FLASH!' if flash else ('<s>1,299</s> 999 บาท / 90 วัน 🔥 โปรถึง 31 พ.ค.' if is_may_combo_promo_active() else '1,299 บาท / 90 วัน')))}\n"
         "🏠 ห้อง\n"
         "- VIP ( 90 วัน )\n"
         "- SSS ( 90 วัน )\n"
@@ -197,7 +207,7 @@ def _build_package_list_text() -> str:
         f"{songkran_note}"
         "────────────────────\n"
         "👙 500.- | OnlyFans + VIP (30 วัน)\n"
-        f"💰 ราคา: {('<s>500</s> 349 บาท / 30 วัน ⚡ FLASH!' if flash else ('<s>500</s> 349 บาท / 30 วัน 🔥 โปรถึง 31 พ.ค.' if is_may_combo_promo_active() else '500 บาท / 30 วัน'))}\n"
+        f"💰 ราคา: {('<s>500</s> 266 บาท / 30 วัน 🍀 LUCKY 6.6!' if lucky6 else ('<s>500</s> 349 บาท / 30 วัน ⚡ FLASH!' if flash else ('<s>500</s> 349 บาท / 30 วัน 🔥 โปรถึง 31 พ.ค.' if is_may_combo_promo_active() else '500 บาท / 30 วัน')))}\n"
         "🏠 ห้อง\n"
         "- VIP ( 30 วัน )\n"
         "- OnlyFans ( 30 วัน )\n\n"
@@ -213,9 +223,15 @@ def _build_package_list_text() -> str:
 
 
 def _build_package_keyboard() -> InlineKeyboardMarkup:
-    """Build inline keyboard for package selection. Flash > end-month > combo > normal."""
-    flash = is_mid_month_flash_active()
-    if flash:
+    """Build inline keyboard. LUCKY_6.6 > Flash > end-month > combo > normal."""
+    lucky6 = is_lucky_6_active()
+    flash = is_mid_month_flash_active() and not lucky6
+    if lucky6:
+        vip_label = "🍀 VIP 300→166 LUCKY"
+        of_label = "🍀 OF 500→266 LUCKY"
+        god3m_label = "🍀 GOD3M 1,299→666 LUCKY"
+        god_label = "🍀 GOD ถาวร 2,499→2,266 LUCKY"
+    elif flash:
         vip_label = "⚡ VIP 300→199 FLASH"
         of_label = "⚡ OF 500→349 FLASH"
         god3m_label = "⚡ GOD3M 1,299→999 FLASH"

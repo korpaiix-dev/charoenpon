@@ -143,3 +143,16 @@ def is_mid_month_flash_active() -> bool:
 MID_FLASH_VIP_PRICE = 199
 MID_FLASH_OF_PRICE = 349
 MID_FLASH_GOD3M_PRICE = 999
+
+
+# LUCKY_6.6 SALE — 6 มิ.ย. 2026 BKK (24h)
+def is_lucky_6_active() -> bool:
+    """Lucky 6 Day window: 6 มิ.ย. 2026 BKK (1 day)."""
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone(timedelta(hours=7)))
+    return now.year == 2026 and now.month == 6 and now.day == 6
+
+LUCKY_6_VIP_PRICE = 166
+LUCKY_6_OF_PRICE = 266
+LUCKY_6_GOD3M_PRICE = 666
+LUCKY_6_GOD_LIFETIME_PRICE = 2266

@@ -137,6 +137,15 @@ def amount_to_tier(amount: Decimal) -> Optional[tuple[str, str, bool]]:
     # COMEBACK_PROMO_PRICES — always-on (per-user validation in payment.py)
     if amt == 180:   return ("180", "Comeback ลด 40% (300→180)", True)
     if amt == 210:   return ("210", "Comeback ลด 30% (300→210)", True)
+    # LUCKY_6.6 — only valid on 6 มิ.ย. 2026 BKK
+    def _lucky_6_or_recent():
+        from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+        now = _dt.now(_tz(_td(hours=7)))
+        return now.year == 2026 and now.month == 6 and now.day == 6
+    if amt == 166 and _lucky_6_or_recent():   return ("166", "Lucky 6.6 VIP", True)
+    if amt == 266 and _lucky_6_or_recent():   return ("266", "Lucky 6.6 OF", True)
+    if amt == 666 and _lucky_6_or_recent():   return ("666", "Lucky 6.6 GOD3M", True)
+    if amt == 2266 and _lucky_6_or_recent():  return ("2266", "Lucky 6.6 GOD ถาวร", True)
     return None
 
 
