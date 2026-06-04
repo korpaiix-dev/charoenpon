@@ -45,6 +45,7 @@ async def _safe_edit(query, text: str, reply_markup=None, parse_mode="HTML",
 from shared.endmonth_vip_promo import (
     is_mid_month_flash_active,
     is_lucky_6_active,
+    is_birthday_promo_active,
     PROMO_2499_PRICE,
     PROMO_DATE_TEXT,
     PROMO_PRICE,
@@ -150,9 +151,12 @@ PACKAGES = [
 def _build_package_list_text() -> str:
     """Build the text for the package overview."""
     lucky6 = is_lucky_6_active()
-    flash = is_mid_month_flash_active() and not lucky6
+    birthday = is_birthday_promo_active() and not lucky6
+    flash = is_mid_month_flash_active() and not lucky6 and not birthday
     if lucky6:
         flash_header = "🍀 <b>LUCKY 6.6 SALE — วันเดียวเท่านั้น!</b> 🍀\n🔥 ลด -45% to -49% + ฟรี 6 วัน\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+    elif birthday:
+        flash_header = "🎂 <b>เดือนเกิดเฮียตั๋ง — แจกใหญ่!</b> 🎉\n🎁 ซื้อ OF+VIP ฿500 = เข้าจับฉลาก GOD ถาวร 1 รางวัล\n📅 ประกาศผล 10 มิ.ย. 18:00 น.\n━━━━━━━━━━━━━━━━━━━━━\n\n"
     elif flash:
         flash_header = "⚡ <b>FLASH SALE 48 ชม. — ลดทุก tier!</b> ⚡\n🔥 หมดเขต 17 มิ.ย. เท่านั้น!\n━━━━━━━━━━━━━━━━━━━━━\n\n"
     else:

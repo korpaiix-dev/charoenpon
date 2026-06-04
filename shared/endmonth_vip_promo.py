@@ -156,3 +156,24 @@ LUCKY_6_VIP_PRICE = 166
 LUCKY_6_OF_PRICE = 266
 LUCKY_6_GOD3M_PRICE = 666
 LUCKY_6_GOD_LIFETIME_PRICE = 2266
+
+
+# BIRTHDAY_PROMO — 7-10 มิ.ย. 2026 BKK (4 days; draw 10 มิ.ย. 18:00 BKK)
+def is_birthday_promo_active() -> bool:
+    """Birthday promo (เดือนเกิดเฮียตั๋ง) window: 7-10 มิ.ย. 2026 BKK.
+    Customers who buy TIER_500 (OF+VIP 30d) during this window are auto-entered into a draw for 1 GOD lifetime."""
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone(timedelta(hours=7)))
+    return now.year == 2026 and now.month == 6 and 7 <= now.day <= 10
+
+def is_birthday_promo_entry_open() -> bool:
+    """Entry submission window ends 10 มิ.ย. 12:00 BKK (draw at 18:00)."""
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone(timedelta(hours=7)))
+    if not (now.year == 2026 and now.month == 6 and 7 <= now.day <= 10):
+        return False
+    if now.day == 10 and now.hour >= 12:
+        return False  # entries closed at noon
+    return True
+
+BIRTHDAY_GIVEAWAY_PRIZE = "GOD MODE ถาวร (มูลค่า ฿2,499)"

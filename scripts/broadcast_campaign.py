@@ -45,6 +45,7 @@ CAMPAIGN_MAP = {
     "flash1":   ("03_flash1.png",   "⚡ FLASH SALE 48 ชม.! ลดทุก tier 30%\n🔥 VIP ฿199 | OF+VIP ฿349 | GOD ฿999"),
     "flash2":   ("04_flash2.png",   "🎁 BONUS DAYS! ซื้อตอนนี้ +7 วัน VIP ฟรี\n💎 VIP/OF +7 | GOD +14"),
     "winback":  ("05_winback.png",  "💔 ต้อนรับกลับมา! ส่วนลดเฉพาะคุณ -30%\n💎 VIP 30 วัน ฿210 เท่านั้น (จาก ฿300)"),
+    "birthday": ("07_birthday.png", "🎂 <b>เดือนเกิดเฮียตั๋ง เจริญพร</b> 🎉\n🎁 แจกใหญ่ GOD MODE ถาวร <b>1 รางวัล</b> (มูลค่า ฿2,499)\n\n📋 กติกา: ซื้อ OF+VIP 30 วัน ฿500 = เข้าจับฉลากอัตโนมัติ\n📅 ประกาศผล 10 มิ.ย. 18:00 น.\n⏰ ปิดรับสมัคร 10 มิ.ย. 12:00\n\n👉 t.me/NamwarnJarern_bot?start=packages"),
 }
 
 RATE_DM_PER_MIN = 100   # safe under telegram limit
