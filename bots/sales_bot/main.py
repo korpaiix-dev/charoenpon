@@ -258,34 +258,14 @@ def create_application() -> Application:
         name="request_expiring_list_0900",
     )
 
-    # --- Scheduler: Flash Sale Friday ---
-    # เปิด Flash Sale ทุกวันศุกร์ 21:00 ไทย (day_of_week=4 = Friday)
-    app.job_queue.run_daily(
-        start_flash_sale,
-        time=dt_time(hour=21, minute=0, tzinfo=TH_TZ),
-        days=(4,),  # Friday
-        name="flash_sale_start_friday_2100",
-    )
-    # Remind Flash Sale ทุกวันศุกร์ 22:00 และ 23:00 ไทย
-    app.job_queue.run_daily(
-        remind_flash_sale,
-        time=dt_time(hour=22, minute=0, tzinfo=TH_TZ),
-        days=(4,),  # Friday
-        name="flash_sale_remind_friday_2200",
-    )
-    app.job_queue.run_daily(
-        remind_flash_sale,
-        time=dt_time(hour=23, minute=0, tzinfo=TH_TZ),
-        days=(4,),  # Friday
-        name="flash_sale_remind_friday_2300",
-    )
-    # ปิด Flash Sale ทุกวันเสาร์ 00:00 ไทย (day_of_week=5 = Saturday)
-    app.job_queue.run_daily(
-        end_flash_sale,
-        time=dt_time(hour=0, minute=0, tzinfo=TH_TZ),
-        days=(5,),  # Saturday
-        name="flash_sale_end_saturday_0000",
-    )
+    # --- Scheduler: Flash Sale Friday — DISABLED 2026-06-04 ---
+    # บอสตัดสินใจปิด weekly Flash Friday เพราะทับซ้อนกับ promo ใหม่
+    # (Lucky 6.6, Birthday 7-10 มิ.ย., Mid-Month Flash 15-17 มิ.ย.)
+    # หากต้องเปิดอีก ค่อย uncomment block นี้
+    # app.job_queue.run_daily(start_flash_sale, time=dt_time(hour=21, minute=0, tzinfo=TH_TZ), days=(4,), name="flash_sale_start_friday_2100")
+    # app.job_queue.run_daily(remind_flash_sale, time=dt_time(hour=22, minute=0, tzinfo=TH_TZ), days=(4,), name="flash_sale_remind_friday_2200")
+    # app.job_queue.run_daily(remind_flash_sale, time=dt_time(hour=23, minute=0, tzinfo=TH_TZ), days=(4,), name="flash_sale_remind_friday_2300")
+    # app.job_queue.run_daily(end_flash_sale, time=dt_time(hour=0, minute=0, tzinfo=TH_TZ), days=(5,), name="flash_sale_end_saturday_0000")
 
     # --- Scheduler: TRIAL PROMO DM ทุกวัน 00:30 ไทย (17:30 UTC) ---
     # หลัง Flash Sale ปิด 30 นาที — ส่ง DM Trial ฿99 — ปิดแล้ว (ยกเลิกโปร 99)
