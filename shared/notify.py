@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 # Edit ONLY this table to change where alerts go. Code stays the same.
 ROUTES: dict[str, list[str]] = {
     # ─ Payment events ─
-    "payment_approved":        ["discord:payment", "log:info"],
+    "payment_approved":        ["discord:payment", "telegram:admin", "log:info"],
     "payment_rejected":        ["discord:payment", "telegram:admin", "log:warning"],
     "payment_wrong_receiver":  ["discord:payment", "telegram:admin", "log:warning"],
     "payment_duplicate":       ["discord:payment", "log:warning"],

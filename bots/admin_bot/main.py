@@ -19,7 +19,6 @@ from telegram.ext import (
 from shared.database import close_db, init_db
 
 from bots.admin_bot.handlers.approval import (
-from bots.admin_bot.handlers.where import cmd_where
     approve_payment_callback,
     cmd_pending_payments,
     cmd_pending_broadcasts,
@@ -37,6 +36,7 @@ from bots.admin_bot.handlers.where import cmd_where
     sos_ban_callback,
     chat_user_callback,
 )
+from bots.admin_bot.handlers.where import cmd_where
 from bots.admin_bot.handlers.broadcast import get_broadcast_handlers
 from bots.admin_bot.handlers.reports import (
     cmd_costs,
