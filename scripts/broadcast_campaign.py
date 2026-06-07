@@ -156,7 +156,21 @@ async def main():
 
     # Set env so _log_post can read campaign name (scope-safe)
     os.environ["BROADCAST_CAMPAIGN"] = args.campaign
-    img_name, caption = CAMPAIGN_MAP[args.campaign]
+    # Phase 3: try shared.captions (DB) first, fall back to CAMPAIGN_MAP
+    img_name, caption = None, None
+    try:
+        from shared.captions import load_caption
+        spec = await load_caption(args.campaign)
+        if spec and spec.image_path and spec.group_caption:
+            # spec.image_path may be absolute (/app/assets/...) — extract basename
+            from pathlib import Path as _P
+            img_name = _P(spec.image_path).name
+            caption = spec.group_caption
+            print(f'[caption-hub] loaded from DB: {args.campaign}')
+    except Exception as exc:
+        print(f'[caption-hub] DB lookup failed ({exc}); using legacy CAMPAIGN_MAP')
+    if img_name is None or caption is None:
+        img_name, caption = CAMPAIGN_MAP[args.campaign]
     img_path = ASSETS_DIR / img_name
     if not img_path.exists():
         logger.error("Image not found: %s", img_path)

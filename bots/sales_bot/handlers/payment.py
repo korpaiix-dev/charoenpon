@@ -152,28 +152,24 @@ TIER_PRICES: dict[str, Decimal] = {
 
 
 async def _get_effective_price(tier: str, context_user_data: dict) -> Decimal:
-    """Get effective price — comeback promo > flash sale > normal.
+    """Get effective price for a tier — delegates to shared.pricing.
 
-    Promo codes apply to ANY tier — discount_pct is applied to the tier's base price.
+    Order of precedence: comeback per-user promo > flash_sale_id (active record)
+    > shared.pricing.effective_price (campaign/endmonth/base).
     """
-    base_price = TIER_PRICES.get(tier, Decimal("0"))
+    from shared.pricing import effective_price as _hub_effective_price, TIER_PRICES as _HUB_TIER_PRICES
+    base_price = _HUB_TIER_PRICES.get(tier, Decimal("0"))
 
-    # Check comeback promo first (applies to any tier)
+    # 1. Comeback promo — per-user (validates against comeback_dm_log)
     comeback_promo = context_user_data.get("comeback_promo")
     if comeback_promo:
         from bots.sales_bot.comeback_dm import validate_promo_code
         promo = await validate_promo_code(comeback_promo)
         if promo:
             discount_pct = promo["discount_pct"]
-            discounted = int(base_price * (100 - discount_pct) / 100)
-            return Decimal(str(discounted))
+            return Decimal(str(int(base_price * (100 - discount_pct) / 100)))
 
-    # End-month VIP/G300 promo (boss request): 300 -> 200 until 2026-05-01 00:00 TH
-    endmonth_price = get_effective_price_for_tier(tier, base_price)
-    if endmonth_price != base_price:
-        return endmonth_price
-
-    # Check flash sale
+    # 2. Active Flash Sale record (dynamic from flash_sales table) — TIER_300 only legacy
     flash_sale_id = context_user_data.get("flash_sale_id")
     if flash_sale_id and tier == "300":
         from bots.sales_bot.handlers.flash_sale import get_flash_sale_price
@@ -189,6 +185,9 @@ async def _get_effective_price(tier: str, context_user_data: dict) -> Decimal:
                 flash_price = await get_flash_sale_price(package.id)
                 if flash_price is not None:
                     return flash_price
+
+    # 3. Pricing Hub — covers Lucky 6.6, Birthday, Mid-Month Flash, End-month VIP, base
+    return _hub_effective_price(tier, context_user_data)
 
     # Lucky 6.6 promo — VIP 166 / OF 266 / GOD3M 666 / Lifetime 2266
     try:
@@ -918,17 +917,14 @@ async def handle_photo_slip(
             # Bug #2: do dup check + write in SAME session + catch IntegrityError
             tier_str, tier_label, is_promo = tier_match  # type: ignore
 
+            # Phase 2: delegate to shared.pricing for tier mapping
+            from shared.pricing import tier_str_to_enum as _tier_str_to_enum, admin_callback_tier_map as _admin_cb_map
+            _cb_to_tier_str = _admin_cb_map()  # 'callback_amount' -> 'tier_str'
             tier_map_local = {
-                "99": PackageTier.TIER_99, "199": PackageTier.TIER_300, "200": PackageTier.TIER_300,
-                "300": PackageTier.TIER_300, "349": PackageTier.TIER_500, "500": PackageTier.TIER_500,
-                "999": PackageTier.TIER_1299, "1299": PackageTier.TIER_1299,
-                "2000": PackageTier.TIER_2499, "2499": PackageTier.TIER_2499,
-                # COMEBACK_PROMO_PRICES — TIER_300 with discount applied
-                "180": PackageTier.TIER_300, "210": PackageTier.TIER_300,
-                # LUCKY_6.6 prices
-                "166": PackageTier.TIER_300, "266": PackageTier.TIER_500,
-                "666": PackageTier.TIER_1299, "2266": PackageTier.TIER_2499,
+                cb: _tier_str_to_enum(tstr) for cb, tstr in _cb_to_tier_str.items()
             }
+            # Keep TIER_99 entry (legacy callbacks may still reference it)
+            tier_map_local['99'] = PackageTier.TIER_99
             # COMEBACK_PROMO_VALIDATE — safety check: only auto-approve if user has active promo in DB
             if tier_str in ("180", "210"):
                 _active_promo = await _get_active_promo_for_user(user.id)
