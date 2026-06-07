@@ -383,6 +383,20 @@ def create_application() -> Application:
     return app
 
 
+
+
+async def _global_error_handler(update, context):
+    """[Phase 4 D] Catch unhandled exceptions and notify via hub."""
+    try:
+        from shared.notify import notify as _notify
+        err = context.error
+        await _notify("bot_crash",
+                     title=f"🚨 Unhandled exception in {__name__}",
+                     body=f"{type(err).__name__}: {err}")
+    except Exception:
+        pass
+
+
 def main() -> None:
     """Run the Guardian Bot."""
     logging.basicConfig(

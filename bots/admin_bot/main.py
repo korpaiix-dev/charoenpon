@@ -175,6 +175,20 @@ async def post_shutdown(application: Application) -> None:
     logger.info("Database connection closed")
 
 
+
+
+async def _global_error_handler(update, context):
+    """[Phase 4 D] Catch unhandled exceptions and notify via hub."""
+    try:
+        from shared.notify import notify as _notify
+        err = context.error
+        await _notify("bot_crash",
+                     title=f"🚨 Unhandled exception in {__name__}",
+                     body=f"{type(err).__name__}: {err}")
+    except Exception:
+        pass
+
+
 def main() -> None:
     """Entry point for Admin Bot."""
     if not ADMIN_BOT_TOKEN:
@@ -194,6 +208,7 @@ def main() -> None:
 
     # Broadcast conversation handlers (must be before simple command handlers)
     for handler in get_broadcast_handlers():
+        application.add_error_handler(_global_error_handler)
         application.add_handler(handler)
 
     # Command handlers

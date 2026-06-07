@@ -1401,6 +1401,13 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
             await IncomeLogSheet.log_payment(new_payment_id, approved_by=safe_admin)
             await MembersSheet.update_member(db_user.id)
             logger.info("Sheets synced for approve_by_price user %d", target_user_id)
+            try:
+                from shared.notify import notify as _notify
+                await _notify("payment_approved",
+                             title=f"✅ Payment Approved (admin button)",
+                             body=f"User {target_user_id} approved")
+            except Exception:
+                pass
         except Exception as exc_s:
             logger.warning("Sheets sync failed: %s", exc_s)
 
