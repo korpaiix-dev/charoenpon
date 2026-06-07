@@ -27,7 +27,7 @@ CAPTION = (
     "👉 กดสมัครพรุ่งนี้ตอน 00:00 ได้เลย"
 )
 
-IMAGE_PATH = "/root/charoenpon/assets/campaigns/06_lucky66.png"
+IMAGE_PATH = "/app/assets/campaigns/06_lucky66.png"
 INLINE_BUTTONS = [
     [{"text": "🍀 ดูแพ็กเกจ Lucky 6.6", "url": "https://t.me/NamwarnJarern_bot?start=packages"}],
 ]

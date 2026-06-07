@@ -177,3 +177,15 @@ def is_birthday_promo_entry_open() -> bool:
     return True
 
 BIRTHDAY_GIVEAWAY_PRIZE = "GOD MODE ถาวร (มูลค่า ฿2,499)"
+def is_lucky_6_or_grace() -> bool:
+    """Lucky 6.6 promo active OR within 6h grace period after end."""
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone(timedelta(hours=7)))
+    # active = 6 มิ.ย. 2026 BKK
+    if now.year == 2026 and now.month == 6 and now.day == 6:
+        return True
+    # grace = 7 มิ.ย. 2026 BKK 00:00 - 06:00
+    if now.year == 2026 and now.month == 6 and now.day == 7 and now.hour < 6:
+        return True
+    return False
+

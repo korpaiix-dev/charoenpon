@@ -63,6 +63,7 @@ from shared.endmonth_vip_promo import (
     get_effective_price_for_tier,
     is_endmonth_vip_promo_active,
     is_may_combo_promo_active,
+    is_lucky_6_active,
 )
 from shared.songkran_promo import get_group_display_title
 from shared.utils import (
@@ -188,6 +189,22 @@ async def _get_effective_price(tier: str, context_user_data: dict) -> Decimal:
                 flash_price = await get_flash_sale_price(package.id)
                 if flash_price is not None:
                     return flash_price
+
+    # Lucky 6.6 promo — VIP 166 / OF 266 / GOD3M 666 / Lifetime 2266
+    try:
+        from shared.endmonth_vip_promo import is_lucky_6_active
+        if is_lucky_6_active():
+            lucky_prices = {
+                "300":  Decimal("166"),
+                "500":  Decimal("266"),
+                "1299": Decimal("666"),
+                "2499": Decimal("2266"),
+            }
+            if tier in lucky_prices:
+                return lucky_prices[tier]
+    except Exception:
+        pass
+
     return base_price
 
 async def _get_active_promo_for_user(telegram_id: int) -> dict | None:
@@ -1784,6 +1801,26 @@ async def handle_truemoney_link(
                     tg.InlineKeyboardButton("💎 2000 (GOD โปร)", callback_data=f"approve_2000_{user.id}", api_kwargs={"style": "success"}) if is_endmonth_vip_promo_active() else tg.InlineKeyboardButton("✅ 2499 (GOD)", callback_data=f"approve_2499_{user.id}", api_kwargs={"style": "success"}),
                     tg.InlineKeyboardButton("🌊 500 (Summer)", callback_data=f"approve_ADD500_{user.id}", api_kwargs={"style": "success"}),
                 ],
+                *([
+                    [
+                        tg.InlineKeyboardButton("🍀 166 (Lucky VIP)", callback_data=f"approve_166_{user.id}", api_kwargs={"style": "success"}),
+                        tg.InlineKeyboardButton("🍀 266 (Lucky OF)",  callback_data=f"approve_266_{user.id}", api_kwargs={"style": "success"}),
+                    ],
+                    [
+                        tg.InlineKeyboardButton("🍀 666 (Lucky GOD3M)", callback_data=f"approve_666_{user.id}", api_kwargs={"style": "success"}),
+                        tg.InlineKeyboardButton("🍀 2266 (Lucky ถาวร)", callback_data=f"approve_2266_{user.id}", api_kwargs={"style": "success"}),
+                    ],
+                ] if is_lucky_6_active() else []),
+                *([
+                    [
+                        tg.InlineKeyboardButton("🍀 166 (Lucky VIP)", callback_data=f"approve_166_{user.id}", api_kwargs={"style": "success"}),
+                        tg.InlineKeyboardButton("🍀 266 (Lucky OF)",  callback_data=f"approve_266_{user.id}", api_kwargs={"style": "success"}),
+                    ],
+                    [
+                        tg.InlineKeyboardButton("🍀 666 (Lucky GOD3M)", callback_data=f"approve_666_{user.id}", api_kwargs={"style": "success"}),
+                        tg.InlineKeyboardButton("🍀 2266 (Lucky ถาวร)", callback_data=f"approve_2266_{user.id}", api_kwargs={"style": "success"}),
+                    ],
+                ] if is_lucky_6_active() else []),
                 [
                     tg.InlineKeyboardButton("❌ ซองเสีย", callback_data=f"reject_{user.id}", api_kwargs={"style": "danger"}),
                 ],
@@ -1807,10 +1844,27 @@ async def handle_truemoney_link(
     if not tm_result["valid"]:
         reasons.append("ไม่สามารถยืนยันซอง TrueMoney ได้")
     elif tm_result["amount"] is not None:
-        if abs(tm_result["amount"] - expected_price) > Decimal("1"):
+        # Accept BOTH promo price (expected) and tier base price.
+        # Some customers pay full price even when promo is active.
+        tier_base_map = {
+            "300": Decimal("300"), "500": Decimal("500"),
+            "1299": Decimal("1299"), "2499": Decimal("2499"),
+        }
+        base_price = tier_base_map.get(str(selected_tier), expected_price)
+        acceptable_amounts = {expected_price, base_price}
+        # If envelope matches base price -> auto-bump expected_price + payment.amount
+        # so DB logs reflect what customer actually paid.
+        if abs(tm_result["amount"] - base_price) <= Decimal("1") and base_price != expected_price:
+            expected_price = base_price
+            try:
+                payment.amount = base_price
+            except Exception:
+                pass
+        elif not any(abs(tm_result["amount"] - amt) <= Decimal("1") for amt in acceptable_amounts):
             reasons.append(
                 f"ยอดไม่ตรง: ซอง {format_thb(tm_result['amount'])} "
-                f"แต่ต้องการ {format_thb(expected_price)}"
+                f"แต่ต้องการ {format_thb(expected_price)} "
+                f"(หรือ {format_thb(base_price)} ราคาเต็ม)"
             )
 
     if not reasons and tm_result["valid"]:
@@ -2027,6 +2081,16 @@ async def handle_truemoney_link(
                 [
                     tg.InlineKeyboardButton("🌊 500 (Summer)", callback_data=f"approve_ADD500_{user.id}", api_kwargs={"style": "success"}),
                 ],
+                *([
+                    [
+                        tg.InlineKeyboardButton("🍀 166 (Lucky VIP)", callback_data=f"approve_166_{user.id}", api_kwargs={"style": "success"}),
+                        tg.InlineKeyboardButton("🍀 266 (Lucky OF)",  callback_data=f"approve_266_{user.id}", api_kwargs={"style": "success"}),
+                    ],
+                    [
+                        tg.InlineKeyboardButton("🍀 666 (Lucky GOD3M)", callback_data=f"approve_666_{user.id}", api_kwargs={"style": "success"}),
+                        tg.InlineKeyboardButton("🍀 2266 (Lucky ถาวร)", callback_data=f"approve_2266_{user.id}", api_kwargs={"style": "success"}),
+                    ],
+                ] if is_lucky_6_active() else []),
                 [tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", url=f"tg://user?id={user.id}", api_kwargs={"style": "primary"})],
             ])
             await admin_bot.send_message(
