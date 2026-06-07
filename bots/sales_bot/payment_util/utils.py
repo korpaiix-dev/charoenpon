@@ -16,6 +16,62 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Constants required by slip-parsing functions
+NON_SLIP_AD_KEYWORDS = (
+    "เครดิตฟรี",
+    "เครดิตฟรี",
+    "เว็บพนัน",
+    "คาสิโน",
+    "บาคาร่า",
+    "สล็อต",
+    "ufa",
+    "ufabet",
+    "casino",
+    "เครดิตฟรี50",
+    "เครดิต ฟรี",
+    "ปั่นหมุน",
+    "ฝากรับ",
+    "รับฟรี",
+    "โปรโมชันแนะนำ",
+    "โปรโมชั่นแนะนำ",
+    # # >>> CASINO_BLOCK <<< — added 2026-06-02
+    # Casino brand names + slot keywords commonly seen in ads sent as fake slips
+    "nova777",
+    "nova 777",
+    ".online",
+    "knockout",
+    "dish delights",
+    "คอมโบทำเงิน",
+    "ทำเงิน",
+    "แตกแจกถอน",
+    "เบทละ",
+    "ก้อนโต",
+    "cashback",
+    "วงล้อนำโชค",
+    "วงล้อ",
+    "แนะนำเพื่อน",
+    "คลิกเลย",
+    "joker",
+    "pgslot",
+    "pg slot",
+    "สล็อต",
+    "slotxo",
+    "ufabet",
+    "ufa",
+    "lava",
+    "ฝากเครดิต",
+    "ฝาก-ถอน",
+    "ฝาก ถอน",
+    "ฟรีสปิน",
+    "free spin",
+    "bonus",
+    "โบนัส",
+    "หวย",
+    "บาคาร่า",
+    "baccarat",
+)
+
+
 def _check_date_within_24h(text: str) -> bool:
     """Check whether OCR date looks current in Thai time.
 
