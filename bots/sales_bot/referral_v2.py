@@ -25,8 +25,9 @@ from shared.database import get_session
 logger = logging.getLogger(__name__)
 
 from shared.tz import TH_TZ
+from shared.admin_alert import _admin_group_id
 
-ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
+ADMIN_GROUP_ID = _admin_group_id()
 MAX_DM_PER_RUN = 50
 DM_DELAY_SECONDS = 2
 

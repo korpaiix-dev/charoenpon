@@ -36,6 +36,7 @@ def _get_flash_image_deps():
 logger = logging.getLogger(__name__)
 
 from shared.tz import TH_TZ
+from shared.admin_alert import _admin_group_id
 
 # 11 กลุ่มฟรี (same as content_bot)
 FREE_GROUPS = [
@@ -283,7 +284,7 @@ async def start_flash_sale(context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.info("Flash sale promo broadcast: %d success, %d failed (with_image=%s)", success, failed, flash_image is not None)
 
         # Notify admin group
-        admin_group_id = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
+        admin_group_id = _admin_group_id()
         admin_token = os.environ.get("ADMIN_BOT_TOKEN", "")
         if admin_token:
             try:
@@ -335,7 +336,7 @@ async def end_flash_sale(context: ContextTypes.DEFAULT_TYPE) -> None:
             await _log_flash_sale_analytics(flash_id, sold, total, revenue)
 
         # Notify admin with results
-        admin_group_id = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
+        admin_group_id = _admin_group_id()
         admin_token = os.environ.get("ADMIN_BOT_TOKEN", "")
         if admin_token:
             try:

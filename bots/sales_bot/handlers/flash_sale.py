@@ -22,6 +22,7 @@ from bots.sales_bot.handlers._safe import safe_edit
 logger = logging.getLogger(__name__)
 
 from shared.tz import TH_TZ
+from shared.admin_alert import _admin_group_id
 
 
 async def _get_active_flash_sale() -> FlashSale | None:
@@ -73,7 +74,7 @@ async def _check_flash_sale_milestones(sold: int, total: int) -> None:
     import os
     import telegram as tg
 
-    ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
+    ADMIN_GROUP_ID = _admin_group_id()
     admin_token = os.environ.get("ADMIN_BOT_TOKEN", "")
     if not admin_token:
         return

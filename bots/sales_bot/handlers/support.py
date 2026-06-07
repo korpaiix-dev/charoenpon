@@ -12,6 +12,7 @@ from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes, MessageHandler, filters
 
 from shared.api_cost_tracker import call_openrouter
+from shared.admin_alert import _admin_group_id
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +94,7 @@ async def handle_support_text(
             from datetime import datetime, timezone, timedelta
             safe_name = _html.escape(str(user.first_name or "ลูกค้า"))
             now_th = datetime.now(timezone(timedelta(hours=7)))
-            ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
+            ADMIN_GROUP_ID = _admin_group_id()
             admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
             await admin_bot.initialize()
             

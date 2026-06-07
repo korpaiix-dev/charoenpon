@@ -26,6 +26,7 @@ from shared.endmonth_vip_promo import (
 )
 from shared.songkran_promo import get_group_display_title, is_songkran_bonus_slug
 from shared.utils import format_datetime_thai, format_thb, log_admin_action
+from shared.admin_alert import _admin_group_id
 
 logger = logging.getLogger(__name__)
 
@@ -247,7 +248,7 @@ async def approve_payment_callback(update: Update, context: ContextTypes.DEFAULT
             logger.error("Failed to send invite links: %s", exc)
             invite_text = "\n⚠️ ส่งลิงก์ไม่สำเร็จ"
             try:
-                admin_group_id = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
+                admin_group_id = _admin_group_id()
                 await context.bot.send_message(
                     chat_id=admin_group_id,
                     text=(
@@ -789,7 +790,7 @@ async def approve_promo_callback(update: Update, context: ContextTypes.DEFAULT_T
             await sales_bot.send_message(chat_id=target_user_id, text=msg, parse_mode="HTML", reply_markup=invite_keyboard)
         except Exception as exc_send:
             logger.error("Failed to send promo invite links to %s: %s", target_user_id, exc_send)
-            admin_group_id = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
+            admin_group_id = _admin_group_id()
             flat_links = "\n".join([f"• {b['text']}: {b['url']}" for b in links_list]) or "(ไม่มีลิงก์)"
             await context.bot.send_message(
                 chat_id=admin_group_id,
@@ -1291,7 +1292,7 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
             await sales_bot.send_message(chat_id=target_user_id, text=msg, parse_mode="HTML", reply_markup=keyboard)
         except Exception as exc_send:
             logger.error("Failed to send invite links to %s: %s", target_user_id, exc_send)
-            admin_group_id = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
+            admin_group_id = _admin_group_id()
             flat_links = "\n".join([f"• {b['text']}: {b['url']}" for b in links_list]) or "(ไม่มีลิงก์)"
             await context.bot.send_message(
                 chat_id=admin_group_id,
