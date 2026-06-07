@@ -127,6 +127,30 @@ async def _notify_discord_spam(user_id: int, username: str | None, text: str) ->
     except Exception:
         return False
 
+# Chats whose messages should bypass spam filter entirely (admin group, etc.)
+def _load_ignored_chat_ids() -> set[int]:
+    ids: set[int] = set()
+    raw = os.environ.get("ADMIN_GROUP_CHAT_ID", "")
+    try:
+        if raw:
+            ids.add(int(raw))
+    except (TypeError, ValueError):
+        pass
+    # Allow comma-separated extras from env
+    extra = os.environ.get("SPAM_FILTER_IGNORED_CHAT_IDS", "")
+    for tok in extra.split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        try:
+            ids.add(int(tok))
+        except ValueError:
+            continue
+    return ids
+
+IGNORED_CHAT_IDS: set[int] = _load_ignored_chat_ids()
+
+
 async def spam_filter_middleware(update: Update, context: CallbackContext) -> bool:
     """Middleware that filters messages before passing to handlers.
 

@@ -16,6 +16,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Re-export OCR/TM patterns so slip_handler + extract helpers can import from utils
+from bots.sales_bot.payment_util.promo_helpers import AMOUNT_PATTERNS, DATE_PATTERNS, TRUEMONEY_PATTERN  # noqa: E402,F401
+
 # Constants required by slip-parsing functions
 NON_SLIP_AD_KEYWORDS = (
     "เครดิตฟรี",
