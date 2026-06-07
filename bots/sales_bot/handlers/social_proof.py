@@ -197,25 +197,18 @@ async def build_welcome_caption(tg_user_first_name: str | None = None) -> str:
     if tg_user_first_name:
         greet = f"สวัสดีค่ะ คุณ{tg_user_first_name}"
 
-    # SALE_BANNER — Lucky 6.6 > Birthday > Flash (priority)
+    # SALE_BANNER — Phase 3 Round B: load from promotion_campaigns.bot_badge
     flash_banner = ""
     try:
         from shared.endmonth_vip_promo import is_lucky_6_active, is_birthday_promo_active
-        if is_lucky_6_active():
-            flash_banner = (
-                "🍀 <b>LUCKY 6.6 SALE — วันนี้วันเดียว!</b> 🍀\n"
-                "🔥 VIP ฿166 | OF ฿266 | GOD ฿666 | ถาวร ฿2,266\n"
-                "🎁 +6 วันฟรี ทุก tier — หมดเขต 23:59 คืนนี้\n"
-                "━━━━━━━━━━━━━━━\n\n"
-            )
-        elif is_birthday_promo_active():
-            flash_banner = (
-                "🎂 <b>เดือนเกิดเฮียตั๋ง — แจกใหญ่!</b> 🎉\n"
-                "🎁 GOD MODE ถาวร 1 รางวัล (มูลค่า ฿2,499)\n"
-                "✅ ซื้อ OF+VIP 30 วัน ฿500 = เข้าจับฉลากอัตโนมัติ\n"
-                "📅 ประกาศผล 10 มิ.ย. 18:00 น.\n"
-                "━━━━━━━━━━━━━━━\n\n"
-            )
+        from shared.captions import load_caption
+        _camp_key = None
+        if is_lucky_6_active():           _camp_key = "lucky66"
+        elif is_birthday_promo_active():  _camp_key = "birthday"
+        if _camp_key:
+            _spec = await load_caption(_camp_key)
+            if _spec and _spec.bot_badge:
+                flash_banner = _spec.bot_badge
     except Exception:
         pass
     if not flash_banner:
