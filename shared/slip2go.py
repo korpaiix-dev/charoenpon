@@ -101,7 +101,7 @@ def receiver_is_boss(data: dict) -> tuple[bool, str]:
 
 # Map: amount → (tier, label, is_promo)
 # Used for Smart Match — customer pays any of these amounts → auto-assign tier.
-def amount_to_tier(amount: Decimal) -> Optional[tuple[str, str, bool]]:
+def _amount_to_tier_legacy(amount: Decimal) -> Optional[tuple[str, str, bool]]:
     """Return (tier_callback_value, label, is_promo) or None if amount doesn't match any tier.
 
     Smart Match accepts both base prices and promo prices.
@@ -176,3 +176,9 @@ async def receiver_match_pool(data: dict) -> tuple[bool, str, dict | None]:
     bank = ((acct.get("bank") or {}).get("account") or "")
     proxy = ((acct.get("proxy") or {}).get("account") or "")
     return False, f"INSUFFICIENT MATCH name='{name}' proxy='{proxy}' bank='{bank}'", None
+
+
+# ─── Phase 2: delegate amount_to_tier to shared.pricing (single source of truth) ─
+def amount_to_tier(amount):
+    from shared.pricing import amount_to_tier as _hub_amount_to_tier
+    return _hub_amount_to_tier(amount)

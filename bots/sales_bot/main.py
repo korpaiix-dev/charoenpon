@@ -62,14 +62,14 @@ from bots.sales_bot.handlers.support import get_support_handlers
 from bots.sales_bot.handlers.trial import get_trial_handlers
 from bots.sales_bot.handlers.upsell import get_upsell_handlers, run_upsell_dm_job
 from bots.sales_bot.comeback_dm import run_comeback_dm_job
-from bots.sales_bot.trial_promo_dm import run_trial_promo_dm_job
+# DEAD (Phase 1) from bots.sales_bot.trial_promo_dm import run_trial_promo_dm_job
 from bots.sales_bot.flash_sale_scheduler import start_flash_sale, end_flash_sale, remind_flash_sale
 from bots.sales_bot.promo_scheduler import (
     broadcast_referral_promo,
     broadcast_songkran_promo,
     broadcast_trial_promo,
 )
-from bots.sales_bot.trial_upsell import check_trial_upsell
+# DEAD (Phase 1) from bots.sales_bot.trial_upsell import check_trial_upsell
 # Lead follow-up DM jobs disabled by boss request (2026-04-26): too noisy / repeated admin alerts.
 # from bots.sales_bot.lead_followup import run_lead_followup_job
 # from bots.sales_bot.lead_followup_v2 import run_lead_followup_v2_job
@@ -77,10 +77,10 @@ from bots.sales_bot.spam_filter import spam_filter_middleware
 from bots.sales_bot.handlers.referral import send_referral_reminder
 from bots.sales_bot.daily_report import send_daily_report
 from bots.sales_bot.preview_generator import run_preview_generator_job, ensure_tables as ensure_preview_tables
-from bots.sales_bot.free_group_poster import post_to_free_groups
+# DEAD (Phase 1) from bots.sales_bot.free_group_poster import post_to_free_groups
 from bots.sales_bot.retention_alert import run_retention_alert_job
 from bots.sales_bot.referral_v2 import send_referral_reminder_v2
-from bots.sales_bot.marketing_brain import run_brain_weekly_job
+# DEAD (Phase 1) from bots.sales_bot.marketing_brain import run_brain_weekly_job
 
 logger = logging.getLogger(__name__)
 

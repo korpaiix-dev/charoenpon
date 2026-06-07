@@ -1099,7 +1099,8 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
         # Find package by price
         async with get_session() as session:
             from shared.models import Package, PackageTier
-            tier_map = {"199": "300", "200": "300", "300": "300", "349": "500", "500": "500", "999": "1299", "1299": "1299", "2000": "2499", "2499": "2499", "ADD500": "ADD500", "166": "300", "266": "500", "666": "1299", "2266": "2499", "180": "300", "210": "300"}
+            from shared.pricing import admin_callback_tier_map
+            tier_map = admin_callback_tier_map()
             # >>> BUG2_TIER_MAP_GATE <<<
             # Reject promo-price callbacks if their promo is no longer active.
             # Otherwise admin clicking stale buttons after promo end would assign
