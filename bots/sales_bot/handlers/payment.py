@@ -594,6 +594,35 @@ async def _send_welcome_referral_dm(bot, telegram_id: int) -> None:
         logger.warning("Failed to send welcome referral DM to %s: %s", telegram_id, exc)
 
 
+
+
+def _build_admin_approve_kb(user_id, *, include_reject: bool = True, include_chat: bool = True, username: str | None = None):
+    """Phase 4 Round C: build admin approve keyboard from shared.pricing.approve_buttons()."""
+    import telegram as tg
+    from shared.pricing import approve_buttons
+    rows = []
+    for row in approve_buttons(user_id):
+        btn_row = []
+        for cell in row:
+            btn_row.append(tg.InlineKeyboardButton(
+                cell["text"],
+                callback_data=cell["callback_data"],
+                api_kwargs={"style": "success"},
+            ))
+        rows.append(btn_row)
+    if include_reject:
+        rows.append([tg.InlineKeyboardButton("❌ ปฏิเสธ" if not username else "❌ ซองเสีย",
+                     callback_data=f"reject_{user_id}",
+                     api_kwargs={"style": "danger"})])
+    if include_chat:
+        if username:
+            rows.append([tg.InlineKeyboardButton(f"💬 @{username}", url=f"https://t.me/{username}",
+                         api_kwargs={"style": "primary"})])
+        else:
+            rows.append([tg.InlineKeyboardButton(f"💬 ID: {user_id}", url=f"tg://user?id={user_id}",
+                         api_kwargs={"style": "primary"})])
+    return tg.InlineKeyboardMarkup(rows)
+
 async def handle_photo_slip(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
