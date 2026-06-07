@@ -29,6 +29,7 @@ from shared.models import (
 )
 from shared.utils import format_datetime_thai, format_thb, log_admin_action
 from shared.admin_alert import _admin_group_id
+from shared.songkran_promo import get_group_display_title, is_songkran_bonus_slug
 
 logger = logging.getLogger(__name__)
 
