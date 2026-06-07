@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 TH_TZ = timezone(timedelta(hours=7))
 
-CONTENT_BOT_TOKEN = os.environ.get("CONTENT_BOT_TOKEN", "8371029400:AAEc8PSwvX-DOMVkDUp_Svm52Q9HZhVWsaA")
+CONTENT_BOT_TOKEN = os.environ.get("CONTENT_BOT_TOKEN", "")
 
 # 11 กลุ่มฟรี (same as content_bot/flash_sale_scheduler)
 FREE_GROUPS = [
