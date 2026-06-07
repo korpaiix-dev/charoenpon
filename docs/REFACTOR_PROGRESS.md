@@ -338,3 +338,59 @@ Next session must:
 4. Then approval.py.
 
 Best window: 02:00-06:00 BKK low traffic + outside active promo windows.
+
+---
+
+## End-of-Day-3 Finale — 2026-06-07 (Session continuation)
+
+### Latent bugs found + fixed
+1. **spam_filter.py: IGNORED_CHAT_IDS undefined** — every Telegram update
+   crashed the middleware (silently passed but flooded logs with NameError).
+   Now loads from `ADMIN_GROUP_CHAT_ID` env + optional
+   `SPAM_FILTER_IGNORED_CHAT_IDS`.
+2. **payment_util/utils.py: missing OCR/TM constants** — `AMOUNT_PATTERNS`,
+   `DATE_PATTERNS`, `TRUEMONEY_PATTERN` were referenced by
+   `_extract_amount_from_ocr` and `_check_date_within_24h` but never imported.
+   Now re-exported from `promo_helpers.py`.
+
+### Strangler Fig Rounds 6-9 — major decomposition
+
+| Round | File | Before | After | Cut |
+|---|---|---|---|---|
+| 6 | `bots/sales_bot/handlers/payment.py` | 1,308 | **210** | -84% |
+| 6 | `bots/admin_bot/handlers/approval.py` | 2,065 | 1,524 | -26% |
+| 7 | `bots/admin_bot/handlers/approval.py` | 1,524 | 1,172 | -23% |
+| 8 | `bots/admin_bot/handlers/approval.py` | 1,172 | 863 | -26% |
+| 9 | `bots/admin_bot/handlers/approval.py` | 863 | **492** | -43% |
+
+### New module map
+
+```
+bots/sales_bot/payment_util/
+├── utils.py            (148 LOC) — OCR, slip-date, amount helpers
+├── ai_helpers.py       (155 LOC) — _ai_screen_image, _ai_read_slip, _ocr_slip_image
+├── promo_helpers.py    (141 LOC) — comeback promo, TrueMoney verify
+├── approve.py          (142 LOC) — _approve_payment + WELCOME_REFERRAL_DM
+├── truemoney_handler.py (512 LOC) — TrueMoney link flow
+└── slip_handler.py     (1,193 LOC) — handle_photo_slip + 3 helpers (NEW)
+
+bots/admin_bot/handlers/
+├── approval.py         (492 LOC) — broadcasts + cmd_pending + reject_user/ban
+├── payment_actions.py  (1,290 LOC) — all 6 payment-approve callbacks (NEW)
+└── sos_actions.py      (431 LOC) — 4 SOS recovery callbacks (NEW)
+```
+
+### Total reduction (rounds 1-9)
+- `payment.py`: 2,152 → 210 LOC = **-90%** (lost 1,942 LOC to 6 helper modules)
+- `approval.py`: 2,065 → 492 LOC = **-76%** (lost 1,573 LOC to 2 new modules)
+
+### Compatibility
+- All extracted functions are re-exported from the original file paths,
+  so `main.py` registrations and external imports keep working.
+- `python-telegram-bot` `CallbackQueryHandler` patterns unchanged.
+
+### Verified at end of session
+- All 12 charoenpon containers `Up`, no `ERROR` in the last 5 minutes.
+- `docker exec ... python3 -c "from ... import ..."` succeeds for every
+  re-exported symbol.
+- Sales-bot, admin-bot, guardian-bot, broadcast-worker, content-bot all clean.
