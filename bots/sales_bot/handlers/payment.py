@@ -72,6 +72,17 @@ from bots.sales_bot.payment_util.utils import (
     _looks_like_non_slip_ad,
     _notify_discord,
 )
+# Strangler-fig Round 2-3
+
+from bots.sales_bot.payment_util.ai_helpers import (
+    _ai_screen_image,
+    _ai_read_slip,
+    _ocr_slip_image,
+)
+from bots.sales_bot.payment_util.promo_helpers import (
+    _get_active_promo_for_user,
+    _verify_truemoney_link,
+)
 
 from shared.songkran_promo import get_group_display_title
 from shared.utils import (
@@ -198,63 +209,6 @@ async def _get_effective_price(tier: str, context_user_data: dict) -> Decimal:
 
     return base_price
 
-async def _get_active_promo_for_user(telegram_id: int) -> dict | None:
-    """Look up active (unexpired, unpurchased) promo in comeback_dm_log for a user."""
-    from shared.models import ComebackDmLog
-    async with get_session() as session:
-        result = await session.execute(
-            select(ComebackDmLog).where(
-                ComebackDmLog.telegram_id == telegram_id,
-                ComebackDmLog.purchased == False,  # noqa: E712
-            ).order_by(ComebackDmLog.sent_at.desc()).limit(1)
-        )
-        dm_log = result.scalar_one_or_none()
-
-    if not dm_log:
-        return None
-
-    from datetime import timedelta
-    expiry = dm_log.sent_at + timedelta(hours=48)
-    if datetime.utcnow() > expiry:
-        return None
-
-    # Determine promo source label
-    variant = getattr(dm_log, "variant", "") or ""
-    dm_round = dm_log.round
-    if dm_round >= 200:
-        source = "Retention"
-    elif dm_round >= 100:
-        source = "Lead Followup"
-    else:
-        source = "Comeback"
-
-    from bots.sales_bot.comeback_dm import _calculate_discounted_price
-    discounted_price = _calculate_discounted_price(dm_log.discount_pct)
-
-    return {
-        "source": source,
-        "discount_pct": dm_log.discount_pct,
-        "discounted_price": discounted_price,
-        "promo_code": dm_log.promo_code,
-    }
-
-
-TRUEMONEY_PATTERN = re.compile(
-    r"https?://gift\.truemoney\.com/campaign/??\?v=([a-zA-Z0-9]+)", re.IGNORECASE
-)
-
-# OCR patterns to extract amount from slip
-AMOUNT_PATTERNS = [
-    re.compile(r"(?:จำนวนเงิน|จำนวน|amount|ยอด|total|ยอดเงิน)[:\s]*([0-9,]+(?:\.\d{2})?)\s*(?:บาท|baht|thb)?", re.IGNORECASE),
-    re.compile(r"([0-9,]+(?:\.\d{2})?)\s*(?:บาท|baht|thb)", re.IGNORECASE),
-    re.compile(r"THB\s*([0-9,]+(?:\.\d{2})?)", re.IGNORECASE),
-    re.compile(r"([0-9,]+\.\d{2})\s*THB", re.IGNORECASE),
-]
-
-DATE_PATTERNS = [
-    re.compile(r"(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})"),
-    re.compile(r"(\d{1,2})\s+(?:ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.)\s+(\d{2,4})"),
-]
 
 
 
@@ -263,203 +217,12 @@ DATE_PATTERNS = [
 
 
 
-async def _ocr_slip_image(bot, file_id: str) -> str:
-    """Download image from Telegram and use AI to read slip."""
-    import base64
-
-    file = await bot.get_file(file_id)
-    buf = io.BytesIO()
-    await file.download_to_memory(buf)
-    buf.seek(0)
-    image_bytes = buf.read()
-    b64_image = base64.b64encode(image_bytes).decode("utf-8")
-
-    # Try AI vision first, fallback to tesseract
-    try:
-        ai_text = await _ai_read_slip(b64_image)
-        if ai_text:
-            return ai_text
-    except Exception as exc:
-        logger.warning("AI slip reader failed, falling back to OCR: %s", exc)
-
-    # Fallback to tesseract
-    buf.seek(0)
-    image = Image.open(buf)
-    text = pytesseract.image_to_string(image, lang="tha+eng")
-    return text
 
 
-async def _ai_read_slip(b64_image: str) -> str | None:
-    """Use AI vision (Gemini Flash Lite via OpenRouter) to read payment slip.
-
-    Returns extracted text with amount, date, bank, ref number.
-    Also checks for signs of forgery.
-    """
-    from shared.api_cost_tracker import call_openrouter
-
-    prompt = (
-        "อ่านสลิปโอนเงินนี้ ตอบเป็น text สั้นๆ ภาษาไทย ข้อมูลต่อไปนี้:\n"
-        "- จำนวนเงิน (ตัวเลข เช่น 300.00)\n"
-        "- วันที่และเวลา\n"
-        "- ธนาคารต้นทาง\n"
-        "- ธนาคารปลายทาง\n"
-        "- เลขอ้างอิง/Transaction ID\n"
-        "- ชื่อผู้ส่ง (จาก)\n"
-        "- ชื่อผู้รับ (ไปยัง)\n\n"
-        "แล้ววิเคราะห์ว่าสลิปนี้มีสัญญาณปลอมไหม เช่น:\n"
-        "- font ไม่ตรงกับธนาคาร\n"
-        "- วันที่อนาคต\n"
-        "- layout ผิดปกติ\n"
-        "- ภาพเบลอเฉพาะจุดตัวเลข\n"
-        "ถ้าสงสัยปลอม ให้เขียน SUSPICIOUS: ตามด้วยเหตุผล\n"
-        "ถ้าปกติ ให้เขียน VERIFIED: ตามด้วยข้อมูล"
-    )
-
-    try:
-        data = await call_openrouter(
-            model="google/gemini-2.5-flash",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{b64_image}"
-                            },
-                        },
-                    ],
-                }
-            ],
-            caller="sales_bot/ai_read_slip",
-            max_tokens=500,
-            temperature=0.7,
-        )
-        content = data["choices"][0]["message"]["content"]
-        logger.info("AI slip reader result: %s", content[:200])
-        return content
-    except Exception as exc:
-        # FIX 2025-05-21 (Phase 2d caller): re-raise circuit-open so caller can defer slip
-        from shared.api_cost_tracker import OpenRouterCircuitOpen as _CircuitOpen
-        if isinstance(exc, _CircuitOpen):
-            raise
-        logger.error("AI slip reader API error: %s", exc)
-
-    return None
 
 
-async def _ai_screen_image(b64_image: str) -> str | None:
-    """AI screen: classify image as slip, spam, inappropriate, or customer question.
-    
-    Returns one of: SLIP, NOT_SLIP_QUESTION, NOT_SLIP_SUPPORT, SPAM, GAMBLING, PORN, INAPPROPRIATE
-    """
-    from shared.api_cost_tracker import call_openrouter
-
-    prompt = (
-        "ดูรูปนี้แล้วตอบสั้นๆ 1 คำ:\n"
-        "- SLIP เฉพาะรูปสลิปโอนเงิน/หลักฐานการจ่ายเงินจากธนาคารหรือวอลเล็ทจริงเท่านั้น\n"
-        "- NOT_SLIP_QUESTION ถ้าเป็นรูปทั่วไปหรือคำถาม (screenshot แชท, รูปแพ็กเกจ)\n"
-        "- NOT_SLIP_SUPPORT ถ้าเป็น screenshot ปัญหา (เข้ากลุ่มไม่ได้, error)\n"
-        "- GAMBLING ถ้าเป็นภาพโฆษณาพนัน/คาสิโน/สล็อต/บาคาร่า/เครดิตฟรี/UFABET/UFA แม้มีตัวเลขหรือคำว่าเงิน\n"
-        "- SPAM ถ้าเป็นโฆษณาหรือโปรโมทเว็บอื่นที่ไม่ใช่สลิป\n"
-        "- INAPPROPRIATE ถ้าเป็นรูปอนาจาร/ไม่เหมาะสม\n\n"
-        "ถ้าไม่แน่ใจว่าเป็นสลิปจริง ให้ตอบ NOT_SLIP_QUESTION ห้ามเดาเป็น SLIP\n"
-        "ตอบแค่คำเดียว ไม่ต้องอธิบาย"
-    )
-
-    try:
-        data = await call_openrouter(
-            model="google/gemini-2.5-flash",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{b64_image}"},
-                        },
-                    ],
-                }
-            ],
-            caller="sales_bot/ai_screen_image",
-            max_tokens=20,
-            temperature=0.0,
-        )
-        result = data["choices"][0]["message"]["content"].strip()
-        logger.info("AI screen result: %s", result)
-        return result
-    except Exception as exc:
-        # FIX 2025-05-21 (Phase 2d caller): re-raise circuit-open so caller can defer
-        from shared.api_cost_tracker import OpenRouterCircuitOpen as _CircuitOpen
-        if isinstance(exc, _CircuitOpen):
-            raise
-        logger.error("AI screen API error: %s", exc)
-
-    return None
 
 
-async def _verify_truemoney_link(link: str) -> dict:
-    """Redeem TrueMoney gift link — เติมเงินเข้าวอลเล็ทจริง.
-
-    Returns dict with: valid (bool), amount (Decimal|None), voucher_id (str), error (str).
-    """
-    match = TRUEMONEY_PATTERN.search(link)
-    if not match:
-        return {"valid": False, "amount": None, "voucher_id": "", "error": "invalid_link"}
-
-    voucher_id = match.group(1)
-    my_wallet = os.environ.get("MY_WALLET", "").strip()
-    if not my_wallet:
-        return {"valid": False, "amount": None, "voucher_id": voucher_id, "error": "no_wallet"}
-
-    headers = {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36",
-        "Accept": "application/json",
-        "Origin": "https://gift.truemoney.com",
-        "Referer": f"https://gift.truemoney.com/campaign/?v={voucher_id}",
-        "Accept-Language": "th-TH,th;q=0.9,en;q=0.8",
-    }
-    payload = {"mobile": my_wallet, "voucher_hash": voucher_id}
-
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                f"https://gift.truemoney.com/campaign/vouchers/{voucher_id}/redeem",
-                json=payload,
-                headers=headers,
-            )
-
-            if resp.status_code == 403:
-                return {"valid": False, "amount": None, "voucher_id": voucher_id, "error": "forbidden"}
-
-            try:
-                data = resp.json()
-            except Exception:
-                return {"valid": False, "amount": None, "voucher_id": voucher_id, "error": "invalid_response"}
-
-            status_code = data.get("status", {}).get("code", "")
-
-            if status_code == "SUCCESS":
-                amount_str = data.get("data", {}).get("my_ticket", {}).get("amount_baht", "0")
-                try:
-                    amount = Decimal(str(int(float(amount_str))))
-                except (InvalidOperation, ValueError):
-                    amount = None
-                return {"valid": True, "amount": amount, "voucher_id": voucher_id, "error": ""}
-
-            elif status_code == "CANNOT_GET_OWN_VOUCHER":
-                return {"valid": False, "amount": None, "voucher_id": voucher_id, "error": "own_voucher"}
-            elif status_code == "TARGET_USER_NOT_FOUND":
-                return {"valid": False, "amount": None, "voucher_id": voucher_id, "error": "wallet_not_found"}
-            else:
-                return {"valid": False, "amount": None, "voucher_id": voucher_id, "error": f"api_{status_code}"}
-
-    except Exception as exc:
-        logger.warning("TrueMoney redeem failed: %s", exc)
-        return {"valid": False, "amount": None, "voucher_id": voucher_id, "error": "timeout"}
 
 
 async def _approve_payment(
