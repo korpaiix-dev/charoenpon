@@ -323,6 +323,11 @@ async def run_job(pool: asyncpg.Pool, bot: Bot, job: dict) -> None:
             rate = recent_failures / sent_so_far if sent_so_far else 0
             if rate > FAILURE_RATE_THRESHOLD:
                 log.error("Job %s — failure rate %.1f%% > threshold, PAUSING", bid, rate * 100)
+                try:
+                    from shared.notify import notify as _notify
+                    await _notify("broadcast_paused", title=f"⚠️ Broadcast {bid} paused", body=f"Failure rate {rate*100:.1f}% > 30%")
+                except Exception:
+                    pass
                 await checkpoint(pool, bid, idx + 1, ok, fail)
                 async with pool.acquire() as conn:
                     await conn.execute("UPDATE broadcasts SET status='PAUSED' WHERE id=$1", bid)
