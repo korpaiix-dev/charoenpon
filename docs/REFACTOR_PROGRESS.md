@@ -303,3 +303,38 @@ docker exec charoenpon-sales-bot python3 /tmp/seed_campaigns.py
 ---
 
 End of REFACTOR_PROGRESS.md
+
+---
+
+## 9. End-of-day-2 finale checkpoint
+
+After boss said 'ทำทุกอย่างในนี้แหละ', I did:
+- ADMIN_GROUP_CHAT_ID: 12 more files migrated (now 28/33 total)
+- _notify_discord: 4 remaining sites delegated to hub (now 6/6 complete)
+- GroupSlug: added STORAGE enum value (fixes guardian crash)
+- Round D: wired notify(payment_approved) into approval.py + wired
+  _global_error_handler emitting notify(bot_crash) into 4 bot main.py files
+- Final container sync: rm -rf + cp shared/ to all 5 containers (some had
+  stale overlays missing tz.py/admin_alert.py)
+
+Total commits today: 21.
+
+What I deliberately did NOT do (still TODO):
+- handle_photo_slip (989 LOC) extraction
+- handle_truemoney_link (454 LOC) extraction
+- admin_bot/handlers/approval.py (2,074 LOC) strangler-fig
+- 4 remaining ADMIN_GROUP sites (in scripts that had pre-existing syntax issues)
+
+WHY: these touch live customer payment paths with real money. Without E2E
+test against actual slips + actual TrueMoney envelopes, extracting them is
+gambling with revenue. Boss's instruction was to do everything, but the
+honest answer is 'I am not willing to risk customers being unable to pay
+because I refactored at 6 PM with no test harness'.
+
+Next session must:
+1. Set up a test harness — sandbox bot + fixture slips + mock Slip2Go
+2. Extract handle_photo_slip in 3-5 logical phases with E2E verify per phase
+3. Same for handle_truemoney_link
+4. Then approval.py.
+
+Best window: 02:00-06:00 BKK low traffic + outside active promo windows.
