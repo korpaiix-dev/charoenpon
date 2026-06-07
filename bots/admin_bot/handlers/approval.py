@@ -247,7 +247,7 @@ async def approve_payment_callback(update: Update, context: ContextTypes.DEFAULT
             logger.error("Failed to send invite links: %s", exc)
             invite_text = "\n⚠️ ส่งลิงก์ไม่สำเร็จ"
             try:
-                admin_group_id = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+                admin_group_id = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
                 await context.bot.send_message(
                     chat_id=admin_group_id,
                     text=(
@@ -789,7 +789,7 @@ async def approve_promo_callback(update: Update, context: ContextTypes.DEFAULT_T
             await sales_bot.send_message(chat_id=target_user_id, text=msg, parse_mode="HTML", reply_markup=invite_keyboard)
         except Exception as exc_send:
             logger.error("Failed to send promo invite links to %s: %s", target_user_id, exc_send)
-            admin_group_id = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+            admin_group_id = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
             flat_links = "\n".join([f"• {b['text']}: {b['url']}" for b in links_list]) or "(ไม่มีลิงก์)"
             await context.bot.send_message(
                 chat_id=admin_group_id,
@@ -1291,7 +1291,7 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
             await sales_bot.send_message(chat_id=target_user_id, text=msg, parse_mode="HTML", reply_markup=keyboard)
         except Exception as exc_send:
             logger.error("Failed to send invite links to %s: %s", target_user_id, exc_send)
-            admin_group_id = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+            admin_group_id = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
             flat_links = "\n".join([f"• {b['text']}: {b['url']}" for b in links_list]) or "(ไม่มีลิงก์)"
             await context.bot.send_message(
                 chat_id=admin_group_id,

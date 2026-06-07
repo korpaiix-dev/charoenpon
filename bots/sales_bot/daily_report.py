@@ -17,8 +17,8 @@ from shared.database import get_session
 
 logger = logging.getLogger(__name__)
 
-TH_TZ = timezone(timedelta(hours=7))
-ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+from shared.tz import TH_TZ
+ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
 
 
 async def _scalar(sql: str, params: dict | None = None):

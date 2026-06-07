@@ -24,7 +24,7 @@ from telegram import Bot
 START_UTC = datetime(2026, 6, 6, 17, 0, 0)
 END_UTC = datetime(2026, 6, 10, 5, 0, 0)
 
-ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
 
 
 async def main():

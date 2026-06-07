@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from shared.database import init_db
 from agents.manager_agent.reporter import send_daily_report, send_weekly_analysis
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 
 logging.basicConfig(
     level=logging.INFO,

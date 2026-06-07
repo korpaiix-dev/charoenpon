@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 CONTENT_BOT_TOKEN = os.environ.get("CONTENT_BOT_TOKEN", "")
 VIP_GROUP_ID = int(os.environ.get("VIP_SOURCE_GROUP_ID", "-1003765565847"))
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 
 # Authorized users ที่ส่งรูปให้ bot ได้ (from env: ADMIN_TELEGRAM_IDS)
 AUTHORIZED_SENDERS = [int(x.strip()) for x in os.environ.get("ADMIN_TELEGRAM_IDS", "8502597269").split(",") if x.strip()]

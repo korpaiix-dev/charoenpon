@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("end-promo")
 
 SNAP = Path("/root/charoenpon/promo_snapshot_may_latest.json")
-ADMIN_GROUP_CHAT_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+ADMIN_GROUP_CHAT_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
 
 
 def restore_files() -> dict:

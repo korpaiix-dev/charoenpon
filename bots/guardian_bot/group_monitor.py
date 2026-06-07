@@ -17,7 +17,7 @@ from pathlib import Path
 
 import httpx
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 from sqlalchemy import select
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import BadRequest, Forbidden

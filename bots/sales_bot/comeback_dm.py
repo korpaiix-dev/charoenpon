@@ -35,7 +35,7 @@ from shared.models import (
 
 logger = logging.getLogger(__name__)
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 
 # Config
 MAX_DM_PER_DAY = 30
@@ -43,7 +43,7 @@ DM_DELAY_SECONDS = 3
 PROMO_EXPIRY_HOURS = 48
 BASE_PRICE = Decimal("300")  # VIP 30 วัน ราคาปกติ
 
-ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
 
 # ─── DB Migration ────────────────────────────────────────────────────────────
 

@@ -39,7 +39,7 @@ from shared.models import (
 
 logger = logging.getLogger(__name__)
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 
 # Admin group chat ID
 ADMIN_GROUP_ID = -1003830920430

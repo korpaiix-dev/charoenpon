@@ -35,12 +35,12 @@ from shared.models import (
 
 logger = logging.getLogger(__name__)
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 MONTHLY_REFERRAL_LIMIT = 10
 REWARD_PER_REFERRAL = 7  # days
 MILESTONE_5_BONUS = 30  # days
 
-ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
 MAX_REMINDER_PER_DAY = 20
 REMINDER_DELAY_SECONDS = 3
 
@@ -775,7 +775,7 @@ async def process_referral_reward(referred_telegram_id: int, bot) -> None:
         import telegram as tg
         admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
         await admin_bot.initialize()
-        admin_group = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+        admin_group = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
         await admin_bot.send_message(
             chat_id=admin_group,
             text=(

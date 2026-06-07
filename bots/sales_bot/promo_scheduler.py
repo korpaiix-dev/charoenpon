@@ -23,7 +23,7 @@ from shared.songkran_promo import is_songkran_promo_window
 
 logger = logging.getLogger(__name__)
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 
 CONTENT_BOT_TOKEN = os.environ.get("CONTENT_BOT_TOKEN", "")
 
