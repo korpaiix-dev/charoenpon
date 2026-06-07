@@ -7,7 +7,7 @@ import logging
 import os
 import re
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 import httpx

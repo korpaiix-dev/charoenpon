@@ -14,6 +14,7 @@ from typing import Optional
 
 from sqlalchemy import select, update as _upd
 from shared.database import get_session
+from shared.songkran_promo import get_group_display_title
 from shared.models import (
     User, Payment, PaymentStatus, PaymentMethod,
     Subscription, SubscriptionStatus,

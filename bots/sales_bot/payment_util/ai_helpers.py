@@ -7,6 +7,8 @@ import asyncio
 import base64
 import io
 import json
+import pytesseract
+from PIL import Image
 import logging
 import os
 import re

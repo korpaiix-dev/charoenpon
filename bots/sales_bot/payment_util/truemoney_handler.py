@@ -28,6 +28,7 @@ from shared.utils import (
     check_duplicate_slip,
     compute_slip_hash,
     format_thb,
+    log_admin_action,
 )
 from shared.endmonth_vip_promo import (
     is_endmonth_vip_promo_active,
