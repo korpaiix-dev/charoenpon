@@ -614,24 +614,14 @@ async def mark_promo_responded(promo_code: str) -> None:
 
 
 async def _notify_discord_system_log(message: str) -> None:
-    """ส่ง log ไป Discord #system-logs."""
-    discord_token = os.environ.get("DISCORD_BOT_TOKEN", "")
-    discord_ch = os.environ.get("DISCORD_CH_SYSTEM_LOGS", "")
-    if not discord_token or not discord_ch:
-        return
+    """[Phase 4 A3] delegated to shared.discord_alert."""
+    from shared.discord_alert import notify_discord as _hub
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            await client.post(
-                f"https://discord.com/api/v10/channels/{discord_ch}/messages",
-                headers={
-                    "Authorization": f"Bot {discord_token}",
-                    "Content-Type": "application/json",
-                },
-                json={"content": message},
-            )
-    except Exception as exc:
-        logger.warning("Discord system log failed: %s", exc)
-
+        # Best-effort: pass any positional/keyword as title + body
+        args_str = " | ".join(str(x) for x in locals().values() if isinstance(x, str))[:1000]
+        return await _hub("system", "_notify_discord_system_log", args_str, silent_on_error=True)
+    except Exception:
+        return False
 
 async def run_comeback_dm_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Scheduled job: ส่ง DM COMEBACK ลูกค้าเก่า.

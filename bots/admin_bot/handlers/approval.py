@@ -2000,32 +2000,14 @@ async def sos_ban_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 async def _notify_discord_alert(title: str, details: str, color: int = 0x3498DB) -> None:
-    """Send notification to Discord #alerts as embed."""
-    import os, httpx
-    from datetime import timezone, timedelta
-    discord_token = os.environ.get("DISCORD_BOT_TOKEN", "")
-    discord_ch = os.environ.get("DISCORD_CH_ALERTS", "")
-    if not discord_token or not discord_ch:
-        return
+    """[Phase 4 A3] delegated to shared.discord_alert."""
+    from shared.discord_alert import notify_discord as _hub
     try:
-        now_th = datetime.now(timezone(timedelta(hours=7)))
-        embed = {
-            "title": title,
-            "description": details,
-            "color": color,
-            "footer": {"text": f"⊙ เจริญพร | {now_th.strftime('%d/%m/%Y %H:%M')}"},
-        }
-        async with httpx.AsyncClient(timeout=10) as client:
-            await client.post(
-                f"https://discord.com/api/v10/channels/{discord_ch}/messages",
-                headers={"Authorization": f"Bot {discord_token}", "Content-Type": "application/json"},
-                json={"embeds": [embed]},
-            )
-    except Exception as exc:
-        logger.warning("Discord notify failed: %s", exc)
-
-
-
+        # Best-effort: pass any positional/keyword as title + body
+        args_str = " | ".join(str(x) for x in locals().values() if isinstance(x, str))[:1000]
+        return await _hub("payment", "_notify_discord_alert", args_str, silent_on_error=True)
+    except Exception:
+        return False
 
 async def chat_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """รองรับปุ่มแชทลูกค้าแบบ callback เก่า (chat_user_<id>)."""

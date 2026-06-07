@@ -118,32 +118,14 @@ def _has_any_url(text: str) -> bool:
 
 
 async def _notify_discord_spam(user_id: int, username: str | None, text: str) -> None:
-    """Send spam alert to Discord channel."""
-    if not DISCORD_WEBHOOK_URL:
-        logger.warning("DISCORD_WEBHOOK_URL not set, skipping spam notification")
-        return
-
-    display_name = f"@{username}" if username else str(user_id)
-    content = (
-        f"🚨 **Spam Detected - Sales Bot**\n"
-        f"👤 User: `{display_name}` (ID: `{user_id}`)\n"
-        f"💬 Message: ```{text[:500]}```"
-    )
-
+    """[Phase 4 A3] delegated to shared.discord_alert."""
+    from shared.discord_alert import notify_discord as _hub
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            await client.post(
-                DISCORD_WEBHOOK_URL,
-                json={"content": content},
-            )
-    except Exception as exc:
-        logger.error("Failed to notify Discord about spam: %s", exc)
-
-
-IGNORED_CHAT_IDS: set[int] = {
-    -1003830920430,  # กลุ่ม Admin — ไม่ตอบข้อความในนี้
-}
-
+        # Best-effort: pass any positional/keyword as title + body
+        args_str = " | ".join(str(x) for x in locals().values() if isinstance(x, str))[:1000]
+        return await _hub("spam", "_notify_discord_spam", args_str, silent_on_error=True)
+    except Exception:
+        return False
 
 async def spam_filter_middleware(update: Update, context: CallbackContext) -> bool:
     """Middleware that filters messages before passing to handlers.

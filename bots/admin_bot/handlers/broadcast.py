@@ -348,43 +348,14 @@ async def _notify_discord_broadcast(
     duration: int,
     admin_name: str,
 ) -> None:
-    """Send broadcast result to Discord #alerts."""
-    import httpx
-
-    discord_token = os.environ.get("DISCORD_BOT_TOKEN", "")
-    discord_ch = os.environ.get("DISCORD_CH_ALERTS", "")
-    if not discord_token or not discord_ch:
-        return
+    """[Phase 4 A3] delegated to shared.discord_alert."""
+    from shared.discord_alert import notify_discord as _hub
     try:
-        now_th = datetime.now(TH_TZ)
-        target_display = target_value or "ทั้งหมด"
-        embed = {
-            "title": "📢 Broadcast เสร็จสิ้น",
-            "description": (
-                f"🎯 ประเภท: {target_type}\n"
-                f"📍 เป้าหมาย: {target_display}\n"
-                f"✅ สำเร็จ: {success} คน\n"
-                f"❌ ล้มเหลว: {failed} คน\n"
-                f"⏱️ ใช้เวลา: {duration} วินาที\n"
-                f"📤 ส่งโดย: {admin_name}"
-            ),
-            "color": 0x3498DB,
-            "footer": {"text": f"⊙ เจริญพร | {now_th.strftime('%d/%m/%Y %H:%M')}"},
-        }
-        async with httpx.AsyncClient(timeout=10) as client:
-            await client.post(
-                f"https://discord.com/api/v10/channels/{discord_ch}/messages",
-                headers={
-                    "Authorization": f"Bot {discord_token}",
-                    "Content-Type": "application/json",
-                },
-                json={"embeds": [embed]},
-            )
-    except Exception as e:
-        logger.warning("Discord notify failed: %s", e)
-
-
-# ─── Helper: Format Duration ─────────────────────────────────────────────────
+        # Best-effort: pass any positional/keyword as title + body
+        args_str = " | ".join(str(x) for x in locals().values() if isinstance(x, str))[:1000]
+        return await _hub("broadcast", "_notify_discord_broadcast", args_str, silent_on_error=True)
+    except Exception:
+        return False
 
 def _format_duration(seconds: int) -> str:
     if seconds < 60:
