@@ -34,8 +34,9 @@ from shared.models import (
 logger = logging.getLogger(__name__)
 
 from shared.tz import TH_TZ
+from shared.admin_alert import _admin_group_id
 
-ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
+ADMIN_GROUP_ID = _admin_group_id()
 
 # Discount tiers: (days_before_expiry, discount_pct, notification_type, round_offset)
 # Round numbering: 200=3day, 201=1day, 202=expiry

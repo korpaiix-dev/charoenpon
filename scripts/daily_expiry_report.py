@@ -20,9 +20,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger("daily_expiry_report")
 
 from shared.tz import TH_TZ
+from shared.admin_alert import _admin_group_id
 
 BOT_TOKEN = os.environ.get("ADMIN_BOT_TOKEN") or os.environ.get("NAMWAN_TOKEN") or os.environ.get("GUARDIAN_BOT_TOKEN")
-ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
+ADMIN_GROUP_ID = _admin_group_id()
 
 DB_HOST = os.environ.get("DB_HOST", "localhost")
 DB_PORT = int(os.environ.get("DB_PORT", "5432"))

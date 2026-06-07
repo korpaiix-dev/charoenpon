@@ -5,6 +5,7 @@ Run by cron at 2026-05-31 17:05 UTC (= 2026-06-01 00:05 ICT).
 """
 from __future__ import annotations
 import os, sys, json, base64, hashlib, subprocess, logging, time, urllib.request
+from shared.admin_alert import _admin_group_id
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
@@ -15,7 +16,7 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("end-promo")
 
 SNAP = Path("/root/charoenpon/promo_snapshot_may_latest.json")
-ADMIN_GROUP_CHAT_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
+ADMIN_GROUP_CHAT_ID = _admin_group_id()
 
 
 def restore_files() -> dict:

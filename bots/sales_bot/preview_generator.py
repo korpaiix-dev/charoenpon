@@ -24,9 +24,10 @@ from shared.database import get_session
 logger = logging.getLogger(__name__)
 
 from shared.tz import TH_TZ
+from shared.admin_alert import _admin_group_id
 
 SALES_BOT_TOKEN: str = os.environ.get("SALES_BOT_TOKEN", "")
-ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
+ADMIN_GROUP_ID = _admin_group_id()
 
 # ─── DB Migration ────────────────────────────────────────────────────────────
 
