@@ -968,3 +968,323 @@ from bots.admin_bot.handlers.payment_actions import (
     approve_by_price_callback,
 )
 
+
+# ── Round 8: approve_payment_callback + reject_payment_callback ──
+async def approve_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """อนุมัติ payment — สร้าง subscription ให้สมาชิก."""
+    query = update.callback_query
+    await query.answer()
+
+    if not query.from_user or not _is_admin(query.from_user.id):
+        await query.edit_message_text("⛔ คุณไม่มีสิทธิ์")
+        return
+
+    payment_id = int(query.data.split(":")[1])
+
+    async with get_session() as session:
+        payment = await session.get(Payment, payment_id)
+        if not payment:
+            await query.edit_message_text(f"❌ ไม่พบ Payment #{payment_id}")
+            return
+
+        if payment.status != PaymentStatus.PENDING:
+            await query.edit_message_text(
+                f"⚠️ Payment #{payment_id} สถานะเป็น {payment.status.value} แล้ว"
+            )
+            return
+
+        # Update payment status
+        payment.status = PaymentStatus.CONFIRMED
+        payment.verified_by = query.from_user.id
+        payment.verified_at = datetime.utcnow()
+
+        # Get package for duration
+        package = await session.get(Package, payment.package_id)
+        duration_days = package.duration_days if package else 30
+
+        # Expire existing active subscriptions (prevent duplicates)
+        # BUT skip lifetime subs (duration >= 36500 days) when buying add-on packages
+        from datetime import timedelta
+        from sqlalchemy import update as sa_update_sub
+        is_addon = package and package.tier.value == 'ADD500'
+        if is_addon:
+            # Add-on: only expire subs for the SAME package (don't touch GOD MODE etc)
+            await session.execute(
+                sa_update_sub(Subscription)
+                .where(
+                    Subscription.user_id == payment.user_id,
+                    Subscription.status == SubscriptionStatus.ACTIVE,
+                    Subscription.package_id == payment.package_id,
+                )
+                .values(status=SubscriptionStatus.EXPIRED)
+            )
+        else:
+            await session.execute(
+                sa_update_sub(Subscription)
+                .where(Subscription.user_id == payment.user_id, Subscription.status == SubscriptionStatus.ACTIVE)
+                .values(status=SubscriptionStatus.EXPIRED)
+            )
+
+        # Create subscription
+        now = datetime.utcnow()
+        subscription = Subscription(
+            user_id=payment.user_id,
+            package_id=payment.package_id,
+            status=SubscriptionStatus.ACTIVE,
+            start_date=now,
+            end_date=now + timedelta(days=duration_days),
+            payment_id=payment.id,
+        )
+        session.add(subscription)
+
+        # Update user total spent
+        user = await session.get(User, payment.user_id)
+        if user:
+            # FIX2_TRUST_TRIGGER total_spent maintained by DB trigger
+
+            # Mark teaser clicks as converted for this user
+            from sqlalchemy import update as sa_update
+            from shared.models import TeaserClick
+            await session.execute(
+                sa_update(TeaserClick)
+                .where(TeaserClick.user_id == user.telegram_id, TeaserClick.converted == False)
+                .values(converted=True)
+            )
+
+        await session.flush()
+
+    # Log admin action
+    await log_admin_action(
+        admin_id=query.from_user.id,
+        action="approve_payment",
+        target_type="payment",
+        target_id=payment_id,
+        details=f"Approved payment #{payment_id}, amount={payment.amount}",
+    )
+
+    # Send invite links to customer
+    invite_text = ""
+    if user:
+        try:
+            from bots.guardian_bot.group_monitor import generate_invite_links_for_user
+            import os
+            import telegram as tg
+            sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+            await sales_bot.initialize()
+            invite_links = await generate_invite_links_for_user(
+                sales_bot, user.telegram_id, payment.package_id
+            )
+            links_list = []
+            async with get_session() as session:
+                from shared.models import GroupRegistry
+                for slug, link in invite_links.items():
+                    if is_songkran_bonus_slug(slug):
+                        title = get_group_display_title(slug)
+                    else:
+                        grp_result = await session.execute(
+                            select(GroupRegistry).where(GroupRegistry.slug == slug)
+                        )
+                        group = grp_result.scalar_one_or_none()
+                        title = group.title if group else get_group_display_title(slug)
+                    links_list.append(f"• {title}: {link}")
+            links_text = "\n".join(links_list) if links_list else "ไม่สามารถสร้างลิงก์ได้"
+
+            await sales_bot.send_message(
+                chat_id=user.telegram_id,
+                text=(
+                    f"✅ <b>ชำระเงินสำเร็จค่ะ!</b>\n\n"
+                    f"🔗 <b>ลิงก์เข้ากลุ่ม VIP:</b>\n{links_text}\n\n"
+                    f"⚠️ ลิงก์แต่ละลิงก์ใช้ได้ 1 ครั้ง หมดอายุ 24 ชม.\n"
+                    f"กรุณากดเข้าร่วมโดยเร็วนะคะ 🙏"
+                ),
+                parse_mode="HTML",
+            )
+            invite_text = "\n📩 ส่งลิงก์ให้ลูกค้าแล้ว"
+        except Exception as exc:
+            logger.error("Failed to send invite links: %s", exc)
+            invite_text = "\n⚠️ ส่งลิงก์ไม่สำเร็จ"
+            try:
+                admin_group_id = _admin_group_id()
+                await context.bot.send_message(
+                    chat_id=admin_group_id,
+                    text=(
+                        f"🚨 <b>ส่งลิงก์ลูกค้าไม่สำเร็จ</b>\n"
+                        f"👤 ลูกค้า: {user.first_name or '-'} @{user.username or '-'}\n"
+                        f"🆔 TG ID: <code>{user.telegram_id}</code>\n"
+                        f"📦 แพ็กเกจ: {package_name}\n"
+                        f"💰 ยอด: {format_thb(payment.amount)}\n"
+                        f"❗ Error: {type(exc).__name__}: {exc}\n\n"
+                        f"🔗 ลิงก์ที่สร้างไว้แล้ว:\n{links_text}"
+                    ),
+                    parse_mode="HTML",
+                    reply_markup=_build_manual_invite_alert_keyboard(user.telegram_id),
+                )
+            except Exception as notify_exc:
+                logger.error("Failed to notify admin group about invite failure: %s", notify_exc)
+
+            # ส่ง DM ยินดีต้อนรับ + แนะนำชวนเพื่อน หลัง 3 วินาที
+            try:
+                import asyncio
+                await asyncio.sleep(3)
+                await sales_bot.send_message(
+                    chat_id=user.telegram_id,
+                    text=(
+                        '🎉 ยินดีต้อนรับสู่ VIP เจริญพร! 💕\n'
+                        '\n'
+                        '💡 รู้มั้ย? ชวนเพื่อนมาสมัคร = ได้ VIP ฟรีเพิ่ม!\n'
+                        '\n'
+                        '🎯 ชวน 1 คน = +7 วัน VIP ฟรี\n'
+                        '🎯 ชวน 5 คน = +30 วัน VIP ฟรี!\n'
+                        '\n'
+                        '━━━━━━━━━━━━━━━━━━\n'
+                        '📩 <b>รับลิงก์ชวนเพื่อนเลย 👇</b>\n'
+                        '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=invite">🎁 กดรับลิงก์ชวนเพื่อน</a>\n'
+                        '━━━━━━━━━━━━━━━━━━'
+                    ),
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                )
+                logger.info("Welcome referral DM sent to %s (admin approval)", user.telegram_id)
+            except Exception as exc_w:
+                logger.warning("Welcome referral DM failed: %s", exc_w)
+
+        except Exception as exc:
+            logger.error("Failed to send invite links: %s", exc)
+            invite_text = "\n⚠️ ส่งลิงก์ไม่สำเร็จ"
+
+            # ส่ง DM ยินดีต้อนรับ + แนะนำชวนเพื่อน หลัง 3 วินาที
+            try:
+                import asyncio
+                await asyncio.sleep(3)
+                await sales_bot.send_message(
+                    chat_id=user.telegram_id,
+                    text=(
+                        '🎉 ยินดีต้อนรับสู่ VIP เจริญพร! 💕\n'
+                        '\n'
+                        '💡 รู้มั้ย? ชวนเพื่อนมาสมัคร = ได้ VIP ฟรีเพิ่ม!\n'
+                        '\n'
+                        '🎯 ชวน 1 คน = +7 วัน VIP ฟรี\n'
+                        '🎯 ชวน 5 คน = +30 วัน VIP ฟรี!\n'
+                        '\n'
+                        '━━━━━━━━━━━━━━━━━━\n'
+                        '📩 <b>รับลิงก์ชวนเพื่อนเลย 👇</b>\n'
+                        '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=invite">🎁 กดรับลิงก์ชวนเพื่อน</a>\n'
+                        '━━━━━━━━━━━━━━━━━━'
+                    ),
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                )
+                logger.info("Welcome referral DM sent to %s (admin approval)", user.telegram_id)
+            except Exception as exc_w:
+                logger.warning("Welcome referral DM failed: %s", exc_w)
+
+        except Exception as exc:
+            logger.error("Failed to send invite links: %s", exc)
+            invite_text = "\n⚠️ ส่งลิงก์ไม่สำเร็จ"
+
+    package_name = package.name if package else "N/A"
+    try:
+        await query.edit_message_caption(
+            caption=(
+                f"✅ <b>อนุมัติ Payment #{payment_id}</b>\n"
+                f"📦 แพ็กเกจ: {package_name}\n"
+                f"💰 จำนวน: {format_thb(payment.amount)}\n"
+                f"⏱ ระยะเวลา: {duration_days} วัน\n"
+                f"👤 อนุมัติโดย: {query.from_user.first_name}"
+                f"{invite_text}"
+            ),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.error("Failed to edit approval caption: %s", e)
+
+    # ── Sync Google Sheets ──
+    try:
+        from sheets.daily_revenue import DailyRevenueSheet
+        from sheets.members import MembersSheet
+        from sheets.income_log import IncomeLogSheet
+        await DailyRevenueSheet.update()
+        from sheets.daily_summary import DailySummarySheet
+        await DailySummarySheet.update()
+        await IncomeLogSheet.log_payment(payment_id, approved_by=query.from_user.first_name or "Admin")
+        if user:
+            await MembersSheet.update_member(user.id)
+        logger.info("Sheets synced for payment #%d", payment_id)
+    except Exception as exc:
+        logger.warning("Sheets sync failed for payment #%d: %s", payment_id, exc)
+        logger.warning("Sheets sync failed for payment #%d: %s", payment_id, exc)
+
+    # ── Process referral reward ──
+    if user:
+        try:
+            import telegram as tg
+            sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
+            await sales_bot.initialize()
+            from bots.sales_bot.handlers.referral import process_referral_reward
+            await process_referral_reward(user.telegram_id, sales_bot)
+        except Exception as exc_ref:
+            logger.warning("Referral reward failed for payment #%d: %s", payment_id, exc_ref)
+
+    logger.info(
+        "[%s] [ADMIN_BOT] [APPROVE_PAYMENT] [%s] [payment_id=%d amount=%s]",
+        datetime.now(timezone.utc).isoformat(),
+        query.from_user.id,
+        payment_id,
+        payment.amount,
+    )
+
+
+async def reject_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """ไม่อนุมัติ payment."""
+    query = update.callback_query
+    await query.answer()
+
+    if not query.from_user or not _is_admin(query.from_user.id):
+        await query.edit_message_text("⛔ คุณไม่มีสิทธิ์")
+        return
+
+    payment_id = int(query.data.split(":")[1])
+
+    async with get_session() as session:
+        payment = await session.get(Payment, payment_id)
+        if not payment:
+            await query.edit_message_text(f"❌ ไม่พบ Payment #{payment_id}")
+            return
+
+        if payment.status != PaymentStatus.PENDING:
+            await query.edit_message_text(
+                f"⚠️ Payment #{payment_id} สถานะเป็น {payment.status.value} แล้ว"
+            )
+            return
+
+        payment.status = PaymentStatus.REJECTED
+        payment.verified_by = query.from_user.id
+        payment.verified_at = datetime.utcnow()
+        payment.reject_reason = "ไม่อนุมัติโดยแอดมิน"
+
+        await session.flush()
+
+    await log_admin_action(
+        admin_id=query.from_user.id,
+        action="reject_payment",
+        target_type="payment",
+        target_id=payment_id,
+        details=f"Rejected payment #{payment_id}",
+    )
+
+    await query.edit_message_text(
+        f"❌ <b>ไม่อนุมัติ Payment #{payment_id}</b>\n"
+        f"👤 โดย: {query.from_user.first_name}",
+        parse_mode="HTML",
+    )
+
+    logger.info(
+        "[%s] [ADMIN_BOT] [REJECT_PAYMENT] [%s] [payment_id=%d]",
+        datetime.now(timezone.utc).isoformat(),
+        query.from_user.id,
+        payment_id,
+    )
+
+
+# ─── Pending Broadcasts ──────────────────────────────────────────────────────
+
