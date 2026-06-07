@@ -75,26 +75,15 @@ TIER_PRICES: dict[str, Decimal] = {
 }
 
 async def _notify_discord(title: str, details: str, color: int = 0xFFA500, fields: list = None) -> None:
-    """Send payment notification to Discord #alerts as embed."""
-    discord_token = os.environ.get("DISCORD_BOT_TOKEN", "")
-    discord_ch = os.environ.get("DISCORD_CH_ALERTS", "")
-    if not discord_token or not discord_ch:
-        return
+    """[DEPRECATED — use shared.notify.notify(event_key, ...) instead]
+    Delegates to shared.discord_alert for now to keep callers working."""
+    from shared.discord_alert import notify_discord as _hub_notify
     try:
-        now_th = datetime.now(timezone(timedelta(hours=7)))
-        embed = {
-            "title": title,
-            "description": details,
-            "color": color,
-            "footer": {"text": f"⊙ ระบบตรวจสลิป เจริญพร | วันนี้ เวลา {now_th.strftime('%H:%M')}"},
-        }
-        if fields:
-            embed["fields"] = fields
-        async with httpx.AsyncClient(timeout=10) as client:
-            await client.post(
-                f"https://discord.com/api/v10/channels/{discord_ch}/messages",
-                headers={"Authorization": f"Bot {discord_token}", "Content-Type": "application/json"},
-                json={"embeds": [embed]},
-            )
-    except Exception as exc:
-        logger.error("Discord notification failed: %s", exc)
+        title = locals().get("title") or locals().get("event") or "Notification"
+        desc  = locals().get("description") or locals().get("body") or locals().get("msg") or ""
+        if not isinstance(title, str): title = str(title)
+        if not isinstance(desc, str): desc = str(desc)
+        return await _hub_notify("payment", title, desc, silent_on_error=True)
+    except Exception:
+        return False
+
