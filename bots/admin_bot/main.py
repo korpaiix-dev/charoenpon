@@ -19,6 +19,7 @@ from telegram.ext import (
 from shared.database import close_db, init_db
 
 from bots.admin_bot.handlers.approval import (
+from bots.admin_bot.handlers.where import cmd_where
     approve_payment_callback,
     cmd_pending_payments,
     cmd_pending_broadcasts,
@@ -203,6 +204,7 @@ def main() -> None:
     application.add_handler(CommandHandler("revenue", cmd_revenue))
     application.add_handler(CommandHandler("members", cmd_members))
     application.add_handler(CommandHandler("costs", cmd_costs))
+    application.add_handler(CommandHandler("where", cmd_where))
     application.add_handler(CommandHandler("summary", cmd_summary))
     application.add_handler(CommandHandler("teaser", cmd_teaser))
 
