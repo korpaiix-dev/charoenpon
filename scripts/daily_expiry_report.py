@@ -19,10 +19,10 @@ import requests
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("daily_expiry_report")
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 
 BOT_TOKEN = os.environ.get("ADMIN_BOT_TOKEN") or os.environ.get("NAMWAN_TOKEN") or os.environ.get("GUARDIAN_BOT_TOKEN")
-ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
 
 DB_HOST = os.environ.get("DB_HOST", "localhost")
 DB_PORT = int(os.environ.get("DB_PORT", "5432"))

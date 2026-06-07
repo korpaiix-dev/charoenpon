@@ -93,7 +93,7 @@ async def handle_support_text(
             from datetime import datetime, timezone, timedelta
             safe_name = _html.escape(str(user.first_name or "ลูกค้า"))
             now_th = datetime.now(timezone(timedelta(hours=7)))
-            ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+            ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
             admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
             await admin_bot.initialize()
             

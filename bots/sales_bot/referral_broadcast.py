@@ -295,7 +295,7 @@ async def main():
         import telegram as tg
         admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
         await admin_bot.initialize()
-        admin_group = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+        admin_group = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
         await admin_bot.send_message(
             chat_id=admin_group,
             text=(

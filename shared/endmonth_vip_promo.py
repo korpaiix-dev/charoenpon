@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 PROMO_TIER = "300"
 PROMO_NORMAL_PRICE = Decimal("300")
 PROMO_PRICE = Decimal("200")

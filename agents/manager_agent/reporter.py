@@ -15,7 +15,7 @@ from shared.api_cost_tracker import call_openrouter
 
 logger = logging.getLogger(__name__)
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 
 DISCORD_BOT_TOKEN: str = os.environ.get("DISCORD_BOT_TOKEN", "")
 DISCORD_CH_MANAGER: str = os.environ.get("DISCORD_CH_MANAGER", "")

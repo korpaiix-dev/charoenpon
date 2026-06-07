@@ -21,7 +21,7 @@ from bots.sales_bot.handlers._safe import safe_edit
 
 logger = logging.getLogger(__name__)
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 
 
 async def _get_active_flash_sale() -> FlashSale | None:
@@ -73,7 +73,7 @@ async def _check_flash_sale_milestones(sold: int, total: int) -> None:
     import os
     import telegram as tg
 
-    ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+    ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
     admin_token = os.environ.get("ADMIN_BOT_TOKEN", "")
     if not admin_token:
         return

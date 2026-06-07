@@ -793,7 +793,7 @@ async def handle_photo_slip(
                 _admin_bot = tg.Bot(token=_os.environ.get("ADMIN_BOT_TOKEN", ""))
                 try:
                     await _admin_bot.initialize()
-                    _admin_chat = int(_os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+                    _admin_chat = int(_os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
                     _safe_tg = _h.escape(str(user.first_name or user.username or "ลูกค้า"))
                     _safe_rcv = _h.escape(_rcv_name)
                     _msg = (
@@ -1110,7 +1110,7 @@ async def handle_photo_slip(
 
                     # ── Admin notification (Bug #14, #18: try/finally + Discord fallback) ──
                     try:
-                        ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+                        ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
                         _admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
                         try:
                             await _admin_bot.initialize()
@@ -1178,7 +1178,7 @@ async def handle_photo_slip(
                                 try:
                                     await _alert_bot.initialize()
                                     await _alert_bot.send_message(
-                                        chat_id=int(os.environ.get('ADMIN_GROUP_CHAT_ID', '-1003830920430')),
+                                        chat_id=int(os.environ.get('ADMIN_GROUP_CHAT_ID', '')),
                                         text=(
                                             f"💰 <b>ยอดสะสมถึง milestone</b>\n"
                                             f"━━━━━━━━━━━━━━\n"
@@ -1390,7 +1390,7 @@ async def handle_photo_slip(
         ai_summary += f"\n⚠️ สงสัยปลอม: {ai_suspicious}"
 
     # Send slip to Telegram admin group with inline buttons
-    ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+    ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
     try:
         import telegram as tg
         admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
@@ -1709,7 +1709,7 @@ async def handle_truemoney_link(
             import telegram as tg
             import html as _html
             safe_name = _html.escape(str(user.first_name or "ลูกค้า"))
-            ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+            ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
             admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
             await admin_bot.initialize()
             keyboard = tg.InlineKeyboardMarkup([
@@ -1845,7 +1845,7 @@ async def handle_truemoney_link(
         try:
             import html as _html
             safe_name = _html.escape(str(user.first_name or "ลูกค้า"))
-            ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+            ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
             admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
             await admin_bot.initialize()
             links_count = len(invite_links_raw)
@@ -1990,7 +1990,7 @@ async def handle_truemoney_link(
             import telegram as tg
             import html as _html
             safe_name = _html.escape(str(user.first_name or "ลูกค้า"))
-            ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", "-1003830920430"))
+            ADMIN_GROUP_ID = int(os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
             admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
             await admin_bot.initialize()
             reasons_tg = "\n".join(f"• {r}" for r in reasons)

@@ -26,7 +26,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 
 OUTPUT_PATH = Path("/root/.openclaw/workspace/shared/telegram-policy.md")
 TELEGRAM_TOS_URL = "https://telegram.org/tos"

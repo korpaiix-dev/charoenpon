@@ -86,7 +86,7 @@ logger = logging.getLogger(__name__)
 
 SALES_BOT_TOKEN: str = os.environ.get("SALES_BOT_TOKEN", "")
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 
 
 async def _spam_filter_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

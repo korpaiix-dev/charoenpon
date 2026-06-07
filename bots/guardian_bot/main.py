@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 GUARDIAN_BOT_TOKEN: str = os.environ.get("GUARDIAN_BOT_TOKEN", "")
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 
 
 # --- Scheduler job wrappers ---

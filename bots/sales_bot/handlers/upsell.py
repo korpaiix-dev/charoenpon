@@ -22,7 +22,7 @@ from shared.database import get_session
 
 logger = logging.getLogger(__name__)
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 
 UPGRADE_TEXT = (
     '😈 พร้อมอัพเกรดยัง?\n'

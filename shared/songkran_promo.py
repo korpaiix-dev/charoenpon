@@ -10,7 +10,7 @@ from sqlalchemy import select
 from shared.database import get_session
 from shared.models import Package, PackageTier, Subscription, SubscriptionStatus, User
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 UTC = timezone.utc
 
 PROMO_SONGKRAN_SLUG = "PROMO_SONGKRAN_2026"

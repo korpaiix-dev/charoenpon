@@ -14,7 +14,7 @@ from sheets.manager import SheetsManager
 
 logger = logging.getLogger(__name__)
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 
 SUMMARY_TODAY_LABEL = "📊 รวมวันนี้"
 SUMMARY_MONTH_LABEL = "📊 รวมเดือนนี้"

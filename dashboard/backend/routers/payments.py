@@ -19,7 +19,7 @@ PROMO_SONGKRAN_END_UTC = datetime(2026, 4, 20, 20, 0, 0)
 
 logger = logging.getLogger(__name__)
 
-ADMIN_GROUP_CHAT_ID = os.getenv("ADMIN_GROUP_CHAT_ID", "-1003830920430")
+ADMIN_GROUP_CHAT_ID = os.getenv("ADMIN_GROUP_CHAT_ID", "")
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
 

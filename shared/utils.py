@@ -24,7 +24,7 @@ from shared.models import (
 
 logger = logging.getLogger(__name__)
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 
 
 async def make_bot(token: str) -> Bot:

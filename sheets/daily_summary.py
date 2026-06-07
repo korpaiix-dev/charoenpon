@@ -16,7 +16,7 @@ from sheets.manager import SheetsManager
 
 logger = logging.getLogger(__name__)
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 
 # Admin/test Telegram IDs — exclude from summary calculations
 EXCLUDED_TELEGRAM_IDS = {8502597269, 8567926841, 8116134249, 7387557933}

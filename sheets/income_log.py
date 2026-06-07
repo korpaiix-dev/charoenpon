@@ -13,7 +13,7 @@ from sheets.manager import SheetsManager
 
 logger = logging.getLogger(__name__)
 
-TH_TZ = timezone(timedelta(hours=7))
+from shared.tz import TH_TZ
 
 METHOD_MAP = {
     "SLIP": "สลิปโอน",
