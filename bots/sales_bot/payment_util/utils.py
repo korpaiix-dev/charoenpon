@@ -80,7 +80,7 @@ async def _notify_discord(title: str, details: str, color: int = 0xFFA500, field
     from shared.discord_alert import notify_discord as _hub_notify
     try:
         title = locals().get("title") or locals().get("event") or "Notification"
-        desc  = locals().get("description") or locals().get("body") or locals().get("msg") or ""
+        desc  = (locals().get("details") or locals().get("description") or locals().get("body") or locals().get("msg") or "")
         if not isinstance(title, str): title = str(title)
         if not isinstance(desc, str): desc = str(desc)
         return await _hub_notify("payment", title, desc, silent_on_error=True)

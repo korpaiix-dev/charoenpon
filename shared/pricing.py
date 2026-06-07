@@ -222,9 +222,10 @@ def effective_price(tier_str: str, context_user_data: Optional[dict] = None) -> 
                     return Decimal(str(int(base * (100 - discount_pct) / 100)))
             except Exception:
                 pass
-    # Active campaign promo for this tier
+    # Active campaign promo for this tier (skip comeback — per-user via promo_code only)
     for c in active_campaigns():
-        # invert prices: find amount whose tier maps to tier_str
+        if c.key == "comeback":
+            continue
         for amount, (mapped_tier, _label) in c.prices.items():
             if mapped_tier == tier_str:
                 return Decimal(str(amount))
@@ -241,6 +242,8 @@ def acceptable_amounts(tier_str: str, context_user_data: Optional[dict] = None) 
     out.add(effective_price(tier_str, context_user_data))
     # Discount price (if not the same)
     for c in active_campaigns():
+        if c.key == "comeback":
+            continue
         for amount, (mapped_tier, _label) in c.prices.items():
             if mapped_tier == tier_str:
                 out.add(Decimal(str(amount)))

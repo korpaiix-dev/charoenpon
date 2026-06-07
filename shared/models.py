@@ -61,6 +61,12 @@ class GroupSlug(str, enum.Enum):
     FREE9 = "FREE9"
     FREE10 = "FREE10"
     FREE11 = "FREE11"
+    FREE12 = "FREE12"
+    FREE13 = "FREE13"
+    FREE14 = "FREE14"
+    FREE15 = "FREE15"
+    FREE16 = "FREE16"
+    FREE17 = "FREE17"
 
 
 class PaymentStatus(str, enum.Enum):
