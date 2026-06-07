@@ -40,13 +40,27 @@ ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets" / "campaigns"
 ENV_FILE = os.environ.get("ENV_FILE", "/root/charoenpon/.env")
 
 CAMPAIGN_MAP = {
-    "welcome":  ("01_welcome.png",  "🎉 ยินดีต้อนรับสู่ VIP เจริญพร — คลิป HD 10,000+ ชิ้น อัพเดททุกวัน!"),
-    "referral": ("02_referral.png", "🎁 ชวนเพื่อนมา VIP เจริญพร — ได้ +7 วัน VIP ฟรี (= ฿100)\nครบ 3 คน รับ VIP 30 วันฟรี!"),
-    "flash1":   ("03_flash1.png",   "⚡ FLASH SALE 48 ชม.! ลดทุก tier 30%\n🔥 VIP ฿199 | OF+VIP ฿349 | GOD ฿999"),
-    "flash2":   ("04_flash2.png",   "🎁 BONUS DAYS! ซื้อตอนนี้ +7 วัน VIP ฟรี\n💎 VIP/OF +7 | GOD +14"),
-    "winback":  ("05_winback.png",  "💔 ต้อนรับกลับมา! ส่วนลดเฉพาะคุณ -30%\n💎 VIP 30 วัน ฿210 เท่านั้น (จาก ฿300)"),
-    "birthday": ("07_birthday.png", "🎂 <b>เดือนเกิดเฮียตั๋ง เจริญพร</b> 🎉\n🎁 แจกใหญ่ GOD MODE ถาวร <b>1 รางวัล</b> (มูลค่า ฿2,499)\n\n📋 กติกา: ซื้อ OF+VIP 30 วัน ฿500 = เข้าจับฉลากอัตโนมัติ\n📅 ประกาศผล 10 มิ.ย. 18:00 น.\n⏰ ปิดรับสมัคร 10 มิ.ย. 12:00\n\n👉 t.me/NamwarnJarern_bot?start=packages"),
+    "welcome":  ('01_welcome.png', '🎉 <b>ยินดีต้อนรับสู่ VIP เจริญพร</b>\n═══════════════\n\n💎 คลิป HD ครบทุกห้อง 10,000+ ชิ้น\n🔥 อัพเดทคลิปใหม่ทุกวัน — ไม่มีโฆษณา\n⚡ เริ่มต้นเพียง ฿300 / 30 วัน\n\n👉 <a href="https://t.me/NamwarnJarern_bot?start=packages">ดูแพ็คเกจทั้งหมด</a>'),
+    "referral":  ('02_referral.png', '🎁 <b>ชวนเพื่อนมา VIP เจริญพร</b>\n═══════════════\n\n✨ ชวน 1 คน = +7 วัน VIP <b>ฟรี</b> (มูลค่า ฿100)\n🔥 ครบ 3 คน รับ VIP 30 วัน <b>ฟรี</b>!\n\n✅ ระบบให้ลิ้งชวนเฉพาะของคุณ\n✅ เพื่อนสมัครแพ็คเกจไหนก็ได้\n\n👉 <a href="https://t.me/NamwarnJarern_bot?start=packages">รับลิ้งชวนเพื่อน</a>'),
+    "flash1":  ('03_flash1.png', '⚡ <b>FLASH SALE 48 ชั่วโมง</b> ⚡\n═══════════════\n\n🔥 ลดทุก tier — หมดเขตเร็วๆ นี้!\n\n💎 VIP 30 วัน    <s>฿300</s> <b>฿199</b>  (-33%)\n🔥 OF+VIP 30วัน  <s>฿500</s> <b>฿349</b>  (-30%)\n👑 GOD 90 วัน    <s>฿1,299</s> <b>฿999</b> (-23%)\n\n⏰ จำกัดเวลา 48 ชั่วโมง — รีบกดด่วน!\n👉 <a href="https://t.me/NamwarnJarern_bot?start=packages">กดสมัคร Flash Sale</a>'),
+    "flash2":  ('04_flash2.png', '🎁 <b>BONUS DAYS — ซื้อตอนนี้รับวันฟรี!</b>\n═══════════════\n\n💎 VIP / OF+VIP รับ <b>+7 วัน ฟรี</b>\n👑 GOD รับ <b>+14 วัน ฟรี</b>\n\n✨ Bonus จำกัดเวลา — สมัครเลย\n👉 <a href="https://t.me/NamwarnJarern_bot?start=packages">รับโบนัส +วันฟรี</a>'),
+    "winback":  ('05_winback.png', '💔 <b>ต้อนรับกลับมา!</b>\n═══════════════\n\n🎁 ส่วนลดเฉพาะคุณ <b>-30%</b>\n💎 VIP 30 วัน  <s>฿300</s> <b>฿210</b>\n\n⏰ ส่วนลดนี้หมดอายุใน 48 ชั่วโมง\n👉 <a href="https://t.me/NamwarnJarern_bot?start=packages">รับส่วนลด ฿210</a>'),
+
+    "lucky66":  ("06_lucky66.png", '🍀 <b>LUCKY 6.6 SALE — วันนี้วันเดียว!</b> 🍀\n═══════════════\n\n🔥 ลดสุดทุก tier — 24 ชั่วโมงเท่านั้น!\n\n💎 VIP 30 วัน    <s>฿300</s> <b>฿166</b>  (-45%)\n🔥 OF+VIP 30วัน  <s>฿500</s> <b>฿266</b>  (-47%)\n👑 GOD 90 วัน    <s>฿1,299</s> <b>฿666</b> (-49%)\n🍀 GOD ถาวร      <s>฿2,499</s> <b>฿2,266</b>\n\n✨ Bonus: ทุก tier ได้ <b>+6 วัน ฟรี!</b>\n\n⏰ หมดเขต 23:59 คืนนี้\n👉 <a href="https://t.me/NamwarnJarern_bot?start=packages">กดสมัครเลย — Lucky 6.6</a>'),
+    "birthday":  ('07_birthday.png', '🎂 <b>เดือนเกิดเฮียตั๋ง เจริญพร</b> 🎉\n═══════════════\n\n🎁 แจกใหญ่ <b>GOD MODE ถาวร</b>\n💎 มูลค่า ฿2,499 — สิทธิ์ตลอดชีพ\n\n📋 <b>กติกา:</b>\n✅ ซื้อ OF+VIP 30 วัน ฿500\n✅ ระบบเข้าจับฉลากให้อัตโนมัติ\n\n📅 ประกาศผล <b>10 มิ.ย. 18:00 น.</b>\n⏰ ปิดรับสมัคร 10 มิ.ย. 12:00\n\n👉 <a href="https://t.me/NamwarnJarern_bot?start=packages">สมัครเลย — ลุ้น GOD ถาวร</a>'),
 }
+
+POST_LOG_PATH = os.environ.get("BROADCAST_POST_LOG", "/tmp/broadcast_posts.jsonl")
+def _log_post(campaign: str, chat_id: int, message_id: int) -> None:
+    import json as _json, time as _time
+    try:
+        with open(POST_LOG_PATH, "a", encoding="utf-8") as _f:
+            _f.write(_json.dumps({
+                "ts": _time.time(), "campaign": campaign,
+                "chat_id": chat_id, "message_id": message_id,
+            }) + "\n")
+    except Exception:
+        pass
 
 RATE_DM_PER_MIN = 100   # safe under telegram limit
 RATE_GROUP_PER_MIN = 30 # don't spam groups
@@ -107,7 +121,8 @@ async def send_to_chats(bot: Bot, chat_ids: list[int], img_path: Path, caption: 
     for i, chat_id in enumerate(chat_ids):
         try:
             with open(img_path, "rb") as f:
-                await bot.send_photo(chat_id=chat_id, photo=f, caption=caption, parse_mode="HTML")
+                _msg = await bot.send_photo(chat_id=chat_id, photo=f, caption=caption, parse_mode="HTML")
+                _log_post(os.environ.get("BROADCAST_CAMPAIGN", "unknown"), chat_id, _msg.message_id)
             sent += 1
             logger.info("%s %d/%d → %s OK", label, i+1, len(chat_ids), chat_id)
         except Forbidden:
@@ -139,6 +154,8 @@ async def main():
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
 
+    # Set env so _log_post can read campaign name (scope-safe)
+    os.environ["BROADCAST_CAMPAIGN"] = args.campaign
     img_name, caption = CAMPAIGN_MAP[args.campaign]
     img_path = ASSETS_DIR / img_name
     if not img_path.exists():

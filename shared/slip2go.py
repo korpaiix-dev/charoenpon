@@ -141,7 +141,12 @@ def amount_to_tier(amount: Decimal) -> Optional[tuple[str, str, bool]]:
     def _lucky_6_or_recent():
         from datetime import datetime as _dt, timedelta as _td, timezone as _tz
         now = _dt.now(_tz(_td(hours=7)))
-        return now.year == 2026 and now.month == 6 and now.day == 6
+        # Active = 6 มิ.ย. + 6h grace into 7 มิ.ย.
+        if now.year == 2026 and now.month == 6 and now.day == 6:
+            return True
+        if now.year == 2026 and now.month == 6 and now.day == 7 and now.hour < 6:
+            return True
+        return False
     if amt == 166 and _lucky_6_or_recent():   return ("166", "Lucky 6.6 VIP", True)
     if amt == 266 and _lucky_6_or_recent():   return ("266", "Lucky 6.6 OF", True)
     if amt == 666 and _lucky_6_or_recent():   return ("666", "Lucky 6.6 GOD3M", True)
