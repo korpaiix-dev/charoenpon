@@ -178,13 +178,25 @@ async def post_shutdown(application: Application) -> None:
 
 
 async def _global_error_handler(update, context):
-    """[Phase 4 D] Catch unhandled exceptions and notify via hub."""
+    """[Phase 4 D] Catch unhandled exceptions and notify via hub.
+
+    Transient network errors (httpx.ReadError, TimedOut, NetworkError) come
+    from long-polling and are auto-retried by PTB. Log but do NOT notify.
+    """
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+    err = context.error
+    err_name = type(err).__name__
+    _TRANSIENT = ("NetworkError", "TimedOut", "ReadError", "ConnectError",
+                  "WriteError", "PoolTimeout", "ReadTimeout", "ConnectTimeout")
+    if err_name in _TRANSIENT or "ReadError" in str(err):
+        _log.warning("Transient network error (not alerting): %s: %s", err_name, err)
+        return
     try:
         from shared.notify import notify as _notify
-        err = context.error
         await _notify("bot_crash",
-                     title=f"🚨 Unhandled exception in {__name__}",
-                     body=f"{type(err).__name__}: {err}")
+                     title=f"Unhandled exception in {__name__}",
+                     body=f"{err_name}: {err}")
     except Exception:
         pass
 
