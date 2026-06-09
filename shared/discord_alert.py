@@ -52,9 +52,14 @@ _CHANNEL_ENV = {
 def _resolve_webhook(channel: str) -> str | None:
     env_name = _CHANNEL_ENV.get(channel, _CHANNEL_ENV["default"])
     url = os.environ.get(env_name, "").strip()
+    # Guard: env value must be a real webhook URL (not a channel ID)
+    if url and not url.startswith(("http://", "https://")):
+        url = ""
     if not url:
         # Last-resort generic fallback
         url = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
+    if url and not url.startswith(("http://", "https://")):
+        return None
     return url or None
 
 
