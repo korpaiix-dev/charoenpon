@@ -225,7 +225,6 @@ def create_application() -> Application:
 
     # --- Group 0: Command & callback handlers ---
     from telegram.ext import CommandHandler as _CH
-    app.add_handler(_CH("credits", cmd_credits), group=0)
 
     for handler in get_start_handlers():
         app.add_handler(handler, group=0)
