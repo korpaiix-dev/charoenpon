@@ -397,6 +397,20 @@ def create_application() -> Application:
         name=f"content_distribute_{interval_min}m",
     )
 
+    # Slip2Go retry worker — every 2 min, retries slips that hit ITMX cache lag
+    async def _job_slip2go_retry(context):
+        from shared.slip2go_retry_worker import worker_loop
+        try:
+            await worker_loop()
+        except Exception as exc:
+            logger.error("slip2go retry worker failed: %s", exc, exc_info=True)
+    job_queue.run_repeating(
+        _job_slip2go_retry,
+        interval=timedelta(minutes=2),
+        first=timedelta(minutes=1),
+        name="slip2go_retry_2m",
+    )
+
     return app
 
 
