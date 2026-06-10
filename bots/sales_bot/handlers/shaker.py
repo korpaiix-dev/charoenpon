@@ -1,4 +1,4 @@
-"""VIPมีคนชัก — Lottery group ฿100/month.
+"""ห้องมีคนชัก — Lottery group ฿100/month.
 
 Flow:
 - /shaker → แสดงข้อมูล + ปุ่มซื้อ
@@ -57,7 +57,7 @@ async def cmd_shaker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
     pool = await _pool_status()
     msg = (
-        "🎲 <b>VIPมีคนชัก — ลอตเตอรี่กลุ่ม VIP</b>\n"
+        "🎲 <b>ห้องมีคนชัก — ลอตเตอรี่กลุ่ม VIP</b>\n"
         "━━━━━━━━━━━━━━━\n\n"
         "💰 ราคา: <b>฿100</b> / ใบ\n"
         "⏰ สิทธิ์เข้ากลุ่ม: <b>30 วัน</b>\n"
@@ -96,7 +96,7 @@ async def cmd_myticket(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             parse_mode="HTML",
         )
         return
-    lines = ["🎫 <b>เลขของคุณ — VIPมีคนชัก</b>", "━━━━━━━━━━━━━━━", ""]
+    lines = ["🎫 <b>เลขของคุณ — ห้องมีคนชัก</b>", "━━━━━━━━━━━━━━━", ""]
     for t in tickets:
         exp = t['expires_at'].strftime("%d %b %Y")
         status_emoji = "🟢" if t['status'] == 'ACTIVE' else "🏆"
@@ -133,7 +133,7 @@ async def cb_shaker_buy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     msg = (
-        f"💳 <b>คำสั่งซื้อ: VIPมีคนชัก × {n} ใบ</b>\n"
+        f"💳 <b>คำสั่งซื้อ: ห้องมีคนชัก × {n} ใบ</b>\n"
         "━━━━━━━━━━━━━━━\n\n"
         f"💰 ยอด: <b>฿{price:,}</b>\n"
         f"🎫 จำนวนเลข: <b>{n} ใบ</b> (โอกาสถูก {n}%)\n\n"
@@ -149,14 +149,14 @@ async def cb_shaker_buy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def cb_view_shaker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Callback for main menu 'VIPมีคนชัก' button."""
+    """Callback for main menu 'ห้องมีคนชัก' button."""
     q = update.callback_query
     await q.answer()
     if not q.message or not q.from_user:
         return
     pool = await _pool_status()
     parts = [
-        "🎲 <b>VIPมีคนชัก — ลอตเตอรี่กลุ่ม VIP</b>",
+        "🎲 <b>ห้องมีคนชัก — ลอตเตอรี่กลุ่ม VIP</b>",
         "━━━━━━━━━━━━━━━",
         "",
         "💰 ราคา: <b>฿100</b> / ใบ",
