@@ -190,6 +190,21 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       DB_NAME: ${POSTGRES_DB:-charoenpon}
 
+  gacha-api:
+    build:
+      context: ./services/gacha_api
+      dockerfile: Dockerfile
+    container_name: charoenpon-gacha-api
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:bW667Kr0haqVgVcuuKmA@charoenpon-postgres:5432/charoenpon
+    ports:
+      - '127.0.0.1:8001:8001'
+
 volumes:
   postgres_data:
     driver: local

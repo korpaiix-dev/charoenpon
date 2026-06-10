@@ -437,6 +437,53 @@ async def handle_photo_slip(
             slip2go_err = Slip2GoError("UNKNOWN", str(_sg_err)[:200])
             logger.error("Slip2Go unexpected error: %s", _sg_err)
 
+    # GACHA bundle hook — special case BEFORE normal approve flow.
+    # Triggered when selected_tier is GACHA_1/3/10 AND Slip2Go confirmed payment.
+    if selected_tier and selected_tier.startswith("GACHA_") and slip2go_data:
+        from shared.pricing import TIER_PRICES
+        _spins_map = {"GACHA_1": 1, "GACHA_3": 3, "GACHA_10": 10}
+        _spins = _spins_map.get(selected_tier, 0)
+        _gacha_amt = float(TIER_PRICES.get(selected_tier, 0))
+        try:
+            from shared.models import Payment as _P, PaymentMethod as _PM, PaymentStatus as _PS
+            from sqlalchemy import text as _t
+            async with get_session() as _s:
+                _pay = _P(
+                    user_id=db_user_id, package_id=1, amount=_gacha_amt,
+                    method=_PM.SLIP, status=_PS.CONFIRMED,
+                    slip_file_id=file_id, slip_hash=slip_hash,
+                    verified_at=datetime.utcnow(),
+                )
+                _s.add(_pay)
+                await _s.flush()
+                _payid = _pay.id
+                await _s.execute(_t(
+                    "INSERT INTO gachapon_credits (user_id, telegram_id, credits, total_purchased) "
+                    "VALUES (:uid, :tg, :sp, :sp) "
+                    "ON CONFLICT (user_id) DO UPDATE SET "
+                    "credits = gachapon_credits.credits + :sp, "
+                    "total_purchased = gachapon_credits.total_purchased + :sp, "
+                    "updated_at = NOW()"
+                ), {"uid": db_user_id, "tg": user.id, "sp": _spins})
+                await _s.commit()
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+            _kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    f"\U0001f3b0 หมุนเลย! (มี {_spins} สิทธิ์)",
+                    web_app=WebAppInfo(url="https://telebord.net/gacha/"),
+                )]
+            ])
+            _msg = (
+                f"\U0001f389 <b>ได้รับสิทธิ์หมุนกาชาปอง {_spins} ครั้ง!</b>\n\n"
+                "\U0001f381 ลุ้นรางวัล: VIP / OF / GOD / GOD ถาวร / คลิปพิเศษ / ส่วนลด\n"
+                "\u26a1 กดปุ่มด้านล่างเปิดวงล้อเลยค่ะ!"
+            )
+            await update.message.reply_text(_msg, parse_mode="HTML", reply_markup=_kb)
+            logger.info("GACHA: added %s credits to user %s payment %s", _spins, user.id, _payid)
+            return
+        except Exception as _exc_gacha:
+            logger.error("GACHA hook failed: %s", _exc_gacha)
+
     # AUTO-RETRY: Slip2Go 200404 + valid tier -> queue retry instead of escalating
     if (not slip2go_data and slip2go_err and selected_tier
         and "200404" in str(slip2go_err)
