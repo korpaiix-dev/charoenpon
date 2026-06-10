@@ -250,7 +250,7 @@ def create_application() -> Application:
     for handler in get_birthday_upgrade_handlers():
         app.add_handler(handler, group=0)
 
-    # VIPมีคนชัก lottery (/shaker, /myticket)
+    # ห้องมีคนชัก lottery (/shaker, /myticket)
     for handler in get_shaker_handlers():
         app.add_handler(handler, group=0)
 
