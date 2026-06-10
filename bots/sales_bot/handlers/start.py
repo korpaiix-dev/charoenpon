@@ -474,3 +474,43 @@ def get_start_handlers() -> list:
         CallbackQueryHandler(view_upgrade_callback, pattern="^view_upgrade$"),
         CallbackQueryHandler(referral_menu_callback, pattern="^referral_menu$"),
     ]
+
+
+
+async def cmd_credits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/credits — show user's gacha discount credit balance."""
+    if not update.message or not update.effective_user:
+        return
+    tg = update.effective_user
+    from sqlalchemy import text as _t
+    async with get_session() as s:
+        r = await s.execute(_t("SELECT balance, total_earned, total_used FROM user_discount_credits WHERE telegram_id = :tg"),
+                            {"tg": tg.id})
+        row = r.fetchone()
+    bal = float(row[0]) if row else 0
+    earned = float(row[1]) if row else 0
+    used = float(row[2]) if row else 0
+    if bal <= 0 and earned <= 0:
+        msg = ("💰 <b>ส่วนลดสะสมของคุณ</b>
+
+"
+               "คุณยังไม่มีส่วนลดสะสม
+
+"
+               "💡 หมุนกาชาปองที่เมนู 🎰 เพื่อลุ้นรางวัล
+"
+               "   มีโอกาสได้ส่วนลด ฿50 ทุกครั้งที่หมุน")
+    else:
+        msg = (f"💰 <b>ส่วนลดสะสมของคุณ</b>
+
+"
+               f"💵 ยอดคงเหลือ: <b>฿{bal:,.0f}</b>
+"
+               f"📥 รวมได้รับ: ฿{earned:,.0f}
+"
+               f"📤 ใช้ไปแล้ว: ฿{used:,.0f}
+
+"
+               "💡 ส่วนลดจะถูกหักอัตโนมัติเมื่อคุณซื้อแพ็คเกจ")
+    await update.message.reply_text(msg, parse_mode="HTML")
+
