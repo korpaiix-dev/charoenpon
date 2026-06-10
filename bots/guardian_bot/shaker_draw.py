@@ -124,18 +124,56 @@ async def draw_winner(today: Optional[date] = None) -> dict:
             ON CONFLICT (user_id) DO UPDATE SET won_at = NOW(), lock_until = EXCLUDED.lock_until
         """), {"uid": winner['user_id'], "until": lock_until})
 
-        # Create TIER_1299 subscription (GOD 90 days)
-        # Get package id 3 (TIER_1299)
-        await s.execute(sql_text("""
-            UPDATE subscriptions SET status='EXPIRED'
-            WHERE user_id = :uid AND status='ACTIVE'
-              AND package_id IN (SELECT id FROM packages WHERE tier IN ('TIER_300','TIER_500'))
-        """), {"uid": winner['user_id']})
+        # Award TIER_1299 (GOD 90 days) — smart handling of existing subs
+        # Rules:
+        # - If user has TIER_2499 lifetime → DO NOT touch (already best). Log credit only.
+        # - If user has TIER_1299 active → EXTEND end_date += 90 days (stack)
+        # - If user has TIER_100/300/500 active → EXPIRE them; new TIER_1299 starts NOW
+        # - Otherwise → INSERT new TIER_1299 starting NOW
 
-        await s.execute(sql_text("""
-            INSERT INTO subscriptions (user_id, package_id, status, start_date, end_date)
-            VALUES (:uid, 3, 'ACTIVE', NOW(), NOW() + INTERVAL '90 days')
+        # Check current active subscriptions
+        r_subs = await s.execute(sql_text("""
+            SELECT sub.id, sub.package_id, sub.end_date, pk.tier
+            FROM subscriptions sub
+            JOIN packages pk ON pk.id = sub.package_id
+            WHERE sub.user_id = :uid AND sub.status = 'ACTIVE'
+              AND sub.end_date > NOW()
         """), {"uid": winner['user_id']})
+        existing = [dict(row._mapping) for row in r_subs.all()]
+
+        has_lifetime = any(s['tier'] == 'TIER_2499' for s in existing)
+        existing_1299 = next((s for s in existing if s['tier'] == 'TIER_1299'), None)
+
+        if has_lifetime:
+            # Already lifetime — log only, no sub changes
+            logger.info("Winner %s already has TIER_2499 lifetime — credit logged, no sub changes",
+                        winner['user_id'])
+            # Could log a credit/redeem record here in the future
+        elif existing_1299:
+            # Extend existing GOD 3M by +90 days
+            from datetime import timedelta as _td
+            new_end = existing_1299['end_date'] + _td(days=90)
+            await s.execute(sql_text("""
+                UPDATE subscriptions SET end_date = :end, updated_at = NOW()
+                WHERE id = :sid
+            """), {"end": new_end, "sid": existing_1299['id']})
+            logger.info("Winner %s — extended TIER_1299 end_date to %s",
+                        winner['user_id'], new_end)
+        else:
+            # Expire any active TIER_100/300/500 (lower tiers being replaced)
+            await s.execute(sql_text("""
+                UPDATE subscriptions SET status='EXPIRED', updated_at = NOW()
+                WHERE user_id = :uid AND status='ACTIVE'
+                  AND package_id IN (
+                      SELECT id FROM packages WHERE tier IN ('TIER_100','TIER_300','TIER_500')
+                  )
+            """), {"uid": winner['user_id']})
+            # New TIER_1299 starts today (วันที่ถูกรางวัล)
+            await s.execute(sql_text("""
+                INSERT INTO subscriptions (user_id, package_id, status, start_date, end_date)
+                VALUES (:uid, 3, 'ACTIVE', NOW(), NOW() + INTERVAL '90 days')
+            """), {"uid": winner['user_id']})
+            logger.info("Winner %s — new TIER_1299 90 days starting NOW", winner['user_id'])
 
         # Update draw row
         await s.execute(sql_text("""
