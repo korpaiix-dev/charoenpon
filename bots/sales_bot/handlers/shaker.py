@@ -197,8 +197,8 @@ def get_shaker_handlers() -> list:
     return [
         CommandHandler("shaker", cmd_shaker),
         CommandHandler("myticket", cmd_myticket),
-        CallbackQueryHandler(cb_shaker_buy, pattern=r"^shaker_buy_\d+\$"),
-        CallbackQueryHandler(cb_view_shaker, pattern=r"^view_shaker\$"),
+        CallbackQueryHandler(cb_shaker_buy, pattern=r"^shaker_buy_\d+$"),
+        CallbackQueryHandler(cb_view_shaker, pattern=r"^view_shaker$"),
     ]
 
 
