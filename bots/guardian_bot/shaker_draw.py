@@ -149,23 +149,29 @@ async def draw_winner(today: Optional[date] = None) -> dict:
 
 
 async def announce(bot: Bot, result: dict, lao_date_str: str = ""):
-    """Announce draw result in 3 places: ห้องมีคนชัก group + admin group + DM winner."""
+    """Announce in 4 places:
+    1) public msg in ห้องมีคนชัก group
+    2) public msg in admin group
+    3) DM winner (with congrats)
+    4) DM all other active participants (with their own numbers + winning + CTA)
+    """
+    import asyncio as _aio
+    from datetime import date as _date
+
     win_num = result.get("winning_number")
     winner = result.get("winner")
-    reason = result.get("reason", "")
 
     if win_num is None:
-        # No Lao data
         msg_admin = (
             "⚠️ <b>ห้องมีคนชัก — ดึงผลหวยลาวไม่สำเร็จ</b>\n"
-            f"วันที่: {date.today().strftime('%d %b %Y')}\n"
+            f"วันที่: {_date.today().strftime('%d %b %Y')}\n"
             "กรุณา manual draw"
         )
         await bot.send_message(chat_id=ADMIN_GROUP, text=msg_admin, parse_mode=ParseMode.HTML)
         return
 
+    # 1+2) public msg
     if not winner:
-        # No winner this week
         public_msg = (
             f"🎰 <b>ผลสุ่ม ห้องมีคนชัก</b>\n"
             f"━━━━━━━━━━━━━━━\n\n"
@@ -175,42 +181,100 @@ async def announce(bot: Bot, result: dict, lao_date_str: str = ""):
             "รอบหน้าจันทร์หน้า ลุ้นใหม่!\n\n"
             "🎫 ซื้อเลขใหม่ได้เลย — กด <b>🎰 กิจกรรมห้องมีคนชัก</b> ในบอท"
         )
-        await bot.send_message(chat_id=SHAKER_GROUP_CHAT_ID, text=public_msg, parse_mode=ParseMode.HTML)
-        await bot.send_message(chat_id=ADMIN_GROUP, text=public_msg, parse_mode=ParseMode.HTML)
-        return
-
-    # WINNER!
-    first_name = winner.get("first_name") or "คุณ"
-
-    public_msg = (
-        f"🎉🎉 <b>ประกาศผล ห้องมีคนชัก</b> 🎉🎉\n"
-        f"━━━━━━━━━━━━━━━\n\n"
-        f"📅 อิงหวยลาวงวด <b>{lao_date_str}</b>\n"
-        f"🎯 เลขที่ออก: <b>{win_num}</b>\n\n"
-        f"🏆 <b>ผู้โชคดี: {first_name}</b>\n"
-        f"💎 รางวัล: GOD MODE 3 เดือน (มูลค่า ฿1,299)\n\n"
-        f"✨ ระบบอัปเกรดให้แล้วอัตโนมัติ — ดูได้ทุกห้อง VIP!\n"
-        "━━━━━━━━━━━━━━━\n"
-        "ขอบคุณทุกท่านที่ร่วมสนุก 🙏\n"
-        "จันทร์หน้า — ลุ้นใหม่!"
-    )
-    await bot.send_message(chat_id=SHAKER_GROUP_CHAT_ID, text=public_msg, parse_mode=ParseMode.HTML)
-    await bot.send_message(chat_id=ADMIN_GROUP, text=public_msg, parse_mode=ParseMode.HTML)
-
-    # DM winner via SALES bot (need separate bot instance)
-    try:
-        sales_bot = Bot(SALES_BOT_TOKEN)
-        dm = (
-            f"🎉 <b>ยินดีด้วย!</b> 🎁\n\n"
-            f"คุณคือผู้โชคดีของ <b>ห้องมีคนชัก</b> สัปดาห์นี้!\n"
-            f"🎯 เลข <b>{win_num}</b> ของคุณ ตรงกับ 2 ตัวล่างหวยลาวงวด {lao_date_str}\n\n"
-            f"💎 รางวัล: <b>GOD MODE 3 เดือน</b> (มูลค่า ฿1,299)\n"
-            "✨ ระบบอัปเกรดให้แล้ว — ใช้ได้เลย\n\n"
-            "พิมพ์ /start ในบอทเพื่อรับลิงก์เข้ากลุ่ม VIP เพิ่ม"
+    else:
+        first_name = winner.get("first_name") or "คุณ"
+        public_msg = (
+            f"🎉🎉 <b>ประกาศผล ห้องมีคนชัก</b> 🎉🎉\n"
+            f"━━━━━━━━━━━━━━━\n\n"
+            f"📅 อิงหวยลาวงวด <b>{lao_date_str}</b>\n"
+            f"🎯 เลขที่ออก: <b>{win_num}</b>\n\n"
+            f"🏆 <b>ผู้โชคดี: {first_name}</b>\n"
+            f"💎 รางวัล: GOD MODE 3 เดือน (มูลค่า ฿1,299)\n\n"
+            f"✨ ระบบอัปเกรดให้แล้วอัตโนมัติ — ดูได้ทุกห้อง VIP!\n"
+            "━━━━━━━━━━━━━━━\n"
+            "ขอบคุณทุกท่านที่ร่วมสนุก 🙏\n"
+            "จันทร์หน้า — ลุ้นใหม่!"
         )
-        await sales_bot.send_message(chat_id=winner['telegram_id'], text=dm, parse_mode=ParseMode.HTML)
+
+    try:
+        await bot.send_message(chat_id=SHAKER_GROUP_CHAT_ID, text=public_msg, parse_mode=ParseMode.HTML)
     except Exception as exc:
-        logger.warning("DM winner failed: %s", exc)
+        logger.warning("send to shaker group fail: %s", exc)
+    try:
+        await bot.send_message(chat_id=ADMIN_GROUP, text=public_msg, parse_mode=ParseMode.HTML)
+    except Exception as exc:
+        logger.warning("send to admin group fail: %s", exc)
+
+    # 3+4) DM all active holders this round
+    from datetime import datetime as _dt
+    async with get_session() as s:
+        rr = await s.execute(sql_text("""
+            SELECT t.user_id, t.telegram_id, u.first_name,
+                   array_agg(t.number ORDER BY t.purchased_at) AS numbers,
+                   MAX(t.expires_at) AS last_expires
+            FROM shaker_tickets t
+            JOIN users u ON u.id = t.user_id
+            WHERE t.status IN ('ACTIVE','WON')
+              AND t.expires_at > NOW()
+              AND t.purchased_at > NOW() - INTERVAL '40 days'
+            GROUP BY t.user_id, t.telegram_id, u.first_name
+        """))
+        participants = [dict(rr2._mapping) for rr2 in rr.all()]
+
+    sales_token = SALES_BOT_TOKEN
+    sales_bot = Bot(sales_token) if sales_token else None
+    sent_win = 0
+    sent_lose = 0
+
+    for p in participants:
+        tg_id = p["telegram_id"]
+        first_name = p["first_name"] or "คุณ"
+        user_numbers = p["numbers"] or []
+        is_winner = winner and p["user_id"] == winner["user_id"]
+        days_left = max(0, (p["last_expires"] - _dt.utcnow()).days)
+        numbers_str = " ".join(f"<b>{n}</b>" for n in user_numbers)
+
+        if is_winner:
+            dm = (
+                "🎉🎉🎉 <b>ยินดีด้วย!</b> คุณคือผู้โชคดี! 🎉🎉🎉\n\n"
+                f"🎯 เลข <b>{win_num}</b> ของคุณ\n"
+                f"ตรงกับ 2 ตัวล่างหวยลาวงวด <b>{lao_date_str}</b>!\n\n"
+                "🏆 <b>รางวัล: GOD MODE 3 เดือน</b>\n"
+                "💎 มูลค่า ฿1,299\n"
+                "⏰ ใช้ได้: 90 วัน\n\n"
+                "✨ <b>ระบบอัปเกรดให้แล้วอัตโนมัติ!</b>\n"
+                "✅ เข้าทุกห้อง VIP ของระบบเจริญพร\n"
+                "✅ พิมพ์ /getlink รับลิงก์เข้ากลุ่มใหม่ทั้งหมด\n\n"
+                "🙏 ขอบคุณที่ร่วมสนุกครับ!"
+            )
+            sent_win += 1
+        else:
+            dm = (
+                f"🎰 <b>ผลสุ่ม ห้องมีคนชัก</b>\n\n"
+                f"📅 อิงหวยลาวงวด <b>{lao_date_str}</b>\n"
+                f"🎯 เลขที่ออก: <b>{win_num}</b>\n\n"
+                "━━━━━━━━━━━━━━━\n"
+                f"🎫 เลขของคุณรอบนี้: {numbers_str}\n"
+                "━━━━━━━━━━━━━━━\n\n"
+                "😢 รอบนี้ดวงไม่เข้า แต่ไม่เป็นไร!\n"
+                f"✨ เลขของคุณยัง <b>active</b> อีก {days_left} วัน\n"
+                "📅 ลุ้นใหม่ <b>จันทร์หน้า 21:00 น.</b>\n\n"
+                "💡 อยากเพิ่มโอกาสไหม?\n"
+                "🎫 ซื้อเลขเพิ่ม → กด <b>🎰 กิจกรรมห้องมีคนชัก</b> ในบอท\n\n"
+                "ขอให้โชคดีรอบหน้าครับ 🍀"
+            )
+            sent_lose += 1
+
+        try:
+            if sales_bot:
+                await sales_bot.send_message(chat_id=tg_id, text=dm, parse_mode=ParseMode.HTML)
+            else:
+                await bot.send_message(chat_id=tg_id, text=dm, parse_mode=ParseMode.HTML)
+        except Exception as exc:
+            logger.warning("DM to %s fail: %s", tg_id, exc)
+        await _aio.sleep(0.05)  # ~20 DMs/sec safe
+
+    logger.info("shaker DM sent — win=%s lose=%s", sent_win, sent_lose)
 
 
 async def run_draw_now(bot: Bot, today: Optional[date] = None):
