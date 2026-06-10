@@ -56,6 +56,7 @@ from bots.sales_bot.handlers.packages import get_package_handlers
 from bots.sales_bot.handlers.payment import get_payment_handlers
 from bots.sales_bot.handlers.referral import get_referral_handlers
 from bots.sales_bot.handlers.start import get_start_handlers
+from bots.sales_bot.handlers.gacha_credits_cmd import cmd_credits as _cmd_credits
 # FIX 2025-05-21 (Phase 2a): /getlink — customer self-service for one-time invite links
 from bots.sales_bot.handlers.getlink import get_getlink_handler
 from bots.sales_bot.handlers.support import get_support_handlers
