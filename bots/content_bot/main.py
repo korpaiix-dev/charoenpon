@@ -48,66 +48,46 @@ from shared.tz import TH_TZ
 # Authorized users ที่ส่งรูปให้ bot ได้ (from env: ADMIN_TELEGRAM_IDS)
 AUTHORIZED_SENDERS = [int(x.strip()) for x in os.environ.get("ADMIN_TELEGRAM_IDS", "8502597269").split(",") if x.strip()]
 
-# กลุ่มฟรีทั้งหมด — DYNAMIC: load จาก group_registry ทุกครั้ง
-# เพิ่มกลุ่มใน DB → content_bot เห็นทันที (ไม่ต้องแก้ code)
-_FREE_GROUPS_CACHE = None
-_FREE_GROUPS_LAST_FETCH = 0
+# กลุ่มฟรีทั้งหมด (ดู group_registry table where min_tier=FREE is_active=true)
+FREE_GROUPS = [
+    -1003733093219, -1003772512123, -1003706880995, -1003740382332,
+    -1003861673687, -1003841389411, -1003723154612, -1003981084328,
+    -1003414401674, -1003933195188, -1003831199018, -1003749804554,
+]  # static fallback — main loader is _get_free_groups_async() below
 
-async def _load_free_groups_from_db() -> list[int]:
-    """Load all active FREE groups from group_registry."""
-    from shared.database import get_session
-    from sqlalchemy import text as _sql_text
-    async with get_session() as s:
-        r = await s.execute(_sql_text("""
-            SELECT chat_id FROM group_registry
-            WHERE is_active = true AND min_tier::text = 'FREE'
-            ORDER BY id
-        """))
-        return [row[0] for row in r.all()]
 
-class _LazyFreeGroups:
-    """Drop-in replacement for the old list — auto-refresh from DB every 5 min."""
-    def __init__(self):
-        self._cache: list[int] = []
-        self._last_fetch: float = 0
-        self._ttl: float = 300  # 5 minutes
-        # Hardcoded fallback if DB unreachable
-        self._fallback = [
-            -1003733093219, -1003772512123, -1003706880995, -1003740382332,
-            -1003861673687, -1003841389411, -1003723154612, -1003981084328,
-            -1003414401674, -1003933195188, -1003831199018, -1003749804554,
-        ]
+async def _get_free_groups_async() -> list[int]:
+    """Load active FREE groups from group_registry (DB).
 
-    def _refresh_sync(self) -> list[int]:
-        import asyncio as _a, time as _t
-        if (_t.time() - self._last_fetch) < self._ttl and self._cache:
-            return self._cache
-        try:
-            # Run async in sync context (jobs do this)
-            loop = _a.new_event_loop()
-            try:
-                groups = loop.run_until_complete(_load_free_groups_from_db())
-            finally:
-                loop.close()
-            if groups:
-                self._cache = groups
-                self._last_fetch = _t.time()
-                return groups
-        except Exception as exc:
-            import logging as _l
-            _l.getLogger(__name__).warning("Free groups DB load failed: %s — using fallback", exc)
-        return self._cache or self._fallback
-
-    def __iter__(self):
-        return iter(self._refresh_sync())
-
-    def __len__(self):
-        return len(self._refresh_sync())
-
-    def __getitem__(self, idx):
-        return self._refresh_sync()[idx]
-
-FREE_GROUPS = _LazyFreeGroups()
+    Returns full list — replaces hardcoded FREE_GROUPS. Caches 5 min.
+    Falls back to static FREE_GROUPS if DB unreachable.
+    """
+    import time as _t
+    _cache_attr = "_free_groups_cache"
+    _ts_attr = "_free_groups_ts"
+    state = globals()
+    cache = state.get(_cache_attr)
+    ts = state.get(_ts_attr, 0)
+    if cache and (_t.time() - ts) < 300:
+        return cache
+    try:
+        from shared.database import get_session as _gs
+        from sqlalchemy import text as _t_sql
+        async with _gs() as _s:
+            r = await _s.execute(_t_sql("""
+                SELECT chat_id FROM group_registry
+                WHERE is_active = true AND min_tier::text = 'FREE'
+                ORDER BY id
+            """))
+            groups = [row[0] for row in r.all()]
+        if groups:
+            state[_cache_attr] = groups
+            state[_ts_attr] = _t.time()
+            logger.info("Loaded %d FREE groups from DB", len(groups))
+            return groups
+    except Exception as exc:
+        logger.warning("FREE_GROUPS DB load failed: %s — using static fallback", exc)
+    return FREE_GROUPS
 
 AI_MODEL = "anthropic/claude-haiku-3-5"
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
@@ -644,11 +624,12 @@ async def post_endmonth_god_promo_to_free_groups(context: ContextTypes.DEFAULT_T
         return
 
     bot = context.bot
+    free_groups = await _get_free_groups_async()
     success = 0
     failed = 0
-    logger.info("Starting GOD MODE 2499->2000 promo post to %d groups", len(FREE_GROUPS))
+    logger.info("Starting GOD MODE 2499->2000 promo post to %d groups", len(free_groups))
 
-    for group_index, group_id in enumerate(FREE_GROUPS):
+    for group_index, group_id in enumerate(free_groups):
         caption = get_group_2499_promo_caption(group_index)
         try:
             if os.path.exists(PROMO_2499_IMAGE_PATH):
@@ -676,7 +657,7 @@ async def post_endmonth_god_promo_to_free_groups(context: ContextTypes.DEFAULT_T
     await _send_discord_content_log(
         f"💎 **Content Bot: GOD MODE Promo Round Complete**\n"
         f"โปร 2,499 เหลือ 2,000 ถึงสิ้นเดือน\n"
-        f"✅ Success: {success} / ❌ Failed: {failed} / Total: {len(FREE_GROUPS)} groups"
+        f"✅ Success: {success} / ❌ Failed: {failed} / Total: {len(free_groups)} groups"
     )
 
 
@@ -690,9 +671,10 @@ async def post_vip_promo_to_free_groups(context: ContextTypes.DEFAULT_TYPE) -> N
     Uses campaign image 01_welcome.png + rotated Thai captions.
     """
     bot = context.bot
+    free_groups = await _get_free_groups_async()
     success = 0
     failed = 0
-    logger.info("Starting VIP promo post to %d groups", len(FREE_GROUPS))
+    logger.info("Starting VIP promo post to %d groups", len(free_groups))
 
     # Find welcome image (relative path inside container = /app/assets/campaigns/01_welcome.png)
     from pathlib import Path as _P
@@ -710,7 +692,7 @@ async def post_vip_promo_to_free_groups(context: ContextTypes.DEFAULT_TYPE) -> N
     import random as _r
     caption = _r.choice(vip_captions)
 
-    for group_index, group_id in enumerate(FREE_GROUPS):
+    for group_index, group_id in enumerate(free_groups):
         try:
             if img_path.exists():
                 with open(img_path, "rb") as _f:
@@ -729,17 +711,18 @@ async def post_vip_promo_to_free_groups(context: ContextTypes.DEFAULT_TYPE) -> N
             failed += 1
             logger.warning("VIP promo failed group %d: %s", group_id, exc)
 
-    logger.info("VIP promo round done: %d/%d", success, len(FREE_GROUPS))
+    logger.info("VIP promo round done: %d/%d", success, len(free_groups))
     try:
         await _send_discord_content_log(
             f"💎 **VIP Promo Round Complete**\n"
-            f"✅ {success} / ❌ {failed} / Total {len(FREE_GROUPS)} groups"
+            f"✅ {success} / ❌ {failed} / Total {len(free_groups)} groups"
         )
     except Exception:
         pass
 
 
 async def post_teaser_to_free_groups(context: ContextTypes.DEFAULT_TYPE) -> None:
+    free_groups = await _get_free_groups_async()  # NEW: dynamic DB load
     """โพสต์ teaser (ข้อความอย่างเดียว) ไปทุกกลุ่มฟรี."""
     bot = context.bot
     round_time = get_round_time()
@@ -750,7 +733,7 @@ async def post_teaser_to_free_groups(context: ContextTypes.DEFAULT_TYPE) -> None
     success = 0
     failed = 0
 
-    for group_index, group_id in enumerate(FREE_GROUPS):
+    for group_index, group_id in enumerate(free_groups):
         full_caption = build_caption(base_caption, round_time, group_index)
         try:
             await bot.send_message(
@@ -771,7 +754,7 @@ async def post_teaser_to_free_groups(context: ContextTypes.DEFAULT_TYPE) -> None
     await _send_discord_content_log(
         f"📢 **Content Bot: Teaser Round Complete** [round={round_time}]\n"
         f"📝 Style: {caption_style}\n"
-        f"✅ Success: {success} / ❌ Failed: {failed} / Total: {len(FREE_GROUPS)} groups"
+        f"✅ Success: {success} / ❌ Failed: {failed} / Total: {len(free_groups)} groups"
     )
 
 
@@ -795,7 +778,7 @@ async def post_teaser_with_image(context: ContextTypes.DEFAULT_TYPE, content_id:
         return
 
     success = 0
-    for group_index, group_id in enumerate(FREE_GROUPS):
+    for group_index, group_id in enumerate(free_groups):
         full_caption = build_caption(base_caption, round_time, group_index)
         try:
             blurred_buf.seek(0)
@@ -811,8 +794,8 @@ async def post_teaser_with_image(context: ContextTypes.DEFAULT_TYPE, content_id:
         except Exception as exc:
             logger.error("Failed to post image to group %d: %s", group_id, exc)
 
-    failed_img = len(FREE_GROUPS) - success
-    logger.info("Image teaser round done: %d/%d (style=%s)", success, len(FREE_GROUPS), caption_style)
+    failed_img = len(free_groups) - success
+    logger.info("Image teaser round done: %d/%d (style=%s)", success, len(free_groups), caption_style)
 
     if success > 0:
         await mark_content_used(content_id)
@@ -821,7 +804,7 @@ async def post_teaser_with_image(context: ContextTypes.DEFAULT_TYPE, content_id:
     await _send_discord_content_log(
         f"🖼️ **Content Bot: Image Teaser Round Complete** [round={round_time}]\n"
         f"📝 Style: {caption_style}\n"
-        f"✅ Success: {success} / ❌ Failed: {failed_img} / Total: {len(FREE_GROUPS)} groups"
+        f"✅ Success: {success} / ❌ Failed: {failed_img} / Total: {len(free_groups)} groups"
     )
 
 
@@ -863,7 +846,7 @@ async def post_teaser_album(context: ContextTypes.DEFAULT_TYPE, contents: list[d
         return
 
     success = 0
-    for group_index, group_id in enumerate(FREE_GROUPS):
+    for group_index, group_id in enumerate(free_groups):
         full_caption = build_caption(base_caption, round_time, group_index)
 
         # สร้าง media group ใหม่ทุกกลุ่ม (ต้อง seek(0) ทุกรอบ)
@@ -898,8 +881,8 @@ async def post_teaser_album(context: ContextTypes.DEFAULT_TYPE, contents: list[d
             except Exception as exc2:
                 logger.error("Fallback single photo also failed for group %d: %s", group_id, exc2)
 
-    failed_count = len(FREE_GROUPS) - success
-    logger.info("Album teaser round done: %d/%d groups (style=%s)", success, len(FREE_GROUPS), caption_style)
+    failed_count = len(free_groups) - success
+    logger.info("Album teaser round done: %d/%d groups (style=%s)", success, len(free_groups), caption_style)
 
     if success > 0:
         for content_id, _ in blurred_items:
@@ -909,7 +892,7 @@ async def post_teaser_album(context: ContextTypes.DEFAULT_TYPE, contents: list[d
     await _send_discord_content_log(
         f"🖼️ **Content Bot: Album Teaser Round Complete** [round={round_time}]\n"
         f"📝 Style: {caption_style} | 📸 Album: {len(blurred_items)} images\n"
-        f"✅ Success: {success} / ❌ Failed: {failed_count} / Total: {len(FREE_GROUPS)} groups"
+        f"✅ Success: {success} / ❌ Failed: {failed_count} / Total: {len(free_groups)} groups"
     )
 
 
@@ -1386,7 +1369,7 @@ def main() -> None:
     # for i, t in enumerate(auto_fetch_times):
     #     job_queue.run_daily(_scheduled_auto_fetch, time=t, name=f"auto_fetch_{i}")
 
-    logger.info("Content Bot (มิน) starting — 5 rounds/day to %d groups", len(FREE_GROUPS))
+    logger.info("Content Bot (มิน) starting — 5 rounds/day to %d groups", len(free_groups))
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
