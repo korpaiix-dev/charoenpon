@@ -68,6 +68,7 @@ class GroupSlug(str, enum.Enum):
     FREE15 = "FREE15"
     FREE16 = "FREE16"
     FREE17 = "FREE17"
+    FREE18 = "FREE18"
     STORAGE = "STORAGE"
     SHAKER = "SHAKER"
 
