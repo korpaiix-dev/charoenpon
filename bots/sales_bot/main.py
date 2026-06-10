@@ -76,6 +76,7 @@ from bots.sales_bot.promo_scheduler import (
 from bots.sales_bot.spam_filter import spam_filter_middleware
 from bots.sales_bot.handlers.referral import send_referral_reminder
 from bots.sales_bot.daily_report import send_daily_report
+from bots.sales_bot.handlers.birthday_upgrade import get_birthday_upgrade_handlers
 from bots.sales_bot.preview_generator import run_preview_generator_job, ensure_tables as ensure_preview_tables
 # DEAD (Phase 1) from bots.sales_bot.free_group_poster import post_to_free_groups
 from bots.sales_bot.retention_alert import run_retention_alert_job
@@ -242,6 +243,10 @@ def create_application() -> Application:
         app.add_handler(handler, group=0)
 
     for handler in get_package_handlers():
+        app.add_handler(handler, group=0)
+
+    # Birthday Promo /upgrade — เฉพาะลูกค้าที่มี birthday_upgrade_offers
+    for handler in get_birthday_upgrade_handlers():
         app.add_handler(handler, group=0)
 
     for handler in get_payment_handlers():

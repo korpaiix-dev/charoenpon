@@ -39,6 +39,8 @@ TIER_PRICES: dict[str, Decimal] = {
     "1299": Decimal("1299"),    # TIER_1299 — GOD 90 d
     "2499": Decimal("2499"),    # TIER_2499 — GOD lifetime
     "ADD500": Decimal("500"),   # TIER_ADD500 — Summer Fest add-on
+    "BIRTHDAY_1299": Decimal("899"),   # Birthday upgrade GOD 3m (only via /upgrade)
+    "BIRTHDAY_2499": Decimal("1999"),  # Birthday upgrade GOD lifetime (only via /upgrade)
 }
 
 # tier_str → PackageTier enum (imported lazily to avoid circular imports)
@@ -50,6 +52,8 @@ def tier_str_to_enum(tier_str: str):
         "1299": PackageTier.TIER_1299,
         "2499": PackageTier.TIER_2499,
         "ADD500": PackageTier.TIER_ADD500,
+        "BIRTHDAY_1299": PackageTier.TIER_1299,
+        "BIRTHDAY_2499": PackageTier.TIER_2499,
     }.get(tier_str)
 
 
@@ -187,7 +191,9 @@ def amount_to_tier(amount) -> Optional[tuple[str, str, bool]]:
         199:  ("300",  "Flash Sale", False),       # legacy 199 = flash
         300:  ("300",  "VIP 30 วัน", False),
         500:  ("500",  "OnlyFans+VIP 30 วัน", False),
+        899:  ("BIRTHDAY_1299", "Birthday GOD 3M", True),
         1299: ("1299", "GOD MODE 90 วัน", False),
+        1999: ("BIRTHDAY_2499", "Birthday GOD ถาวร", True),
         2499: ("2499", "GOD MODE ถาวร", False),
     }
     if amt in base_map:

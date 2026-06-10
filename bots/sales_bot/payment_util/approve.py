@@ -57,6 +57,30 @@ async def _approve_payment(
         package = pkg_result.scalar_one()
         package_id = package.id
 
+        # ─── Birthday Upgrade bonus: calc days remaining in TIER_500 before expiring it ───
+        _birthday_bonus_days = 0
+        _birthday_offer_id = None
+        try:
+            from sqlalchemy import text as _sql_text
+            _r = await session.execute(_sql_text("""
+                SELECT bo.id AS offer_id,
+                       GREATEST(0, EXTRACT(DAY FROM sub.end_date - NOW()))::int AS days
+                FROM birthday_upgrade_offers bo
+                JOIN users u ON u.id = bo.user_id
+                LEFT JOIN subscriptions sub ON sub.user_id = bo.user_id
+                     AND sub.status = 'ACTIVE'
+                     AND sub.end_date > NOW()
+                LEFT JOIN packages pk ON pk.id = sub.package_id AND pk.tier = 'TIER_500'
+                WHERE u.id = :uid AND bo.expires_at > NOW() AND bo.upgraded_to_tier IS NULL
+                ORDER BY sub.end_date DESC LIMIT 1
+            """), {"uid": db_payment.user_id})
+            _row = _r.fetchone()
+            if _row and _row.offer_id:
+                _birthday_offer_id = int(_row.offer_id)
+                _birthday_bonus_days = int(_row.days or 0)
+        except Exception as _exc_bd:
+            logger.warning("Birthday bonus lookup failed: %s", _exc_bd)
+
         # Expire existing active subscriptions (prevent duplicates)
         # BUT skip lifetime subs when buying add-on packages
         from sqlalchemy import update as sa_update_dup
@@ -100,6 +124,11 @@ async def _approve_payment(
             end_date = now + timedelta(hours=24)
         else:
             end_date = now + timedelta(days=package.duration_days)
+        # Apply Birthday bonus (rolling-over remaining days from TIER_500)
+        if _birthday_bonus_days > 0 and package.tier == PackageTier.TIER_1299:
+            end_date = end_date + timedelta(days=_birthday_bonus_days)
+            logger.info("Birthday upgrade: +%s days bonus (TIER_500 remaining) for user %s",
+                       _birthday_bonus_days, db_payment.user_id)
         sub = Subscription(
             user_id=db_payment.user_id,
             package_id=package.id,
@@ -110,6 +139,24 @@ async def _approve_payment(
         )
         session.add(sub)
         await session.flush()
+
+        # Mark birthday offer as used (if applicable)
+        if _birthday_offer_id and package.tier in (PackageTier.TIER_1299, PackageTier.TIER_2499):
+            try:
+                await session.execute(_sql_text("""
+                    UPDATE birthday_upgrade_offers
+                    SET upgraded_to_tier = :tier,
+                        upgraded_at = NOW(),
+                        payment_id = :pid
+                    WHERE id = :oid
+                """), {
+                    "tier": package.tier.value,
+                    "pid": db_payment.id,
+                    "oid": _birthday_offer_id,
+                })
+                logger.info("Birthday offer %s marked upgraded → %s", _birthday_offer_id, package.tier.value)
+            except Exception as _exc_mark:
+                logger.warning("Birthday offer mark fail: %s", _exc_mark)
 
     # สร้าง one-time invite link ผ่าน Guardian Bot
     # ใช้ Guardian Bot (ที่เป็น admin ของกลุ่ม) สร้าง invite link
