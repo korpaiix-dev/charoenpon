@@ -1,11 +1,11 @@
 """ห้องมีคนชัก — Lottery group ฿100/month.
 
 Flow:
-- /shaker → แสดงข้อมูล + ปุ่มซื้อ
-- User กดซื้อ → ระบบหาเลขว่าง (00-99) → set selected_tier='100' + เก็บเลขใน user_data
-- User โอน 100 → Slip2Go verify → _approve_payment เห็น tier='100' → branch SHAKER:
-  - INSERT shaker_tickets (number assigned)
-  - Subscription TIER_100 30 วัน (already in normal flow via Package)
+- /shaker หรือ ปุ่ม view_shaker → แสดงข้อมูล + ปุ่มซื้อ
+- ลูกค้ากดซื้อ → ระบบหาเลขว่าง → set selected_tier='100' + shaker_count
+- ลูกค้าโอน 100 × N → Slip2Go verify → _approve_payment เห็น tier='100' → SHAKER branch:
+  - INSERT shaker_tickets (random unique numbers from pool)
+  - Subscription TIER_100 30 วัน (normal flow via Package)
 - /myticket → ดูเลขทั้งหมดของ user
 """
 from __future__ import annotations
@@ -52,37 +52,88 @@ async def _user_tickets(telegram_id: int) -> list[dict]:
         return [dict(row._mapping) for row in r.all()]
 
 
+def _build_main_caption(available: int) -> str:
+    """Build the main 'ห้องมีคนชัก' caption with dynamic available count."""
+    lines = [
+        "🎰 <b>กิจกรรมห้องมีคนชัก</b>",
+        "━━━━━━━━━━━━━━━",
+        "",
+        "💎 <b>จ่าย ฿100 — ได้ครบ 3 อย่าง:</b>",
+        "",
+        "🎫 <b>1) เลขลุ้น 1 ตัว (00-99)</b>",
+        "   → ลุ้นทุกจันทร์ตลอด 30 วัน (รวม 4 ครั้ง!)",
+        "",
+        "🏠 <b>2) เข้ากลุ่ม \"ห้องมีคนชัก\" 30 วัน</b>",
+        "   → ติดตามข่าวสาร ดูคอนเทนต์พิเศษ งานทางบ้าน นร นศ",
+        "",
+        "🏆 <b>3) สิทธิ์ลุ้น GOD MODE 3 เดือน</b>",
+        "   → มูลค่า ฿1,299 — คุ้มเกินคุ้ม!",
+        "",
+        "━━━━━━━━━━━━━━━",
+        "🎯 <b>ซื้อหลายใบ = เพิ่มโอกาส</b>",
+        "• 1 ใบ → 1%",
+        "• 2 ใบ → 2%",
+        "• 5 ใบ → 5%",
+        "",
+        "📋 <b>วิธีเล่น:</b>",
+        "1️⃣ กดปุ่มซื้อด้านล่าง",
+        "2️⃣ โอนเงินตามที่ระบบแจ้ง",
+        "3️⃣ ส่งสลิป → รับเลขทันที ⚡",
+        "4️⃣ ลุ้นทุกจันทร์ 12:00 น.",
+        "",
+        "💡 <b>ถ้าถูกรางวัล:</b>",
+        "✅ ได้ GOD 3 เดือนทันที (ใช้ดูทุกห้อง VIP)",
+        "✅ ระหว่างใช้ GOD จะพักการลุ้นไว้ก่อน",
+        "✅ พอ GOD หมด — กลับมาลุ้นใหม่ได้",
+        "",
+        "🎫 <b>เลขที่เหลือ:</b> " + str(available) + "/100 ใบ",
+        "⚠️ จำกัด 100 ใบ/รอบ — รีบเลือก!",
+    ]
+    return "\n".join(lines)
+
+
+def _build_buy_keyboard(available: int, *, with_back: bool = False) -> InlineKeyboardMarkup:
+    if available == 0:
+        rows = []
+    else:
+        rows = [
+            [InlineKeyboardButton("🎫 ซื้อ 1 ใบ ฿100", callback_data="shaker_buy_1")],
+            [InlineKeyboardButton("🎫🎫 ซื้อ 2 ใบ ฿200", callback_data="shaker_buy_2")],
+            [InlineKeyboardButton("🎫🎫🎫 ซื้อ 5 ใบ ฿500", callback_data="shaker_buy_5")],
+        ]
+    if with_back:
+        rows.append([InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")])
+    return InlineKeyboardMarkup(rows)
+
+
 async def cmd_shaker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/shaker command — direct entry."""
     if not update.message:
         return
     pool = await _pool_status()
-    msg = (
-        "🎲 <b>ห้องมีคนชัก — ลอตเตอรี่กลุ่ม VIP</b>\n"
-        "━━━━━━━━━━━━━━━\n\n"
-        "💰 ราคา: <b>฿100</b> / ใบ\n"
-        "⏰ สิทธิ์เข้ากลุ่ม: <b>30 วัน</b>\n"
-        f"🎫 เลขที่เหลือ: <b>{pool['available']}/{pool['total']}</b>\n\n"
-        "━━━━━━━━━━━━━━━\n"
-        "🎁 <b>รางวัล: GOD MODE 3 เดือน</b> (มูลค่า ฿1,299)\n"
-        "📅 สุ่มทุกวัน <b>จันทร์ 12:00 น.</b>\n"
-        "🎯 โอกาสถูก: <b>1%</b> ต่อ 1 ใบ\n\n"
-        "📋 <b>กฎ:</b>\n"
-        "• ระบบสุ่มเลขให้อัตโนมัติ (ไม่ซ้ำ)\n"
-        "• ซื้อกี่ใบก็ได้ — เพิ่มโอกาส\n"
-        "• ผู้ถูกรางวัล lock 90 วัน (ขณะใช้ GOD 3 เดือน)\n\n"
-    )
-    if pool['available'] == 0:
-        msg += "⚠️ <b>เลขเต็มแล้ว!</b> รอรอบใหม่สัปดาห์หน้า"
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📋 ดูเลขของฉัน /myticket", callback_data="shaker_myticket")],
-        ])
-    else:
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"🎫 ซื้อ 1 ใบ ฿100", callback_data="shaker_buy_1")],
-            [InlineKeyboardButton(f"🎫🎫 ซื้อ 2 ใบ ฿200", callback_data="shaker_buy_2")],
-            [InlineKeyboardButton(f"🎫🎫🎫 ซื้อ 5 ใบ ฿500", callback_data="shaker_buy_5")],
-        ])
+    msg = _build_main_caption(pool["available"])
+    if pool["available"] == 0:
+        msg += "\n\n⚠️ <b>เลขเต็มแล้ว!</b> รอรอบใหม่สัปดาห์หน้า"
+    kb = _build_buy_keyboard(pool["available"], with_back=False)
     await update.message.reply_text(msg, parse_mode="HTML", reply_markup=kb)
+
+
+async def cb_view_shaker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Callback for main menu 'กิจกรรมห้องมีคนชัก' button."""
+    q = update.callback_query
+    await q.answer()
+    if not q.message or not q.from_user:
+        return
+    pool = await _pool_status()
+    msg = _build_main_caption(pool["available"])
+    if pool["available"] == 0:
+        msg += "\n\n⚠️ <b>เลขเต็มแล้ว!</b> รอรอบใหม่สัปดาห์หน้า"
+    kb = _build_buy_keyboard(pool["available"], with_back=True)
+    try:
+        await q.edit_message_text(msg, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        # original may be a photo — send new
+        await q.message.reply_text(msg, parse_mode="HTML", reply_markup=kb)
 
 
 async def cmd_myticket(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -92,15 +143,15 @@ async def cmd_myticket(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not tickets:
         await update.message.reply_text(
             "❌ คุณยังไม่มีเลขลอตเตอรี่ค่ะ\n\n"
-            "พิมพ์ /shaker เพื่อซื้อเลขลุ้น GOD MODE 3 เดือน 🎁",
+            "กด <b>🎰 กิจกรรมห้องมีคนชัก</b> ในเมนู หรือพิมพ์ /shaker",
             parse_mode="HTML",
         )
         return
     lines = ["🎫 <b>เลขของคุณ — ห้องมีคนชัก</b>", "━━━━━━━━━━━━━━━", ""]
     for t in tickets:
-        exp = t['expires_at'].strftime("%d %b %Y")
-        status_emoji = "🟢" if t['status'] == 'ACTIVE' else "🏆"
-        status_th = "กำลังลุ้น" if t['status'] == 'ACTIVE' else "ถูกรางวัล!"
+        exp = t["expires_at"].strftime("%d %b %Y")
+        status_emoji = "🟢" if t["status"] == "ACTIVE" else "🏆"
+        status_th = "กำลังลุ้น" if t["status"] == "ACTIVE" else "ถูกรางวัล!"
         lines.append(f"{status_emoji} เลข <b>{t['number']}</b> — {status_th}  (ถึง {exp})")
     lines.append("")
     lines.append("📅 สุ่มทุก<b>จันทร์ 12:00 น.</b>")
@@ -113,18 +164,17 @@ async def cb_shaker_buy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await q.answer()
     if not q.from_user:
         return
-    # data: shaker_buy_<n>
     n = int(q.data.rsplit("_", 1)[1])
     price = 100 * n
     pool = await _pool_status()
-    if pool['available'] < n:
+    if pool["available"] < n:
         await q.edit_message_text(
             f"⚠️ เลขในระบบเหลือ {pool['available']} ใบเท่านั้นค่ะ\n"
             "กรุณาลดจำนวนลง หรือลองอีกครั้งสัปดาห์หน้า",
         )
         return
-    context.user_data['selected_tier'] = '100'
-    context.user_data['shaker_count'] = n
+    context.user_data["selected_tier"] = "100"
+    context.user_data["shaker_count"] = n
 
     from shared.receiver_pool import pick_random
     acct = await pick_random()
@@ -146,51 +196,6 @@ async def cb_shaker_buy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "⚡ ระบบจะสุ่มเลขให้อัตโนมัติทันที"
     )
     await q.edit_message_text(msg, parse_mode="HTML")
-
-
-async def cb_view_shaker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Callback for main menu 'ห้องมีคนชัก' button."""
-    q = update.callback_query
-    await q.answer()
-    if not q.message or not q.from_user:
-        return
-    pool = await _pool_status()
-    parts = [
-        "🎲 <b>ห้องมีคนชัก — ลอตเตอรี่กลุ่ม VIP</b>",
-        "━━━━━━━━━━━━━━━",
-        "",
-        "💰 ราคา: <b>฿100</b> / ใบ",
-        "⏰ สิทธิ์เข้ากลุ่ม: <b>30 วัน</b>",
-        f"🎫 เลขที่เหลือ: <b>{pool['available']}/{pool['total']}</b>",
-        "",
-        "━━━━━━━━━━━━━━━",
-        "🎁 <b>รางวัล: GOD MODE 3 เดือน</b> (มูลค่า ฿1,299)",
-        "📅 สุ่มทุกวัน <b>จันทร์ 12:00 น.</b>",
-        "🎯 โอกาสถูก: <b>1%</b> ต่อ 1 ใบ",
-        "",
-        "📋 <b>กฎ:</b>",
-        "• ระบบสุ่มเลขให้อัตโนมัติ (ไม่ซ้ำ)",
-        "• ซื้อกี่ใบก็ได้ — เพิ่มโอกาส",
-        "• ผู้ถูกรางวัล lock 90 วัน (ขณะใช้ GOD 3 เดือน)",
-        "",
-    ]
-    msg = "\n".join(parts)
-    if pool['available'] == 0:
-        msg += "⚠️ <b>เลขเต็มแล้ว!</b> รอรอบใหม่สัปดาห์หน้า"
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
-        ])
-    else:
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🎫 ซื้อ 1 ใบ ฿100", callback_data="shaker_buy_1")],
-            [InlineKeyboardButton("🎫🎫 ซื้อ 2 ใบ ฿200", callback_data="shaker_buy_2")],
-            [InlineKeyboardButton("🎫🎫🎫 ซื้อ 5 ใบ ฿500", callback_data="shaker_buy_5")],
-            [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
-        ])
-    try:
-        await q.edit_message_text(msg, parse_mode="HTML", reply_markup=kb)
-    except Exception:
-        await q.message.reply_text(msg, parse_mode="HTML", reply_markup=kb)
 
 
 def get_shaker_handlers() -> list:
@@ -221,4 +226,7 @@ async def assign_shaker_numbers(user_id: int, telegram_id: int, count: int, paym
     return chosen
 
 
-__all__ = ["cmd_shaker", "cmd_myticket", "cb_shaker_buy", "get_shaker_handlers", "assign_shaker_numbers", "cb_view_shaker"]
+__all__ = [
+    "cmd_shaker", "cmd_myticket", "cb_shaker_buy", "cb_view_shaker",
+    "get_shaker_handlers", "assign_shaker_numbers",
+]
