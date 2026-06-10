@@ -48,21 +48,66 @@ from shared.tz import TH_TZ
 # Authorized users ที่ส่งรูปให้ bot ได้ (from env: ADMIN_TELEGRAM_IDS)
 AUTHORIZED_SENDERS = [int(x.strip()) for x in os.environ.get("ADMIN_TELEGRAM_IDS", "8502597269").split(",") if x.strip()]
 
-# กลุ่มฟรีทั้งหมด (ดู group_registry table where min_tier=FREE is_active=true)
-FREE_GROUPS = [
-    -1003733093219,  # FREE3 ไทยเอามัน
-    -1003772512123,  # FREE4 เย็ดมัน
-    -1003706880995,  # FREE5 วุ่ยหนุ่ม
-    -1003740382332,  # FREE6 นักตำแตก
-    -1003861673687,  # FREE7 ตรงนี้มีกี
-    -1003841389411,  # FREE8 มาดูไรกัน
-    -1003723154612,  # FREE10 โห่โห่ซ้อ
-    -1003981084328,  # ANNOUNCE_1 กลุ่มกลางแจ้งข่าว
-    -1003414401674,  # FREE12 มุมดีมุมเด็ด  (ADDED 2026-06-02)
-    -1003933195188,  # FREE13 เสรี เจริญพร  (ADDED 2026-06-02)
-    -1003831199018,  # FREE14 สาวน่ารัก       (ADDED 2026-06-02)
-    -1003749804554,  # FREE15 ตั๋งVIP          (ADDED 2026-06-02)
-]
+# กลุ่มฟรีทั้งหมด — DYNAMIC: load จาก group_registry ทุกครั้ง
+# เพิ่มกลุ่มใน DB → content_bot เห็นทันที (ไม่ต้องแก้ code)
+_FREE_GROUPS_CACHE = None
+_FREE_GROUPS_LAST_FETCH = 0
+
+async def _load_free_groups_from_db() -> list[int]:
+    """Load all active FREE groups from group_registry."""
+    from shared.database import get_session
+    from sqlalchemy import text as _sql_text
+    async with get_session() as s:
+        r = await s.execute(_sql_text("""
+            SELECT chat_id FROM group_registry
+            WHERE is_active = true AND min_tier::text = 'FREE'
+            ORDER BY id
+        """))
+        return [row[0] for row in r.all()]
+
+class _LazyFreeGroups:
+    """Drop-in replacement for the old list — auto-refresh from DB every 5 min."""
+    def __init__(self):
+        self._cache: list[int] = []
+        self._last_fetch: float = 0
+        self._ttl: float = 300  # 5 minutes
+        # Hardcoded fallback if DB unreachable
+        self._fallback = [
+            -1003733093219, -1003772512123, -1003706880995, -1003740382332,
+            -1003861673687, -1003841389411, -1003723154612, -1003981084328,
+            -1003414401674, -1003933195188, -1003831199018, -1003749804554,
+        ]
+
+    def _refresh_sync(self) -> list[int]:
+        import asyncio as _a, time as _t
+        if (_t.time() - self._last_fetch) < self._ttl and self._cache:
+            return self._cache
+        try:
+            # Run async in sync context (jobs do this)
+            loop = _a.new_event_loop()
+            try:
+                groups = loop.run_until_complete(_load_free_groups_from_db())
+            finally:
+                loop.close()
+            if groups:
+                self._cache = groups
+                self._last_fetch = _t.time()
+                return groups
+        except Exception as exc:
+            import logging as _l
+            _l.getLogger(__name__).warning("Free groups DB load failed: %s — using fallback", exc)
+        return self._cache or self._fallback
+
+    def __iter__(self):
+        return iter(self._refresh_sync())
+
+    def __len__(self):
+        return len(self._refresh_sync())
+
+    def __getitem__(self, idx):
+        return self._refresh_sync()[idx]
+
+FREE_GROUPS = _LazyFreeGroups()
 
 AI_MODEL = "anthropic/claude-haiku-3-5"
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
