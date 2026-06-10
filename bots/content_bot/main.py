@@ -1369,7 +1369,7 @@ def main() -> None:
     # for i, t in enumerate(auto_fetch_times):
     #     job_queue.run_daily(_scheduled_auto_fetch, time=t, name=f"auto_fetch_{i}")
 
-    logger.info("Content Bot (มิน) starting — 5 rounds/day to %d groups", len(free_groups))
+    logger.info("Content Bot (มิน) starting — 5 rounds/day to %d groups", len(FREE_GROUPS))
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
