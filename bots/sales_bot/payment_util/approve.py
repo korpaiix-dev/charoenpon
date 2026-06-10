@@ -140,6 +140,22 @@ async def _approve_payment(
         session.add(sub)
         await session.flush()
 
+        # SHAKER lottery: assign unique numbers per ticket purchased
+        if package.tier == PackageTier.TIER_100:
+            try:
+                from bots.sales_bot.handlers.shaker import assign_shaker_numbers
+                # Number of tickets = payment.amount / 100 (1 baht = 0.01 ticket)
+                ticket_count = max(1, int(float(db_payment.amount) // 100))
+                _shaker_nums = await assign_shaker_numbers(
+                    db_payment.user_id, user_telegram_id, ticket_count, db_payment.id,
+                )
+                logger.info("SHAKER: user %s got %s number(s): %s",
+                           db_payment.user_id, ticket_count, _shaker_nums)
+                # stash for caller to include in confirmation msg
+                invite_links.insert(0, f"🎫 เลขลุ้น: {' '.join(_shaker_nums)}")
+            except Exception as _exc_sh:
+                logger.error("SHAKER number assignment failed: %s", _exc_sh)
+
         # Mark birthday offer as used (if applicable)
         if _birthday_offer_id and package.tier in (PackageTier.TIER_1299, PackageTier.TIER_2499):
             try:
