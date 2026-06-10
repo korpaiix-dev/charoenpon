@@ -33,6 +33,7 @@ class Base(DeclarativeBase):
 class PackageTier(str, enum.Enum):
     FREE = "FREE"
     TIER_99 = "99"
+    TIER_100 = "TIER_100"
     TIER_300 = "300"
     TIER_500 = "500"
     TIER_1299 = "1299"
@@ -68,6 +69,7 @@ class GroupSlug(str, enum.Enum):
     FREE16 = "FREE16"
     FREE17 = "FREE17"
     STORAGE = "STORAGE"
+    SHAKER = "SHAKER"
 
 
 class PaymentStatus(str, enum.Enum):

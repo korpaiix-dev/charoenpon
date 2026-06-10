@@ -38,6 +38,7 @@ TIER_PRICES: dict[str, Decimal] = {
     "500":  Decimal("500"),     # TIER_500  — OF+VIP 30 d
     "1299": Decimal("1299"),    # TIER_1299 — GOD 90 d
     "2499": Decimal("2499"),    # TIER_2499 — GOD lifetime
+    "100":  Decimal("100"),     # TIER_100  — VIPมีคนชัก lottery
     "ADD500": Decimal("500"),   # TIER_ADD500 — Summer Fest add-on
     "BIRTHDAY_1299": Decimal("899"),   # Birthday upgrade GOD 3m (only via /upgrade)
     "BIRTHDAY_2499": Decimal("1999"),  # Birthday upgrade GOD lifetime (only via /upgrade)
@@ -48,6 +49,7 @@ def tier_str_to_enum(tier_str: str):
     from shared.models import PackageTier
     return {
         "300":  PackageTier.TIER_300,
+        "100":  PackageTier.TIER_100,
         "500":  PackageTier.TIER_500,
         "1299": PackageTier.TIER_1299,
         "2499": PackageTier.TIER_2499,
@@ -188,6 +190,7 @@ def amount_to_tier(amount) -> Optional[tuple[str, str, bool]]:
     amt = int(Decimal(amount))
     # Base prices always match
     base_map = {
+        100:  ("100",  "VIPมีคนชัก", False),
         199:  ("300",  "Flash Sale", False),       # legacy 199 = flash
         300:  ("300",  "VIP 30 วัน", False),
         500:  ("500",  "OnlyFans+VIP 30 วัน", False),
