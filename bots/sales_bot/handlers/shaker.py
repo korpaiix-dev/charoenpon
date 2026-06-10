@@ -79,7 +79,7 @@ def _build_main_caption(available: int) -> str:
         "1️⃣ กดปุ่มซื้อด้านล่าง",
         "2️⃣ โอนเงินตามที่ระบบแจ้ง",
         "3️⃣ ส่งสลิป → รับเลขทันที ⚡",
-        "4️⃣ ลุ้นทุกจันทร์ 12:00 น.",
+        "4️⃣ ลุ้นทุกจันทร์ 21:00 น. (อิงหวยลาว)",
         "",
         "💡 <b>ถ้าถูกรางวัล:</b>",
         "✅ ได้ GOD 3 เดือนทันที (ใช้ดูทุกห้อง VIP)",
@@ -154,7 +154,7 @@ async def cmd_myticket(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         status_th = "กำลังลุ้น" if t["status"] == "ACTIVE" else "ถูกรางวัล!"
         lines.append(f"{status_emoji} เลข <b>{t['number']}</b> — {status_th}  (ถึง {exp})")
     lines.append("")
-    lines.append("📅 สุ่มทุก<b>จันทร์ 12:00 น.</b>")
+    lines.append("📅 สุ่มทุก<b>จันทร์ 21:00 น.</b> (อิงหวยลาว)")
     lines.append("💎 รางวัล: GOD MODE 3 เดือน (฿1,299)")
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 

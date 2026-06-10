@@ -355,6 +355,23 @@ def create_application() -> Application:
         name="daily_report_2200",
     )
 
+    # ห้องมีคนชัก draw — every Monday 21:00 TH (after Lao lotto 20:30)
+    async def _job_shaker_draw(context):
+        from bots.guardian_bot.shaker_draw import run_draw_now
+        logger.info("Running scheduled job: shaker_draw (Monday 21:00)")
+        try:
+            result = await run_draw_now(context.bot)
+            logger.info("shaker_draw result: %s", result)
+        except Exception as exc:
+            logger.error("shaker_draw failed: %s", exc, exc_info=True)
+
+    job_queue.run_daily(
+        _job_shaker_draw,
+        time=dt_time(hour=21, minute=0, tzinfo=TH_TZ),
+        days=(0,),  # 0 = Monday in PTB
+        name="shaker_draw_monday_2100",
+    )
+
     # Content distributor — runs every N minutes (interval from distribution_config DB)
     # First fetch interval; default 60 min if config missing
     import asyncio as _asyncio
