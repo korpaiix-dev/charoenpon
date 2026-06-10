@@ -175,11 +175,13 @@ async def _build_main_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
     # VIPมีคนชัก — always show (lottery group ฿100)
     rows.append([InlineKeyboardButton("🎰 VIPมีคนชัก ฿100 — ลุ้น GOD ทุกจันทร์!", callback_data="view_shaker")])
 
-    # Referral — always
+    # ดูแพ็กเกจ — moved to position 4 (per boss)
+    rows.append([InlineKeyboardButton("📦 ดูแพ็กเกจ", callback_data="view_packages")])
+
+    # Referral — moved to position 5
     rows.append([InlineKeyboardButton("🎁 ชวนเพื่อน ได้ VIP ฟรี!", callback_data="referral_menu")])
 
     rows.extend([
-        [InlineKeyboardButton("📦 ดูแพ็กเกจ", callback_data="view_packages")],
         [
             InlineKeyboardButton("📋 เช็คเครดิต/รีวิว", url="https://t.me/+hv7uXYj4bxFhODZl"),
             InlineKeyboardButton("👀 ดูตัวอย่างงาน", url="https://t.me/+Q0Qf-4t8TQo3YTBl"),
