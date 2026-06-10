@@ -437,6 +437,55 @@ async def handle_photo_slip(
             slip2go_err = Slip2GoError("UNKNOWN", str(_sg_err)[:200])
             logger.error("Slip2Go unexpected error: %s", _sg_err)
 
+    # ── AUTO-RETRY: if Slip2Go says "200404 not found" + ลูกค้ามี selected_tier,
+    # queue for retry instead of escalating to admin (ITMX cache often lags 5-15 min)
+    if (not slip2go_data and slip2go_err and selected_tier
+        and "200404" in str(slip2go_err)
+        and selected_tier in ("300", "500", "1299", "2499", "100")):
+        try:
+            from shared.pricing import TIER_PRICES
+            _exp_amt = float(TIER_PRICES.get(selected_tier, 0))
+
+            # Create a PENDING payment record so we have something to reference
+            from shared.models import Payment as _P, PaymentMethod, PaymentStatus
+            async with get_session() as _s:
+                _pkg_q = await _s.execute(select(Package).where(Package.tier == PackageTier(selected_tier)))
+                _pkg = _pkg_q.scalar_one_or_none()
+                if _pkg:
+                    _pending = _P(
+                        user_id=db_user_id, package_id=_pkg.id, amount=_exp_amt,
+                        method=PaymentMethod.SLIP, status=PaymentStatus.PENDING,
+                        slip_file_id=file_id, slip_hash=slip_hash,
+                    )
+                    _s.add(_pending)
+                    await _s.flush()
+                    _pending_id = _pending.id
+                    await _s.commit()
+
+                    from shared.slip2go_retry_worker import enqueue_slip_for_retry
+                    await enqueue_slip_for_retry(
+                        payment_id=_pending_id, user_id=db_user_id, telegram_id=user.id,
+                        slip_file_id=file_id, slip_hash=slip_hash,
+                        selected_tier=selected_tier, expected_amount=_exp_amt,
+                    )
+
+                    await update.message.reply_text(
+                        "⏳ <b>กำลังตรวจสอบสลิปค่ะ...</b>
+
+"
+                        "📡 ระบบกำลังรอข้อมูลจากธนาคาร (5-15 นาที)
+"
+                        "✅ ถ้าผ่าน ระบบจะแจ้งและส่งลิงก์ให้อัตโนมัติค่ะ
+
+"
+                        "🙏 ขอบคุณที่อดทนรอ",
+                        parse_mode="HTML",
+                    )
+                    logger.info("Slip2Go 200404 → enqueued retry for user %s payment %s", user.id, _pending_id)
+                    return  # short-circuit: don't fall to OCR/admin path
+        except Exception as _exc_enq:
+            logger.error("Auto-retry enqueue failed: %s — falling back to admin", _exc_enq)
+
     if slip2go_data:
         # Successful Slip2Go response — try Smart Match auto-approve
         from decimal import Decimal as _D
