@@ -172,6 +172,9 @@ async def _build_main_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
     except Exception:
         pass
 
+    # VIPมีคนชัก — always show (lottery group ฿100)
+    rows.append([InlineKeyboardButton("🎰 VIPมีคนชัก ฿100 — ลุ้น GOD ทุกจันทร์!", callback_data="view_shaker")])
+
     # Referral — always
     rows.append([InlineKeyboardButton("🎁 ชวนเพื่อน ได้ VIP ฟรี!", callback_data="referral_menu")])
 

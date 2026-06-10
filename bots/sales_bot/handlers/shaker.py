@@ -148,11 +148,57 @@ async def cb_shaker_buy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await q.edit_message_text(msg, parse_mode="HTML")
 
 
+async def cb_view_shaker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Callback for main menu 'VIPมีคนชัก' button."""
+    q = update.callback_query
+    await q.answer()
+    if not q.message or not q.from_user:
+        return
+    pool = await _pool_status()
+    parts = [
+        "🎲 <b>VIPมีคนชัก — ลอตเตอรี่กลุ่ม VIP</b>",
+        "━━━━━━━━━━━━━━━",
+        "",
+        "💰 ราคา: <b>฿100</b> / ใบ",
+        "⏰ สิทธิ์เข้ากลุ่ม: <b>30 วัน</b>",
+        f"🎫 เลขที่เหลือ: <b>{pool['available']}/{pool['total']}</b>",
+        "",
+        "━━━━━━━━━━━━━━━",
+        "🎁 <b>รางวัล: GOD MODE 3 เดือน</b> (มูลค่า ฿1,299)",
+        "📅 สุ่มทุกวัน <b>จันทร์ 12:00 น.</b>",
+        "🎯 โอกาสถูก: <b>1%</b> ต่อ 1 ใบ",
+        "",
+        "📋 <b>กฎ:</b>",
+        "• ระบบสุ่มเลขให้อัตโนมัติ (ไม่ซ้ำ)",
+        "• ซื้อกี่ใบก็ได้ — เพิ่มโอกาส",
+        "• ผู้ถูกรางวัล lock 90 วัน (ขณะใช้ GOD 3 เดือน)",
+        "",
+    ]
+    msg = "\n".join(parts)
+    if pool['available'] == 0:
+        msg += "⚠️ <b>เลขเต็มแล้ว!</b> รอรอบใหม่สัปดาห์หน้า"
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
+        ])
+    else:
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎫 ซื้อ 1 ใบ ฿100", callback_data="shaker_buy_1")],
+            [InlineKeyboardButton("🎫🎫 ซื้อ 2 ใบ ฿200", callback_data="shaker_buy_2")],
+            [InlineKeyboardButton("🎫🎫🎫 ซื้อ 5 ใบ ฿500", callback_data="shaker_buy_5")],
+            [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
+        ])
+    try:
+        await q.edit_message_text(msg, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        await q.message.reply_text(msg, parse_mode="HTML", reply_markup=kb)
+
+
 def get_shaker_handlers() -> list:
     return [
         CommandHandler("shaker", cmd_shaker),
         CommandHandler("myticket", cmd_myticket),
         CallbackQueryHandler(cb_shaker_buy, pattern=r"^shaker_buy_\d+\$"),
+        CallbackQueryHandler(cb_view_shaker, pattern=r"^view_shaker\$"),
     ]
 
 
@@ -175,4 +221,4 @@ async def assign_shaker_numbers(user_id: int, telegram_id: int, count: int, paym
     return chosen
 
 
-__all__ = ["cmd_shaker", "cmd_myticket", "cb_shaker_buy", "get_shaker_handlers", "assign_shaker_numbers"]
+__all__ = ["cmd_shaker", "cmd_myticket", "cb_shaker_buy", "get_shaker_handlers", "assign_shaker_numbers", "cb_view_shaker"]
