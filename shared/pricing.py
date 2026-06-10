@@ -42,6 +42,9 @@ TIER_PRICES: dict[str, Decimal] = {
     "ADD500": Decimal("500"),   # TIER_ADD500 — Summer Fest add-on
     "BIRTHDAY_1299": Decimal("899"),   # Birthday upgrade GOD 3m (only via /upgrade)
     "BIRTHDAY_2499": Decimal("1999"),  # Birthday upgrade GOD lifetime (only via /upgrade)
+    "GACHA_1":  Decimal("99"),   # Gacha bundle: 1 spin
+    "GACHA_3":  Decimal("270"),  # Gacha bundle: 3 spins
+    "GACHA_10": Decimal("890"),  # Gacha bundle: 10 spins
 }
 
 # tier_str → PackageTier enum (imported lazily to avoid circular imports)
@@ -190,7 +193,10 @@ def amount_to_tier(amount) -> Optional[tuple[str, str, bool]]:
     amt = int(Decimal(amount))
     # Base prices always match
     base_map = {
+        99:   ("GACHA_1",  "กาชาปอง 1 หมุน", False),
         100:  ("100",  "ห้องมีคนชัก", False),
+        270:  ("GACHA_3",  "กาชาปอง 3 หมุน", False),
+        890:  ("GACHA_10", "กาชาปอง 10 หมุน", False),
         199:  ("300",  "Flash Sale", False),       # legacy 199 = flash
         300:  ("300",  "VIP 30 วัน", False),
         500:  ("500",  "OnlyFans+VIP 30 วัน", False),

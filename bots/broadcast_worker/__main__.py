@@ -207,6 +207,7 @@ async def send_one(bot: Bot, user_id: int, text: str, parse_mode: str | None,
             )
         return True, ""
     except Forbidden:
+        log.info("BLOCKED_USER=%s", user_id)
         return False, "blocked"
     except BadRequest as e:
         log.warning("BadRequest for %s: %s", user_id, e)
@@ -271,7 +272,7 @@ async def run_job(pool: asyncpg.Pool, bot: Bot, job: dict) -> None:
     current_delay = SEND_DELAY_SEC
     consecutive_429 = 0
     consecutive_failures = 0
-    FAILURE_RATE_THRESHOLD = 0.30  # 30% fail → pause job
+    FAILURE_RATE_THRESHOLD = 0.50  # 30% fail → pause job
     MIN_SAMPLES_BEFORE_CHECK = 50  # don't pause too early
 
     for idx in range(start_idx, total):
