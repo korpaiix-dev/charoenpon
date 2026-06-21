@@ -39,6 +39,9 @@ class PackageTier(str, enum.Enum):
     TIER_1299 = "1299"
     TIER_2499 = "2499"
     TIER_ADD500 = "ADD500"
+    GACHA_1 = "GACHA_1"
+    GACHA_3 = "GACHA_3"
+    GACHA_10 = "GACHA_10"
 
 
 class GroupSlug(str, enum.Enum):
@@ -69,6 +72,7 @@ class GroupSlug(str, enum.Enum):
     FREE16 = "FREE16"
     FREE17 = "FREE17"
     FREE18 = "FREE18"
+    FREE19 = "FREE19"
     STORAGE = "STORAGE"
     SHAKER = "SHAKER"
 
@@ -109,10 +113,10 @@ class CampaignStatus(str, enum.Enum):
 
 
 class NotificationType(str, enum.Enum):
-    PRE_EXPIRY_3D = "pre_expiry_3d"
-    PRE_EXPIRY_1D = "pre_expiry_1d"
-    EXPIRED = "expired"
-    RENEWAL_REMINDER = "renewal_reminder"
+    PRE_EXPIRY_3D = "PRE_EXPIRY_3D"
+    PRE_EXPIRY_1D = "PRE_EXPIRY_1D"
+    EXPIRED = "EXPIRED"
+    RENEWAL_REMINDER = "RENEWAL_REMINDER"
 
 
 # ---------- Models ----------
@@ -546,3 +550,23 @@ class ComebackDmLog(Base):
     responded: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     purchased: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     round: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    variant: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ExitSurveyLog(Base):
+    """Log Exit Survey DM ส่งไปลูกค้าหมดอายุ (50/40/30/20% ladder)."""
+
+    __tablename__ = "exit_survey_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    last_tier: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reason_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reason_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    promo_code: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True, index=True)
+    discount_pct: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    round: Mapped[int | None] = mapped_column(Integer, default=400, nullable=True)

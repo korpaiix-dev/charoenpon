@@ -721,6 +721,140 @@ async def post_vip_promo_to_free_groups(context: ContextTypes.DEFAULT_TYPE) -> N
         pass
 
 
+
+async def post_shaker_promo_to_free_groups(context):
+    """Post Shaker ฿100 promo (FOMO style) to all free groups.
+
+    Caption shows live counter of seats remaining (dynamic from DB).
+    """
+    import asyncpg
+    import os as _os
+    bot = context.bot
+    free_groups = await _get_free_groups_async()
+    logger.info("Starting Shaker promo post to %d groups", len(free_groups))
+
+    # Query active ticket count
+    seats_left = 100
+    try:
+        conn = await asyncpg.connect(
+            host="charoenpon-postgres", user="postgres",
+            database="charoenpon", password=_os.environ.get("POSTGRES_PASSWORD", ""),
+        )
+        sold = await conn.fetchval(
+            "SELECT count(*) FROM shaker_tickets WHERE status = 'ACTIVE'"
+        )
+        await conn.close()
+        seats_left = max(0, 100 - int(sold or 0))
+    except Exception as e:
+        logger.warning("Shaker seat query failed: %s", e)
+
+    caption = (
+        "⚠️ <b>ห้องมีคนชัก — ใกล้เต็มแล้ว!</b>\n\n"
+        f"🎯 เหลือเลขให้จับ: <b>{seats_left}/100</b>\n"
+        "🕐 จันทร์ 21:00 — เลขออก!\n"
+        "💰 รางวัล: <b>GOD MODE ถาวร</b> (มูลค่า ฿2,499)\n\n"
+        "✨ จ่ายแค่ ฿100 — ลุ้นได้ตลอดชีพ!\n"
+        "🔥 ที่นั่งจำกัด — คนช้าได้แค่ดู\n\n"
+        "🎲 อิงผลหวยลาว 2 ตัวล่าง — โกงไม่ได้\n"
+        "🔒 เลขเดียวมีคนเดียว — ห้ามชน"
+    )
+    kb = {
+        "inline_keyboard": [[
+            {"text": "🎰 รีบจับเลขเลย ฿100!",
+             "url": "https://t.me/NamwarnJarern_bot?start=shaker"}
+        ]]
+    }
+
+    success = 0; failed = 0
+    img_path = "/app/assets/campaigns/shaker_promo.png"
+    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton(
+            "🎰 รีบจับเลขเลย ฿100!",
+            url="https://t.me/NamwarnJarern_bot?start=shaker",
+        )
+    ]])
+    for group_id in free_groups:
+        try:
+            with open(img_path, "rb") as _f:
+                await bot.send_photo(
+                    chat_id=group_id, photo=_f, caption=caption,
+                    parse_mode="HTML", reply_markup=kb,
+                )
+            success += 1
+            await asyncio.sleep(1.2)
+        except Exception as exc:
+            failed += 1
+            logger.warning("Shaker promo failed group %d: %s", group_id, exc)
+
+    logger.info("Shaker promo round done: %d/%d (seats_left=%d)",
+                success, len(free_groups), seats_left)
+    try:
+        await _send_discord_content_log(
+            f"🎰 **Shaker Promo Round** seats_left={seats_left}\n"
+            f"✅ {success} / ❌ {failed} / Total {len(free_groups)}"
+        )
+    except Exception:
+        pass
+
+
+async def post_gacha_promo_to_free_groups(context):
+    """Post Gachapon promo (win-every-spin style) to all free groups."""
+    bot = context.bot
+    free_groups = await _get_free_groups_async()
+    logger.info("Starting Gacha promo post to %d groups", len(free_groups))
+
+    caption = (
+        "🎁 <b>กาชาปอง — หมุนได้ของแน่นอน 100%</b>\n\n"
+        "หมุนแล้วไม่มี \"ไม่ได้อะไรเลย\"\n"
+        "ทุกครั้งได้รางวัล ✨\n\n"
+        "🎫 1 หมุน <b>฿99</b>\n"
+        "🎫🎫🎫 3 หมุน <b>฿270</b> <i>(ลด ฿27)</i>\n"
+        "🎫×10 <b>฿890</b> <i>(ลด ฿100)</i>\n\n"
+        "───── 🏆 รางวัลที่ลุ้นได้ ─────\n"
+        "💰 ส่วนลด ฿50 (สะสมได้)\n"
+        "🎬 ชุดคลิป A / B / C\n"
+        "🎰 ห้องมีคนชัก ฿100\n"
+        "💎 VIP 30 วัน\n"
+        "🔥 OF+VIP 30 วัน\n"
+        "👑 GOD MODE 90 วัน\n"
+        "🌟 <b>GOD MODE ถาวร</b> (jackpot!)\n\n"
+        "✅ หมุนปุ๊บได้ปั๊บ — ไม่มีรอ\n"
+        "✅ ของซ้ำ? ระบบสุ่มใหม่ให้"
+    )
+
+    success = 0; failed = 0
+    img_path = "/app/assets/campaigns/gacha_promo.png"
+    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton(
+            "🎰 หมุนเลย!",
+            url="https://t.me/NamwarnJarern_bot?start=gacha",
+        )
+    ]])
+    for group_id in free_groups:
+        try:
+            with open(img_path, "rb") as _f:
+                await bot.send_photo(
+                    chat_id=group_id, photo=_f, caption=caption,
+                    parse_mode="HTML", reply_markup=kb,
+                )
+            success += 1
+            await asyncio.sleep(1.2)
+        except Exception as exc:
+            failed += 1
+            logger.warning("Gacha promo failed group %d: %s", group_id, exc)
+
+    logger.info("Gacha promo round done: %d/%d", success, len(free_groups))
+    try:
+        await _send_discord_content_log(
+            f"🎰 **Gacha Promo Round**\n"
+            f"✅ {success} / ❌ {failed} / Total {len(free_groups)}"
+        )
+    except Exception:
+        pass
+
+
 async def post_teaser_to_free_groups(context: ContextTypes.DEFAULT_TYPE) -> None:
     free_groups = await _get_free_groups_async()  # NEW: dynamic DB load
     """โพสต์ teaser (ข้อความอย่างเดียว) ไปทุกกลุ่มฟรี."""
@@ -777,6 +911,7 @@ async def post_teaser_with_image(context: ContextTypes.DEFAULT_TYPE, content_id:
         await post_teaser_to_free_groups(context)
         return
 
+    free_groups = await _get_free_groups_async()
     success = 0
     for group_index, group_id in enumerate(free_groups):
         full_caption = build_caption(base_caption, round_time, group_index)
@@ -845,6 +980,7 @@ async def post_teaser_album(context: ContextTypes.DEFAULT_TYPE, contents: list[d
             await post_teaser_to_free_groups(context)
         return
 
+    free_groups = await _get_free_groups_async()
     success = 0
     for group_index, group_id in enumerate(free_groups):
         full_caption = build_caption(base_caption, round_time, group_index)
@@ -1340,6 +1476,20 @@ def main() -> None:
             time=dt_time(hour=15, minute=0, tzinfo=TH_TZ),
             name="endmonth_god_promo_daily",
         )
+
+    # SHAKER promo — daily at 13:00 (lunch hour — high engagement)
+    job_queue.run_daily(
+        post_shaker_promo_to_free_groups,
+        time=dt_time(hour=13, minute=0, tzinfo=TH_TZ),
+        name="shaker_promo_daily_1300",
+    )
+
+    # GACHA promo — daily at 20:00 (peak evening — entertainment time)
+    job_queue.run_daily(
+        post_gacha_promo_to_free_groups,
+        time=dt_time(hour=20, minute=0, tzinfo=TH_TZ),
+        name="gacha_promo_daily_2000",
+    )
 
     # Schedule daily report ทุกวัน 23:30 ไทย
     job_queue.run_daily(

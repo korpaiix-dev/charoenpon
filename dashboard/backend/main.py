@@ -18,6 +18,9 @@ from .routers.team import router as team_router
 from .routers.settings import router as settings_router
 from .routers.marketing import router as marketing_router
 from .routers.bots import router as bots_router
+from .routers.webapp import router as webapp_router
+from .routers.panda_monitor import router as panda_monitor_router
+from .routers.panda_errors import router as panda_errors_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -52,6 +55,9 @@ app.include_router(team_router)
 app.include_router(settings_router)
 app.include_router(marketing_router)
 app.include_router(bots_router)
+app.include_router(webapp_router)
+app.include_router(panda_monitor_router)
+app.include_router(panda_errors_router)
 
 # Serve frontend static files
 frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+from shared.discount_helper import reserve_in_context as _disc_reserve
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
@@ -321,7 +322,10 @@ async def view_packages_callback(
     query = update.callback_query
     if not query:
         return
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass  # callback may be too old / already answered
     await _safe_edit(query, _build_package_list_text(),
         parse_mode="HTML",
         reply_markup=_build_package_keyboard(),)
@@ -332,7 +336,10 @@ async def package_detail_callback(
     query = update.callback_query
     if not query or not query.data:
         return
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass  # callback may be too old / already answered
 
     tier = query.data.replace("pkg_", "")
     text = _build_package_detail_text(tier)
@@ -350,7 +357,10 @@ async def buy_package_callback(
     query = update.callback_query
     if not query or not query.data:
         return
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass  # callback may be too old / already answered
 
     tier = query.data.replace("buy_", "")
     pkg = next((p for p in PACKAGES if p["tier"] == tier), None)
@@ -376,6 +386,28 @@ async def buy_package_callback(
     context.user_data["selected_tier"] = tier
     context.user_data["selected_price"] = display_price.replace(",", "")
 
+    # ── DISCOUNT AUTO-APPLY ───────────────────────────────────────
+    # If user has saved discount credit, bump the displayed price down + reserve in context.
+    try:
+        from decimal import Decimal as _D
+        _base_price = _D(display_price.replace(",", ""))
+        _use, _expected, _bal = await _disc_reserve(
+            context, query.from_user.id, tier, _base_price
+        )
+        if _use > 0:
+            display_price = f"{int(_expected):,}"
+            _discount_line = (
+                f"💚 ใช้ส่วนลดสะสม: -฿{int(_use):,} (จากยอด ฿{int(_base_price):,})\n"
+                f"💎 คงเหลือยอดส่วนลด: ฿{int(_bal - _use):,}\n\n"
+            )
+        else:
+            _discount_line = ""
+    except Exception as _e:
+        logger.warning("discount reserve skipped: %s", _e)
+        _discount_line = ""
+    # ──────────────────────────────────────────────────────────────
+
+
     _np_map = {"300": "300", "2499": "2,499", "500": "500", "1299": "1,299"}
     normal_price = _np_map.get(tier, pkg["price"])
     _pdate = PROMO_MAY_DATE_TEXT if may_promo_active else PROMO_DATE_TEXT
@@ -384,6 +416,7 @@ async def buy_package_callback(
     text = (
         f"✅ <b>ยืนยันสมัคร {pkg['name']}</b>\n\n"
         f"{promo_line}"
+        f"{_discount_line}"
         f"💰 ยอดที่ต้องชำระ: <b>{display_price} บาท</b>\n\n"
         f"📌 <b>วิธีชำระเงิน:</b>\n"
         f"1️⃣ สแกน QR PromptPay ด้านล่าง หรือโอนเงินตามยอด\n"

@@ -91,7 +91,10 @@ async def cmd_upgrade(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def cb_upgrade_pick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
-    await q.answer()
+    try:
+        await q.answer()
+    except Exception:
+        pass  # callback may be too old / already answered
     if not q.from_user:
         return
     user_tg = q.from_user.id
@@ -119,7 +122,8 @@ async def cb_upgrade_pick(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     from shared.receiver_pool import pick_random
     acct = await pick_random()
     if not acct:
-        await q.edit_message_text("⚠️ ระบบไม่สามารถสร้างคำสั่งซื้อได้ในขณะนี้ค่ะ ติดต่อแอดมิน")
+        from shared.contact_admin import contact_admin_kb as _cak
+        await q.edit_message_text("⚠️ ระบบไม่สามารถสร้างคำสั่งซื้อได้ในขณะนี้ค่ะ กดปุ่มด้านล่างทักแอดมิน", reply_markup=_cak())
         return
 
     msg = (
@@ -136,6 +140,19 @@ async def cb_upgrade_pick(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         "⚡ ระบบจะอัปเกรดอัตโนมัติทันที"
     )
     await q.edit_message_text(msg, parse_mode="HTML")
+
+    # Send QR PromptPay (consistent with packages.py / shaker.py)
+    qr_url = acct.get("qr_url") or "https://img2.pic.in.th/-2026-03-15-143743.png"
+    try:
+        await context.bot.send_photo(
+            chat_id=q.message.chat_id,
+            photo=qr_url,
+            caption=f"📱 สแกน QR PromptPay เพื่อโอน <b>฿{price:,}</b>\nแล้วส่งสลิปมาที่แชทนี้เลยค่ะ 🙏",
+            parse_mode="HTML",
+        )
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Birthday upgrade QR send failed: %s", exc)
 
 
 def get_birthday_upgrade_handlers() -> list:

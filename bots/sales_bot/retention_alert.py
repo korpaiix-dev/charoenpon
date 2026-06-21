@@ -141,8 +141,8 @@ async def _log_notification(user_id: int, sub_id: int, notif_type: NotificationT
     async with get_session() as session:
         await session.execute(
             text("""
-                INSERT INTO expiry_notifications (user_id, subscription_id, notification_type, message_id)
-                VALUES (:uid, :sid, :ntype, :mid)
+                INSERT INTO expiry_notifications (user_id, subscription_id, notification_type, message_id, acknowledged)
+                VALUES (:uid, :sid, :ntype, :mid, FALSE)
                 ON CONFLICT (user_id, subscription_id, notification_type) DO NOTHING
             """),
             {"uid": user_id, "sid": sub_id, "ntype": notif_type.value, "mid": message_id},
@@ -152,41 +152,148 @@ async def _log_notification(user_id: int, sub_id: int, notif_type: NotificationT
 
 # ─── Message Builder ─────────────────────────────────────────────────────────
 
+
+# ── Retention discount amounts per tier (match shared/pricing.py) ──
+RETENTION_PRICES = {
+    # tier_callback_str -> {discount_pct: discounted_amount}
+    "300":  {10: 269, 15: 255, 20: 240},
+    "500":  {10: 450, 15: 425, 20: 400},
+    "1299": {10: 1169, 15: 1104, 20: 1039},
+    "2499": {10: 2249, 15: 2124, 20: 1998},
+}
+
+
+def _retention_discounted_amount(package_tier: str, discount_pct: int) -> int:
+    """Return concrete amount the customer should transfer."""
+    tier_map = RETENTION_PRICES.get(str(package_tier), {})
+    return tier_map.get(discount_pct, 0)
+
+
+def _build_retention_message_v2(
+    first_name: str,
+    package_name: str,
+    package_tier: str,
+    package_price,
+    discount_pct: int,
+    days_left: int,
+    promo_code: str,
+    top_room: str | None = None,
+    new_clips_week: int | None = None,
+) -> str:
+    """Build retention message based on round (3d / 1d / today).
+
+    Uses loss aversion + content reminder + concrete bonus.
+    Real discounted amount comes from RETENTION_PRICES table.
+    """
+    from decimal import Decimal as _D
+    discounted = _retention_discounted_amount(package_tier, discount_pct)
+    if discounted <= 0:
+        # Fallback to %-based math
+        discounted = int(_D(str(package_price)) * (100 - discount_pct) / 100)
+
+    fname = first_name or "คุณ"
+    deep_link = f'tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}'
+
+    # Round 1 — 3 days left (10% off, no bonus)
+    if days_left >= 2:
+        room_line = ""
+        if top_room and new_clips_week and new_clips_week > 0:
+            room_line = f"📦 ห้อง <b>{top_room}</b> → อัปคลิปใหม่ <b>{new_clips_week}</b> ตอนสัปดาห์นี้\n"
+        return (
+            f"สวัสดีคุณ {fname}~ 👋\n\n"
+            f"⏳ อีก <b>{days_left} วัน</b> สมาชิก {package_name} ของคุณจะหมดอายุ\n"
+            f"\n"
+            f"อยากบอกก่อน — เพราะเตรียมไว้ให้แล้ว 👇\n"
+            f"{room_line}"
+            f"🎬 คลิป exclusive อัปทุกวัน\n"
+            f"✨ Summer Fest อยู่ในแพ็คเกจถาวร\n"
+            f"\n"
+            f"⚠️ ถ้าหมดอายุ — ลิงก์เข้ากลุ่มหยุดทันที\n"
+            f"ระบบเก็บประวัติให้แค่ <b>7 วัน</b>\n"
+            f"\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"🎁 ต่ออายุก่อนหมด — ลด <b>10%</b>\n"
+            f"💰 จ่ายแค่ <b>฿{discounted:,}</b> (ปกติ ฿{int(package_price):,})\n"
+            f"⏰ ใช้ได้ 48 ชม.\n"
+            f"\n"
+            f'👉 <a href="{deep_link}">ต่ออายุ {package_name} — ลด 10%</a>'
+        )
+
+    # Round 2 — 1 day left (15% off + 1 gachapon spin bonus)
+    if days_left == 1:
+        return (
+            f"⏰ พรุ่งนี้คุณจะออกจากเราแล้วนะคะ 😢\n"
+            f"\n"
+            f"คุณ {fname} อยู่กับเรามาเกือบ 30 วันเต็ม — ขอบคุณนะคะ 🙏\n"
+            f"\n"
+            f"อยากให้คุณอยู่ต่อ — จัดพิเศษ:\n"
+            f"\n"
+            f"🎁 ลด <b>15%</b> (ปกติ 10%)\n"
+            f"🎁 + กาชาปอง <b>1 หมุน</b> ฟรี ลุ้นรางวัล (ปกติ ฿99)\n"
+            f"\n"
+            f"💰 จ่ายแค่ <b>฿{discounted:,}</b> (จาก ฿{int(package_price):,})\n"
+            f"⏰ ใช้ได้แค่ <b>24 ชม.</b> — พรุ่งนี้กลับเป็น 10%\n"
+            f"\n"
+            f"ไม่อยากเสียคุณไปจริง ๆ ค่ะ\n"
+            f"\n"
+            f'👉 <a href="{deep_link}">ต่ออายุ + รับกาชาปอง 1 หมุน</a>'
+        )
+
+    # Round 3 — today (20% off + 3 spins + 1 shaker number)
+    return (
+        f"😢 <b>วันสุดท้ายแล้ว คุณ {fname}</b>\n"
+        f"\n"
+        f"วันนี้คือวันสุดท้ายที่คุณยังเข้าห้องได้\n"
+        f"— พรุ่งนี้ลิงก์เข้ากลุ่มจะหยุดทำงาน\n"
+        f"\n"
+        f"ก่อนคุณไปจริง ๆ จัดให้สุดที่เคยมี:\n"
+        f"\n"
+        f"🎁 ลด <b>20%</b> (ดีที่สุดของเรา)\n"
+        f"🎁 + กาชาปอง <b>3 หมุน</b> ฟรี (ปกติ ฿270)\n"
+        f"🎁 + เลขห้องมีคนชัก <b>1 ใบ</b> ลุ้น GOD ถาวร (ปกติ ฿100)\n"
+        f"\n"
+        f"💰 จ่ายแค่ <b>฿{discounted:,}</b> (จาก ฿{int(package_price):,})\n"
+        f"💎 รวมของแถม มูลค่า ฿{370 + (int(package_price) - discounted):,}\n"
+        f"\n"
+        f"หลังคืนนี้ ราคา discount จะหายไป\n"
+        f"ต้องสมัครใหม่ราคาเต็ม\n"
+        f"\n"
+        f"ขอบคุณที่อยู่ด้วยกันมาตลอด 🙏\n"
+        f"\n"
+        f'👉 <a href="{deep_link}">ต่ออายุ + รับของแถมทั้งหมด</a>'
+    )
+
+
+# ─── Legacy wrapper for backward compat ──────────────────────────────────
 def _build_retention_message(
     first_name: str,
     package_name: str,
-    package_price: Decimal,
+    package_price,
     discount_pct: int,
     days_left: int,
     promo_code: str,
 ) -> str:
-    """Build retention alert message with discount + promo code + deep link."""
-    discounted = int(package_price * (100 - discount_pct) / 100)
-
-    if days_left <= 0:
-        urgency = "⚠️ <b>แพ็กเกจหมดอายุวันนี้!</b>"
-        time_text = "ภายใน 24 ชม. นี้"
-    elif days_left == 1:
-        urgency = "⏰ <b>เหลืออีก 1 วัน!</b>"
-        time_text = "ภายในวันพรุ่งนี้"
+    """Legacy 6-arg signature — delegates to v2."""
+    # Infer tier from package_name
+    if "GOD MODE ถาวร" in package_name or "2,499" in package_name or "2499" in package_name:
+        tier = "2499"
+    elif "GOD MODE" in package_name or "1,299" in package_name or "1299" in package_name:
+        tier = "1299"
+    elif "OnlyFans" in package_name or "OF" in package_name or "500" in package_name:
+        tier = "500"
     else:
-        urgency = f"📢 <b>เหลืออีก {days_left} วัน</b>"
-        time_text = f"ภายใน {days_left} วัน"
-
-    return (
-        f"{urgency}\n"
-        f"\n"
-        f"คุณ {first_name} แพ็กเกจ <b>{package_name}</b> จะหมดอายุ{time_text}ค่ะ\n"
-        f"\n"
-        f"🎁 ต่ออายุวันนี้รับส่วนลด <b>{discount_pct}%</b>\n"
-        f"💰 จ่ายแค่ <b>฿{discounted}</b> (จาก ฿{int(package_price)})\n"
-        f"\n"
-        # # >>> FIX_NO_CODE_WORDING <<<
-        f"⏰ ส่วนลดของคุณใช้ได้ 48 ชม.\n"
-        f"\n"
-        f"อย่าพลาดสัญญาณดีๆ นะคะ 🙏\n"
-        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">กดปุ่มต่ออายุเลย (ไม่ต้องกรอกโค้ด)</a>'
+        tier = "300"
+    return _build_retention_message_v2(
+        first_name=first_name,
+        package_name=package_name,
+        package_tier=tier,
+        package_price=package_price,
+        discount_pct=discount_pct,
+        days_left=days_left,
+        promo_code=promo_code,
     )
+
+
 
 
 # ─── Scheduler Job ───────────────────────────────────────────────────────────

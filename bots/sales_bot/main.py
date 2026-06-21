@@ -63,6 +63,9 @@ from bots.sales_bot.handlers.support import get_support_handlers
 from bots.sales_bot.handlers.trial import get_trial_handlers
 from bots.sales_bot.handlers.upsell import get_upsell_handlers, run_upsell_dm_job
 from bots.sales_bot.comeback_dm import run_comeback_dm_job
+from shared.welcome_journey import run_welcome_journey_job
+from shared.exit_survey import run_exit_survey_job, handle_exit_survey_callback
+from shared.slip_review import get_slip_review_handlers
 # DEAD (Phase 1) from bots.sales_bot.trial_promo_dm import run_trial_promo_dm_job
 from bots.sales_bot.flash_sale_scheduler import start_flash_sale, end_flash_sale, remind_flash_sale
 from bots.sales_bot.promo_scheduler import (
@@ -79,6 +82,8 @@ from bots.sales_bot.handlers.referral import send_referral_reminder
 from bots.sales_bot.daily_report import send_daily_report
 from bots.sales_bot.handlers.birthday_upgrade import get_birthday_upgrade_handlers
 from bots.sales_bot.handlers.shaker import get_shaker_handlers
+from bots.sales_bot.handlers.gacha_buy import get_gacha_buy_handlers
+from bots.sales_bot.handlers.discount_button import get_discount_button_handlers
 from bots.sales_bot.preview_generator import run_preview_generator_job, ensure_tables as ensure_preview_tables
 # DEAD (Phase 1) from bots.sales_bot.free_group_poster import post_to_free_groups
 from bots.sales_bot.retention_alert import run_retention_alert_job
@@ -213,15 +218,29 @@ def create_application() -> Application:
     builder = Application.builder().token(SALES_BOT_TOKEN)
     app = builder.post_init(post_init).post_shutdown(post_shutdown).build()
 
-    # --- Group 0: Spam filter middleware (runs first) ---
+    # Global error handlers — register BOTH old internal handler + new enhanced one
+    # New handler: admin alert + customer DM (prevents silent failures)
+    from shared.global_error_handler import global_error_handler as _new_global_err
+    from shared.payment_health_check import run_health_check_and_alert
+    app.add_error_handler(_new_global_err)
+    app.add_error_handler(_global_error_handler)
+
+
+    # --- Group -2: Banned user guard (RUNS FIRST — blocks banned users at the door) ---
+    # FIX 2026-06-16: must be in EARLIER group than spam_filter, else TypeHandler\u0027s
+    # \u0022first match wins\u0022 behavior in same group makes banned_guard never run
+    app.add_handler(
+        TypeHandler(Update, _banned_user_guard),
+        group=-2,
+    )
+    # --- Group -1: Spam filter middleware ---
     app.add_handler(
         TypeHandler(Update, _spam_filter_wrapper),
         group=-1,
     )
-    app.add_handler(
-        TypeHandler(Update, _banned_user_guard),
-        group=-1,
-    )
+    # WebApp data handler (from customer dashboard)
+    app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, _handle_webapp_data), group=0)
+
 
     # --- Group 0: Command & callback handlers ---
     from telegram.ext import CommandHandler as _CH
@@ -248,6 +267,16 @@ def create_application() -> Application:
 
     for handler in get_package_handlers():
         app.add_handler(handler, group=0)
+    # Slip review callbacks (admin approves/rejects pending slip)
+    for h in get_slip_review_handlers():
+        app.add_handler(h, group=0)
+
+
+    # Exit Survey callback — DM lukhakhaa หมดอายุ
+    app.add_handler(
+        CallbackQueryHandler(handle_exit_survey_callback, pattern=r"^exitsv:"),
+        group=0,
+    )
 
     # Birthday Promo /upgrade — เฉพาะลูกค้าที่มี birthday_upgrade_offers
     for handler in get_birthday_upgrade_handlers():
@@ -255,6 +284,14 @@ def create_application() -> Application:
 
     # ห้องมีคนชัก lottery (/shaker, /myticket)
     for handler in get_shaker_handlers():
+        app.add_handler(handler, group=0)
+
+    # Gachapon buy UI (/gacha_buy + callbacks)
+    for handler in get_gacha_buy_handlers():
+        app.add_handler(handler, group=0)
+
+    # Discount-of-mine button (callback only)
+    for handler in get_discount_button_handlers():
         app.add_handler(handler, group=0)
 
     for handler in get_payment_handlers():
@@ -288,11 +325,49 @@ def create_application() -> Application:
     #     name="trial_promo_dm_daily_0030",
     # )
 
+    # --- Scheduler: PAYMENT HEALTH CHECK ทุกชั่วโมง ---
+    app.job_queue.run_repeating(
+        run_health_check_and_alert,
+        interval=timedelta(hours=1),
+        first=timedelta(minutes=2),
+        name='payment_health_hourly',
+    )
+
+    # --- Scheduler: WELCOME NURTURE DM ทุกชั่วโมง ---
+    app.job_queue.run_repeating(
+        run_welcome_journey_job,
+        interval=timedelta(hours=1),
+        first=timedelta(minutes=5),
+        name='welcome_journey_hourly',
+    )
+
+    # --- Scheduler: EXIT SURVEY DM รายวัน 11:00 ไทย ---
+    app.job_queue.run_daily(
+        run_exit_survey_job,
+        time=dt_time(hour=11, minute=0, tzinfo=TH_TZ),
+        name="exit_survey_daily_1100",
+    )
+
     # --- Scheduler: COMEBACK DM ทุกวัน 10:00 ไทย ---
     app.job_queue.run_daily(
         run_comeback_dm_job,
         time=dt_time(hour=10, minute=0, tzinfo=TH_TZ),
         name="comeback_dm_daily_1000",
+    )
+
+    # --- Scheduler: LOYALTY RANK CHECK ทุก 6 ชม. (Bronze/Silver/Diamond) ---
+    async def _loyalty_check_wrapper(context):
+        from shared.loyalty_rank import run_loyalty_check_job
+        try:
+            result = await run_loyalty_check_job(context)
+            logger.info("loyalty check: %s", result)
+        except Exception as e:
+            logger.exception("loyalty check failed: %s", e)
+    app.job_queue.run_repeating(
+        _loyalty_check_wrapper,
+        interval=timedelta(hours=6),
+        first=timedelta(minutes=30),
+        name="loyalty_rank_check_6h",
     )
 
     # --- Scheduler: Trial Upsell DM — ปิดแล้ว (ยกเลิกโปร 99) ---
@@ -326,17 +401,18 @@ def create_application() -> Application:
         name="referral_promo_broadcast_sunday_1400",
     )
 
-    # --- Scheduler: Songkran 1299 promo via @jarern4_bot every day 12:00 และ 20:00 ไทย ---
-    app.job_queue.run_daily(
-        broadcast_songkran_promo,
-        time=dt_time(hour=12, minute=0, tzinfo=TH_TZ),
-        name="songkran_promo_broadcast_daily_1200",
-    )
-    app.job_queue.run_daily(
-        broadcast_songkran_promo,
-        time=dt_time(hour=20, minute=0, tzinfo=TH_TZ),
-        name="songkran_promo_broadcast_daily_2000",
-    )
+    # --- Scheduler: Songkran promo — DISABLED 2026-06-20 (Songkran ผ่านไป 2 เดือนแล้ว) ---
+    # Re-enable next April by uncommenting these blocks.
+    # app.job_queue.run_daily(
+    #     broadcast_songkran_promo,
+    #     time=dt_time(hour=12, minute=0, tzinfo=TH_TZ),
+    #     name="songkran_promo_broadcast_daily_1200",
+    # )
+    # app.job_queue.run_daily(
+    #     broadcast_songkran_promo,
+    #     time=dt_time(hour=20, minute=0, tzinfo=TH_TZ),
+    #     name="songkran_promo_broadcast_daily_2000",
+    # )
 
     # >>> FIXALL_TOKEN_REGISTER <<<
     # Bug #19: Slip2Go balance check every 6 hours
@@ -435,18 +511,45 @@ def create_application() -> Application:
 async def _global_error_handler(update, context):
     """[Phase 4 D] Catch unhandled exceptions and notify via hub.
 
-    Transient network errors (httpx.ReadError, TimedOut, NetworkError) come
-    from long-polling and are auto-retried by PTB. Log but do NOT notify.
+    FILTER 5 categories of benign errors (silent, no admin alert):
+      1. Stale UI (Query too old, Message not modified, etc.)
+      2. Customer state (Forbidden: bot blocked, user deactivated, Chat not found)
+      3. Transient network (TimedOut, NetworkError, ReadError, etc.)
+    Only real bugs get notified.
     """
     import logging as _logging
     _log = _logging.getLogger(__name__)
     err = context.error
     err_name = type(err).__name__
+    err_str = str(err)
+
+    # 1. Stale UI
+    _STALE_PATTERNS = (
+        "Query is too old", "query id is invalid", "response timeout expired",
+        "Message is not modified", "message to edit not found", "message to delete not found",
+    )
+    if any(p in err_str for p in _STALE_PATTERNS):
+        _log.info("stale UI (no notify): %s: %s", err_name, err_str[:120])
+        return
+
+    # 2. Customer state
+    _CUSTOMER_PATTERNS = (
+        "bot was blocked by the user", "user is deactivated",
+        "Chat not found", "bot was kicked", "bot can't initiate conversation",
+    )
+    if err_name == "Forbidden" or any(p in err_str for p in _CUSTOMER_PATTERNS):
+        _log.info("customer-state (no notify): %s: %s", err_name, err_str[:120])
+        return
+
+    # 3. Transient network
     _TRANSIENT = ("NetworkError", "TimedOut", "ReadError", "ConnectError",
-                  "WriteError", "PoolTimeout", "ReadTimeout", "ConnectTimeout")
-    if err_name in _TRANSIENT or "ReadError" in str(err):
+                  "WriteError", "PoolTimeout", "ReadTimeout", "ConnectTimeout",
+                  "RemoteProtocolError", "ConnectionResetError", "RetryAfter")
+    if err_name in _TRANSIENT or "ReadError" in err_str or "Timed out" in err_str:
         _log.warning("Transient network error (not alerting): %s: %s", err_name, err)
         return
+
+    # Real bug — notify
     try:
         from shared.notify import notify as _notify
         await _notify("bot_crash",
@@ -454,6 +557,19 @@ async def _global_error_handler(update, context):
                      body=f"{err_name}: {err}")
     except Exception:
         pass
+
+
+
+
+# Web App data handler — when WebApp calls tg.sendData("action")
+async def _handle_webapp_data(update, context):
+    if not update.message or not getattr(update.message, "web_app_data", None):
+        return
+    data = update.message.web_app_data.data or ""
+    from bots.sales_bot.handlers.packages import view_packages_command
+    if data == "open_packages":
+        await view_packages_command(update, context)
+        return
 
 
 def main() -> None:

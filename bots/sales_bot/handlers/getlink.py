@@ -13,6 +13,7 @@ Flow:
 """
 
 from __future__ import annotations
+from shared.contact_admin import contact_admin_kb
 
 import json
 import logging
@@ -144,7 +145,7 @@ async def getlink_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     guardian_token = os.environ.get("GUARDIAN_BOT_TOKEN", "")
     if not guardian_token:
         logger.error("getlink: GUARDIAN_BOT_TOKEN not set")
-        await update.message.reply_text("ระบบขัดข้องชั่วคราว กรุณาทักแอดมินค่ะ")
+        await update.message.reply_text("⚠️ ระบบขัดข้องชั่วคราว กดปุ่มด้านล่างทักแอดมินได้เลยค่ะ", reply_markup=contact_admin_kb())
         return
 
     guardian = tg.Bot(token=guardian_token)
@@ -152,7 +153,7 @@ async def getlink_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await guardian.initialize()
     except Exception as exc:
         logger.error("getlink: guardian.initialize() failed: %s", exc)
-        await update.message.reply_text("ระบบขัดข้องชั่วคราว กรุณาทักแอดมินค่ะ")
+        await update.message.reply_text("⚠️ ระบบขัดข้องชั่วคราว กดปุ่มด้านล่างทักแอดมินได้เลยค่ะ", reply_markup=contact_admin_kb())
         return
 
     buttons: list[list[InlineKeyboardButton]] = []

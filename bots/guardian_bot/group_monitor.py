@@ -763,6 +763,11 @@ async def check_and_kick_unauthorized(bot: Bot, job_queue=None) -> dict[str, int
         stats["groups_checked"] += 1
         slug = group.slug.value if hasattr(group.slug, "value") else str(group.slug)
 
+        # 2026-06-18: skip FREE groups — open to everyone, no sub check
+        tier_str = group.min_tier.value if hasattr(group.min_tier, "value") else str(group.min_tier)
+        if tier_str in ("FREE", "TIER_FREE"):
+            continue
+
         # ชั้น 1: Get authorized users from DB
         authorized_ids = await _get_authorized_telegram_ids(slug)
 

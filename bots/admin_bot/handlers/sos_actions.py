@@ -430,3 +430,76 @@ async def sos_ban_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await query.answer(f"❌ Error: {str(exc)[:100]}", show_alert=True)
 
 
+async def sos_resolve_callback(update, context) -> None:
+    """SOS: Resolved — mark as RESOLVED + edit admin message. No customer DM
+    (Prae AI / boss already handled the customer in chat).
+    Pattern: sos_resolve:<telegram_id>
+    """
+    query = update.callback_query
+    if not query:
+        return
+    try: await query.answer("Resolving...")
+    except Exception: pass
+
+    if not query.from_user or not _is_admin(query.from_user.id):
+        try: await query.answer("⛔ ไม่มีสิทธิ์", show_alert=True)
+        except Exception: pass
+        return
+
+    parts = (query.data or "").split(":", 1)
+    if len(parts) != 2:
+        return
+    try:
+        target_tg = int(parts[1])
+    except ValueError:
+        return
+
+    from shared.database import get_session
+    from sqlalchemy import text as _t
+
+    # Mark RESOLVED in DB
+    try:
+        async with get_session() as s:
+            await s.execute(_t("""
+                UPDATE sos_alerts
+                   SET status = 'RESOLVED',
+                       resolved_at = NOW(),
+                       resolved_by = :adm
+                 WHERE telegram_id = :tg AND status = 'PENDING'
+            """), {"adm": query.from_user.id, "tg": target_tg})
+            await s.commit()
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("sos_resolve DB update failed: %s", exc)
+
+    # Audit log
+    try:
+        from shared.utils import log_admin_action
+        await log_admin_action(
+            admin_id=query.from_user.id,
+            action="sos_resolved",
+            target_type="sos",
+            target_id=target_tg,
+            details=f"manual resolve by @{query.from_user.username or query.from_user.first_name}",
+        )
+    except Exception:
+        pass
+
+    # Edit admin message
+    actor = query.from_user.username or query.from_user.first_name or "admin"
+    import html as _h
+    marker = f"\n\n✅ <b>Resolved</b> by @{_h.escape(str(actor))}"
+    try:
+        if query.message and query.message.caption is not None:
+            await query.edit_message_caption(
+                caption=(query.message.caption or "") + marker,
+                parse_mode="HTML", reply_markup=None,
+            )
+        elif query.message and query.message.text is not None:
+            await query.edit_message_text(
+                text=(query.message.text or "") + marker,
+                parse_mode="HTML", reply_markup=None,
+            )
+    except Exception:
+        pass
+

@@ -208,6 +208,23 @@ async def send_one(bot: Bot, user_id: int, text: str, parse_mode: str | None,
         return True, ""
     except Forbidden:
         log.info("BLOCKED_USER=%s", user_id)
+        # Mark blocked in DB so future DM jobs skip this user
+        try:
+            import asyncpg as _ap
+            _conn = await _ap.connect(
+                host=DB_HOST, port=int(DB_PORT or 5432),
+                user=DB_USER, password=DB_PASSWORD, database=DB_NAME,
+            )
+            try:
+                await _conn.execute(
+                    "UPDATE users SET is_blocked_bot = true, blocked_bot_at = NOW() "
+                    "WHERE telegram_id = $1 AND is_blocked_bot = false",
+                    user_id,
+                )
+            finally:
+                await _conn.close()
+        except Exception as _e:
+            log.warning("mark blocked failed for %s: %s", user_id, _e)
         return False, "blocked"
     except BadRequest as e:
         log.warning("BadRequest for %s: %s", user_id, e)

@@ -73,12 +73,56 @@ async def _ai_screen_image(b64_image: str) -> str | None:
 
     return None
 
+# Daily cap for Layer 2 (Gemini Vision OCR fallback) — กัน burn cost เกิน
+_LAYER2_DAILY_CAP = int(os.environ.get("LAYER2_DAILY_CAP", "100"))
+
+
+async def _check_layer2_daily_cap() -> bool:
+    """Return True ถ้ายัง under daily cap; False = escalate admin manual."""
+    try:
+        from shared.database import get_session
+        from sqlalchemy import text as _t
+        async with get_session() as s:
+            r = await s.execute(_t("""
+                SELECT COUNT(*) FROM api_cost_log
+                WHERE endpoint LIKE '%ai_read_slip%'
+                  AND created_at > NOW() - INTERVAL '24 hours'
+            """))
+            count = int(r.scalar() or 0)
+        if count >= _LAYER2_DAILY_CAP:
+            logger.warning(
+                "Layer 2 daily cap reached: %d/%d calls — skip Gemini Vision, escalate admin",
+                count, _LAYER2_DAILY_CAP,
+            )
+            # Alert ห้อง Report (once per hour ก็พอ — admin_alert ของผมไม่มี throttle)
+            try:
+                from shared.admin_alert import notify_admin_report
+                await notify_admin_report(
+                    f"⚠️ <b>Layer 2 cost cap reached</b>\n"
+                    f"━━━━━━━━━━━━\n"
+                    f"📊 calls today: <b>{count} / {_LAYER2_DAILY_CAP}</b>\n"
+                    f"⏸ skip Gemini Vision → escalate admin manual\n\n"
+                    f"<i>ปรับ cap ที่ LAYER2_DAILY_CAP env variable</i>",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
+            return False
+    except Exception as exc:
+        logger.warning("Layer 2 cap check failed: %s — allowing call", exc)
+    return True
+
+
 async def _ai_read_slip(b64_image: str) -> str | None:
     """Use AI vision (Gemini Flash Lite via OpenRouter) to read payment slip.
 
     Returns extracted text with amount, date, bank, ref number.
     Also checks for signs of forgery.
     """
+    # FIX 2026-06-21: Daily cost guard
+    if not await _check_layer2_daily_cap():
+        return None
+
     from shared.api_cost_tracker import call_openrouter
 
     prompt = (
@@ -92,7 +136,7 @@ async def _ai_read_slip(b64_image: str) -> str | None:
         "- ชื่อผู้รับ (ไปยัง)\n\n"
         "แล้ววิเคราะห์ว่าสลิปนี้มีสัญญาณปลอมไหม เช่น:\n"
         "- font ไม่ตรงกับธนาคาร\n"
-        "- วันที่อนาคต\n"
+        "- วันที่อนาคต (หมายเหตุ: ปี พ.ศ. = ค.ศ. + 543 เช่น 2569 พ.ศ. = 2026 ค.ศ. = ปัจจุบัน ไม่ใช่อนาคต — slip ไทยส่วนใหญ่ใช้ปี พ.ศ.)\n"
         "- layout ผิดปกติ\n"
         "- ภาพเบลอเฉพาะจุดตัวเลข\n"
         "ถ้าสงสัยปลอม ให้เขียน SUSPICIOUS: ตามด้วยเหตุผล\n"
@@ -133,14 +177,38 @@ async def _ai_read_slip(b64_image: str) -> str | None:
     return None
 
 async def _ocr_slip_image(bot, file_id: str) -> str:
-    """Download image from Telegram and use AI to read slip."""
+    """Download image from Telegram and use AI to read slip.
+
+    2026-06-16 FIX: retry 3x with exponential backoff for transient timeouts.
+    """
+    import asyncio
     import base64
 
-    file = await bot.get_file(file_id)
-    buf = io.BytesIO()
-    await file.download_to_memory(buf)
-    buf.seek(0)
-    image_bytes = buf.read()
+    image_bytes = None
+    last_err = None
+    for attempt in range(3):
+        try:
+            file = await bot.get_file(file_id, read_timeout=30, connect_timeout=15)
+            buf = io.BytesIO()
+            await file.download_to_memory(buf)
+            buf.seek(0)
+            image_bytes = buf.read()
+            if attempt > 0:
+                logger.info("OCR download succeeded after %d retries", attempt)
+            break
+        except Exception as exc:
+            last_err = exc
+            if attempt < 2:
+                delay = 2 ** (attempt + 1)  # 2s, 4s
+                logger.warning("OCR download attempt %d failed: %s — retry in %ds",
+                                attempt + 1, exc, delay)
+                await asyncio.sleep(delay)
+            else:
+                logger.error("OCR download failed after 3 attempts: %s", exc)
+                raise
+
+    if image_bytes is None:
+        raise (last_err or RuntimeError("download failed"))
     b64_image = base64.b64encode(image_bytes).decode("utf-8")
 
     # Try AI vision first, fallback to tesseract

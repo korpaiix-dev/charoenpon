@@ -51,8 +51,9 @@ TIER_PRICES: dict[str, Decimal] = {
 def tier_str_to_enum(tier_str: str):
     from shared.models import PackageTier
     return {
-        "300":  PackageTier.TIER_300,
+        "99":   PackageTier.TIER_99,
         "100":  PackageTier.TIER_100,
+        "300":  PackageTier.TIER_300,
         "500":  PackageTier.TIER_500,
         "1299": PackageTier.TIER_1299,
         "2499": PackageTier.TIER_2499,
@@ -83,29 +84,27 @@ class Campaign:
 
 
 def _lucky_6_active() -> bool:
-    n = now_th()
-    if n.year == 2026 and n.month == 6 and n.day == 6:
-        return True
-    # 6h grace into 7 มิ.ย.
-    if n.year == 2026 and n.month == 6 and n.day == 7 and n.hour < 6:
-        return True
+    """DISABLED 2026-06-21: บอสไม่ใช้แล้ว."""
     return False
 
 
+
 def _birthday_active() -> bool:
-    n = now_th()
-    return n.year == 2026 and n.month == 6 and 7 <= n.day <= 10
+    """DISABLED 2026-06-21: บอสไม่ใช้แล้ว."""
+    return False
+
 
 
 def _mid_month_flash_active() -> bool:
-    n = now_th()
-    return n.year == 2026 and n.month == 6 and 15 <= n.day <= 17
+    """DISABLED 2026-06-21: บอสไม่ใช้แล้ว."""
+    return False
+
 
 
 def _endmonth_vip_active() -> bool:
-    """End-of-month VIP promo: 28-30 of every month."""
-    n = now_th()
-    return n.day >= 28
+    """DISABLED 2026-06-21: บอสไม่ใช้แล้ว."""
+    return False
+
 
 
 def _may_combo_active() -> bool:
@@ -117,6 +116,12 @@ def _comeback_grace() -> bool:
     """Comeback prices (180/210) are always allowed at the price-level;
     the per-user entitlement is validated downstream against comeback_dm_log."""
     return True
+
+
+def _retention_active() -> bool:
+    """DISABLED 2026-06-21: บอสไม่ใช้ retention -10/-15/-20% แล้ว
+    เปลี่ยนเป็น False ทำให้ TIER_300/500/1299/2499 ราคาเต็ม + เหลือแค่ exit_survey + comeback."""
+    return False
 
 
 # ─── Build campaign list (priority order: first match wins) ──────────────
@@ -165,6 +170,40 @@ def _all_campaigns() -> list[Campaign]:
             prices={
                 180: ("300", "💔 180 (Comeback -40%)"),
                 210: ("300", "💔 210 (Comeback -30%)"),
+            },
+        ),
+        Campaign(
+            key="retention_discount", label="Retention Discount (per-user)",
+            starts_text="always (per-user)",
+            is_active=_retention_active(),
+            prices={
+                # TIER_300 (VIP 30 วัน)
+                269: ("300", "🎁 Retention -10% VIP"),
+                255: ("300", "🎁 Retention -15% VIP"),
+                240: ("300", "🎁 Retention -20% VIP"),
+                # TIER_500 (OF + VIP)
+                450: ("500", "🎁 Retention -10% OF+VIP"),
+                425: ("500", "🎁 Retention -15% OF+VIP"),
+                400: ("500", "🎁 Retention -20% OF+VIP"),
+                # TIER_1299 (GOD 90 วัน)
+                1169: ("1299", "🎁 Retention -10% GOD 90"),
+                1104: ("1299", "🎁 Retention -15% GOD 90"),
+                1039: ("1299", "🎁 Retention -20% GOD 90"),
+                # TIER_2499 (GOD ถาวร)
+                2249: ("2499", "🎁 Retention -10% GOD ถาวร"),
+                2124: ("2499", "🎁 Retention -15% GOD ถาวร"),
+                1998: ("2499", "🎁 Retention -20% GOD ถาวร"),
+            },
+        ),
+        Campaign(
+            key="exit_survey", label="Exit Survey Win-back",
+            starts_text="always (per-user)",
+            is_active=True,
+            prices={
+                150:  ("300",  "💝 Exit Survey -50% VIP"),
+                295:  ("500",  "💝 Exit Survey -40% GOLD"),
+                909:  ("1299", "💝 Exit Survey -30% MAS"),
+                1997: ("2499", "💝 Exit Survey -20% GOD"),
             },
         ),
     ]
@@ -237,9 +276,9 @@ def effective_price(tier_str: str, context_user_data: Optional[dict] = None) -> 
                     return Decimal(str(int(base * (100 - discount_pct) / 100)))
             except Exception:
                 pass
-    # Active campaign promo for this tier (skip comeback — per-user via promo_code only)
+    # Active campaign promo for this tier (skip per-user campaigns — comeback + exit_survey)
     for c in active_campaigns():
-        if c.key == "comeback":
+        if c.key in ("comeback", "exit_survey"):
             continue
         for amount, (mapped_tier, _label) in c.prices.items():
             if mapped_tier == tier_str:
@@ -255,9 +294,9 @@ def acceptable_amounts(tier_str: str, context_user_data: Optional[dict] = None) 
     """
     out: set[Decimal] = {TIER_PRICES.get(tier_str, Decimal("0"))}
     out.add(effective_price(tier_str, context_user_data))
-    # Discount price (if not the same)
+    # Discount price — skip per-user campaigns (comeback + exit_survey are validated downstream)
     for c in active_campaigns():
-        if c.key == "comeback":
+        if c.key in ("comeback", "exit_survey"):
             continue
         for amount, (mapped_tier, _label) in c.prices.items():
             if mapped_tier == tier_str:
@@ -275,6 +314,15 @@ def approve_buttons(user_id: int) -> list[list[dict]]:
     Includes base buttons + active-promo buttons + summer add-on.
     """
     rows: list[list[dict]] = []
+    # Row 0: Tier 100 (ห้องมีคนชัก SHAKER) + GACHA bundles
+    rows.append([
+        {"text": "🎰 100 (ชัก)", "callback_data": f"approve_100_{user_id}"},
+        {"text": "🎁 99 (Gacha 1)", "callback_data": f"approve_99_{user_id}"},
+    ])
+    rows.append([
+        {"text": "🎁 270 (Gacha 3)", "callback_data": f"approve_270_{user_id}"},
+        {"text": "🎁 890 (Gacha 10)", "callback_data": f"approve_890_{user_id}"},
+    ])
     # Row 1: VIP and OF
     rows.append([
         {"text": "✅ 300 (VIP)",     "callback_data": f"approve_300_{user_id}"},
@@ -313,7 +361,11 @@ def admin_callback_tier_map() -> dict[str, str]:
     """Build {"<callback_amount>": "<tier_str>"} dict at call time."""
     out: dict[str, str] = {
         # Base
+        "99":    "GACHA_1",
+        "100":   "100",
         "199":   "300",  "200": "300", "300": "300",
+        "270":   "GACHA_3",
+        "890":   "GACHA_10",
         "349":   "500",  "500": "500",
         "999":   "1299", "1299": "1299",
         "2000":  "2499", "2499": "2499",

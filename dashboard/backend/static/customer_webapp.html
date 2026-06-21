@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>เจริญพร — ข้อมูลของฉัน</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  body{font-family:-apple-system,"SF Pro",system-ui,sans-serif;background:var(--tg-theme-bg-color,#0f0f23);color:var(--tg-theme-text-color,#fff);padding:16px;min-height:100vh}
+  .header{text-align:center;padding:24px 0 20px}
+  .logo{font-size:32px;margin-bottom:8px}
+  h1{font-size:22px;font-weight:700;background:linear-gradient(90deg,#ffd700,#ff6b6b);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .card{background:var(--tg-theme-secondary-bg-color,#1a1a3e);border-radius:16px;padding:18px;margin-bottom:14px;border:1px solid rgba(255,215,0,.2)}
+  .card-title{font-size:12px;text-transform:uppercase;color:var(--tg-theme-hint-color,#888);margin-bottom:8px;letter-spacing:1px}
+  .big{font-size:24px;font-weight:700;margin:4px 0}
+  .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+  .row:last-child{border-bottom:none}
+  .label{color:var(--tg-theme-hint-color,#888);font-size:14px}
+  .value{font-weight:600;font-size:14px}
+  .badge{display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;margin:4px 4px 0 0}
+  .badge-active{background:rgba(76,217,100,.2);color:#4cd964}
+  .badge-expired{background:rgba(255,59,48,.2);color:#ff3b30}
+  .badge-warn{background:rgba(255,193,7,.2);color:#ffc107}
+  .btn{background:linear-gradient(90deg,#ff6b6b,#ffd700);color:#000;border:none;padding:14px 20px;border-radius:12px;font-weight:700;width:100%;font-size:16px;margin-top:12px;cursor:pointer}
+  .btn-secondary{background:rgba(255,255,255,.1);color:#fff}
+  .err{color:#ff3b30;text-align:center;padding:40px 20px}
+  .loading{text-align:center;padding:40px;color:#888}
+  .pay-item{padding:10px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:13px}
+  .pay-amt{font-weight:700;color:#4cd964}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="logo">👑</div>
+  <h1>เจริญพร VIP</h1>
+  <div style="color:#888;font-size:13px;margin-top:4px">ข้อมูลสมาชิกของคุณ</div>
+</div>
+<div id="content"><div class="loading">⏳ กำลังโหลด...</div></div>
+<script>
+const tg = window.Telegram.WebApp;
+function openPackages() {
+  try { tg.HapticFeedback && tg.HapticFeedback.impactOccurred("light"); } catch(e) {}
+  fetch("/webapp/api/request_packages", {
+    method: "POST",
+    headers: { "X-Tg-Init-Data": tg.initData }
+  }).then(function(r){
+    if (r.ok) { setTimeout(function(){ tg.close(); }, 200); }
+    else { tg.showAlert("ผิดพลาด"); }
+  }).catch(function(){ tg.showAlert("เชื่อมต่อไม่ได้"); });
+}
+
+tg.ready(); tg.expand();
+async function load() {
+  try {
+    const r = await fetch("/webapp/api/me", {
+      headers: { "X-Tg-Init-Data": tg.initData }
+    });
+    if (!r.ok) throw new Error("auth");
+    const d = await r.json();
+    render(d);
+  } catch(e) {
+    document.getElementById("content").innerHTML =
+      '<div class="err">❌ ไม่สามารถโหลดข้อมูลได้<br><small>เปิดผ่านบอทเจริญพรเท่านั้น</small></div>';
+  }
+}
+function fmtTHB(n) {
+  return "฿" + (Number(n)||0).toLocaleString("en-US");
+}
+function fmtDate(s) {
+  if (!s) return "-";
+  const d = new Date(s);
+  return d.toLocaleDateString("th-TH", {day:"numeric",month:"short",year:"numeric"});
+}
+function render(d) {
+  const u = d.user, sub = d.subscription, gacha = d.gacha;
+  let badge = "";
+  if (sub) {
+    const days = sub.days_left;
+    if (days > 7) badge = '<span class="badge badge-active">✅ ใช้งานได้</span>';
+    else if (days > 0) badge = '<span class="badge badge-warn">⚠️ ใกล้หมด ' + days + ' วัน</span>';
+    else badge = '<span class="badge badge-expired">❌ หมดอายุ</span>';
+  } else {
+    badge = '<span class="badge badge-expired">ยังไม่ได้สมัคร</span>';
+  }
+  let html = '';
+  const RANK_INFO = {
+    BRONZE:  {emoji: '🥉', title: 'ขาประจำ', color: '#cd7f32', desc: 'อยู่ครบ 30 วัน — ขอบคุณนะ'},
+    SILVER:  {emoji: '🥈', title: 'เซเลบเจริญพร', color: '#c0c0c0', desc: 'อยู่ครบ 90 วัน หรือจ่ายเกิน ฿1,000'},
+    DIAMOND: {emoji: '💎', title: 'เจ้าพ่อเจริญพร', color: '#80deea', desc: 'จ่ายเกิน ฿4,000 — VIP ระดับท็อป'},
+  };
+  if (u.loyalty_rank && u.loyalty_rank !== 'NONE' && RANK_INFO[u.loyalty_rank]) {
+    const r = RANK_INFO[u.loyalty_rank];
+    html += '<div class="card" style="background:linear-gradient(135deg,' + r.color + '22,#1a1a2a);border-left:5px solid ' + r.color + '">';
+    html += '<div class="card-title">🎖️ ยศของคุณ</div>';
+    html += '<div style="font-size:34px;margin:8px 0">' + r.emoji + ' <b>' + r.title + '</b></div>';
+    html += '<div style="opacity:.7;font-size:14px">' + r.desc + '</div>';
+    html += '</div>';
+  }
+  html += '<div class="card">';
+  html += '<div class="card-title">📋 สมาชิก</div>';
+  html += '<div class="big">' + (sub ? "ทียร์ " + sub.tier : "ยังไม่มีแพ็คเกจ") + '</div>';
+  html += badge;
+  html += '<div style="margin-top:14px">';
+  html += '<div class="row"><span class="label">หมดอายุ</span><span class="value">' + (sub ? fmtDate(sub.end_date) : "-") + '</span></div>';
+  if (sub && sub.days_left !== null) {
+    html += '<div class="row"><span class="label">เหลือ</span><span class="value">' + sub.days_left + ' วัน</span></div>';
+  }
+  html += '</div></div>';
+  html += '<div class="card">';
+  html += '<div class="card-title">💸 การจ่ายเงิน</div>';
+  html += '<div class="row"><span class="label">จำนวนครั้ง</span><span class="value">' + u.paid_count + ' ครั้ง</span></div>';
+  html += '<div class="row"><span class="label">ยอดรวม</span><span class="value">' + fmtTHB(u.total_paid) + '</span></div>';
+  if (d.last_payments.length) {
+    html += '<div style="margin-top:10px;font-size:12px;color:#888">ล่าสุด</div>';
+    d.last_payments.forEach(function(p){
+      html += '<div class="pay-item"><div style="display:flex;justify-content:space-between">';
+      html += '<span>' + fmtDate(p.created_at) + ' · ' + p.status + '</span>';
+      html += '<span class="pay-amt">' + fmtTHB(p.amount) + '</span>';
+      html += '</div></div>';
+    });
+  }
+  html += '</div>';
+  if (gacha) {
+    html += '<div class="card"><div class="card-title">🎰 กาชาปอง</div>';
+    html += '<div class="row"><span class="label">เครดิตคงเหลือ</span><span class="value">' + gacha.credits + ' หมุน</span></div></div>';
+  }
+  html += '<button class="btn" onclick="openPackages()">💎 ต่ออายุ / สมัครเพิ่ม</button>';
+  html += '<button class="btn btn-secondary" onclick="tg.close()">ปิด</button>';
+  document.getElementById("content").innerHTML = html;
+}
+load();
+</script>
+</body>
+</html>

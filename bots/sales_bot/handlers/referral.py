@@ -504,7 +504,10 @@ async def _get_invite_link_callback(update: Update, context: ContextTypes.DEFAUL
     query = update.callback_query
     if not query:
         return
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass  # callback may be too old / already answered
 
     tg_user = update.effective_user
     if not tg_user:
@@ -521,7 +524,10 @@ async def _get_invite_link_callback(update: Update, context: ContextTypes.DEFAUL
 
     user_info = await _get_user_by_telegram_id(tg_user.id)
     if not user_info:
-        await query.answer("❌ ไม่พบข้อมูลในระบบ", show_alert=True)
+        try:
+            await query.answer("❌ ไม่พบข้อมูลในระบบ", show_alert=True)
+        except Exception:
+            pass  # callback may be too old / already answered
         return
 
     user_id, _ = user_info

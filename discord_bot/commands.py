@@ -593,7 +593,7 @@ class PaymentApprovalView(discord.ui.View):
             import os
             sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
             await sales_bot.initialize()
-            invite_links = await _approve_payment(payment, user_tg_id, sales_bot)
+            invite_links = await _approve_payment(payment, user_tg_id, sales_bot, source="admin_by_pid")
             links_text = "\n".join(invite_links) if invite_links else "ไม่สามารถสร้างลิงก์ได้"
 
             # Send invite links to customer via Sales Bot

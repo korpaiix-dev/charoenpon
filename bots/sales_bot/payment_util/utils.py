@@ -146,3 +146,34 @@ async def _notify_discord(title: str, details: str, color: int = 0xFFA500, field
     except Exception:
         return False
 
+
+
+
+def _resolve_tier(tier_str):
+    """Safely convert a tier string to PackageTier enum.
+    Handles TIER_100 inconsistency (value 'TIER_100' vs '100').
+    NEW 2026-06-21: GACHA now has real Package records — return GACHA_x tier.
+    """
+    from shared.models import PackageTier
+    if not tier_str:
+        return None
+    s = str(tier_str).strip()
+    # NEW: GACHA tiers now have Package records (id 10/11/12)
+    if s == "GACHA_1":  return PackageTier.GACHA_1
+    if s == "GACHA_3":  return PackageTier.GACHA_3
+    if s == "GACHA_10": return PackageTier.GACHA_10
+    # BIRTHDAY map to base tier
+    if s == "BIRTHDAY_1299": return PackageTier.TIER_1299
+    if s == "BIRTHDAY_2499": return PackageTier.TIER_2499
+    try:
+        return PackageTier(s)
+    except ValueError:
+        pass
+    try:
+        return PackageTier(f'TIER_{s}')
+    except ValueError:
+        pass
+    for t in PackageTier:
+        if t.name == s or t.name == f'TIER_{s}':
+            return t
+    return None

@@ -428,6 +428,7 @@ async def ban_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 # ── Strangler Fig Round 9: SOS callbacks moved out ──
 from bots.admin_bot.handlers.sos_actions import (
     sos_resend_callback,
+    sos_resolve_callback,
     copy_invites_callback,
     sos_deny_callback,
     sos_ban_callback,

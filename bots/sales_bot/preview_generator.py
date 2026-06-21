@@ -171,10 +171,13 @@ async def generate_preview(bot: Bot, content_id: int) -> str | None:
 
     # Upload preview back to Telegram (send to admin group, then get file_id)
     try:
+        # Send to STORAGE group (Guardian is admin there, file_id will work for distributor)
+        _storage_chat_id = -1004258570047
         msg = await bot.send_photo(
-            chat_id=ADMIN_GROUP_ID,
+            chat_id=_storage_chat_id,
             photo=preview_bytes,
-            caption=f"🖼 Preview generated for content #{content_id}",
+            caption=f"🖼 Preview #{content_id}",
+            disable_notification=True,
         )
         preview_file_id = msg.photo[-1].file_id
     except Exception as exc:
@@ -229,12 +232,29 @@ async def batch_generate_previews(bot: Bot, limit: int = 20) -> int:
 # ─── Scheduler Job ───────────────────────────────────────────────────────────
 
 async def run_preview_generator_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Scheduled job: batch generate previews for new content."""
-    bot = context.bot
-    logger.info("🖼 Preview generator job started")
+    """Scheduled job: batch generate previews for new content.
 
+    Uses Guardian bot token because:
+    - Sales bot is not a member of STORAGE group
+    - Guardian is admin in STORAGE → can download file_ids + upload previews back
+    - file_ids are bound to the bot that captured them
+    """
+    logger.info("🖼 Preview generator job started (using Guardian bot)")
+
+    import os as _os
+    from telegram import Bot as _Bot
+    _guardian_tok = _os.environ.get("GUARDIAN_BOT_TOKEN", "")
+    if not _guardian_tok:
+        logger.error("GUARDIAN_BOT_TOKEN missing — cannot generate previews")
+        return
+
+    bot = _Bot(token=_guardian_tok)
+    await bot.initialize()
     try:
-        count = await batch_generate_previews(bot, limit=20)
+        count = await batch_generate_previews(bot, limit=50)
         logger.info("Preview generator job done: %d previews created", count)
     except Exception as exc:
-        logger.error("Preview generator job failed: %s", exc)
+        logger.error("Preview generator job failed: %s", exc, exc_info=True)
+    finally:
+        try: await bot.shutdown()
+        except Exception: pass

@@ -22,13 +22,19 @@ TRUEMONEY_PATTERN = re.compile(
 )
 
 async def _get_active_promo_for_user(telegram_id: int) -> dict | None:
-    """Look up active (unexpired, unpurchased) promo in comeback_dm_log for a user."""
+    """Look up active (unexpired, unpurchased) promo in comeback_dm_log for a user.
+
+    2026-06-16 FIX: filter expiry in SQL (was Python-side, could miss valid newer promo).
+    """
     from shared.models import ComebackDmLog
+    from datetime import datetime as _dt, timedelta as _td
+    cutoff = _dt.utcnow() - _td(hours=48)
     async with get_session() as session:
         result = await session.execute(
             select(ComebackDmLog).where(
                 ComebackDmLog.telegram_id == telegram_id,
                 ComebackDmLog.purchased == False,  # noqa: E712
+                ComebackDmLog.sent_at >= cutoff,  # SQL-side filter
             ).order_by(ComebackDmLog.sent_at.desc()).limit(1)
         )
         dm_log = result.scalar_one_or_none()

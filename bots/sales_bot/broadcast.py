@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from datetime import datetime
 from sqlalchemy import select, update
 from telegram import Bot
 from telegram.error import BadRequest, Forbidden, RetryAfter
@@ -72,7 +73,7 @@ async def _mark_user_blocked(telegram_id: int) -> None:
         await session.execute(
             update(User)
             .where(User.telegram_id == telegram_id)
-            .values(is_banned=True)
+            .values(is_blocked_bot=True, blocked_bot_at=datetime.utcnow())
         )
 
 

@@ -9,6 +9,12 @@ import os, logging, asyncio
 from decimal import Decimal
 from typing import Optional
 import httpx
+from time import monotonic as _monotonic
+
+# Circuit breaker for HTTP 429 — pause 5 min after rate-limit detected
+_SLIP2GO_RATE_LIMIT_UNTIL: dict = {"until": 0.0}
+_SLIP2GO_RATE_LIMIT_PAUSE_SEC = 300  # 5 นาที
+
 
 logger = logging.getLogger(__name__)
 
@@ -28,33 +34,71 @@ class Slip2GoError(Exception):
 
 
 async def verify_slip_image(image_bytes: bytes, timeout: float = 30.0) -> dict:
-    """Send slip image (raw bytes) to Slip2Go multipart endpoint.
+    """Send slip image to Slip2Go with retry on transient errors.
 
-    Returns the `data` dict if success. Raises Slip2GoError on failure.
-    Response data has: transRef, dateTime, amount, receiver{...}, sender{...}, referenceId
+    2026-06-16 FIX: retry 2x with backoff on network/5xx (was one-shot fail).
+    Returns the `data` dict if success. Raises Slip2GoError on permanent failure.
     """
     if not SECRET:
         raise Slip2GoError("NO_SECRET", "SLIP2GO_SECRET not configured")
     url = f"{BASE_URL}/api/verify-slip/qr-image/info"
     headers = {"Authorization": f"Bearer {SECRET}"}
     files = {"file": ("slip.jpg", image_bytes, "image/jpeg")}
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            r = await client.post(url, headers=headers, files=files)
-    # Bug #10 — catch all httpx transport errors, not just timeout+network
-    except httpx.RequestError as exc:
-        raise Slip2GoError("NETWORK", f"network error: {exc}")
-    try:
-        body = r.json()
-    except Exception:
-        raise Slip2GoError("BAD_RESPONSE", f"non-json response: {r.text[:200]}")
-    code = body.get("code", "")
-    msg = body.get("message", "")
-    # Slip2Go may return 201 — rely on code "200000" alone
-    if str(code) == "200000":
-        return body.get("data", {}) or {}
-    # Common error codes: 400002 file incorrect, 400005 base64 invalid, ...
-    raise Slip2GoError(str(code), msg or r.text[:200])
+
+    import asyncio as _asyncio
+
+    # FIX 2026-06-21: Circuit breaker — ถ้าเคย 429 ใน 5 นาทีล่าสุด, fail fast
+    remaining = _SLIP2GO_RATE_LIMIT_UNTIL["until"] - _monotonic()
+    if remaining > 0:
+        raise Slip2GoError("RATE_LIMITED", f"slip2go circuit open, {int(remaining)}s remaining")
+
+    last_err: Exception | None = None
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                r = await client.post(url, headers=headers, files=files)
+            # FIX 2026-06-21: HTTP 429 → ไม่ retry + open circuit + alert
+            if r.status_code == 429:
+                _SLIP2GO_RATE_LIMIT_UNTIL["until"] = _monotonic() + _SLIP2GO_RATE_LIMIT_PAUSE_SEC
+                # Alert ห้อง Report
+                try:
+                    from shared.admin_alert import notify_admin_report
+                    await notify_admin_report(
+                        f"⚠️ <b>Slip2Go Rate Limit (HTTP 429)</b>\n"
+                        f"━━━━━━━━━━━━\n"
+                        f"⏸ pause {_SLIP2GO_RATE_LIMIT_PAUSE_SEC // 60} นาที\n"
+                        f"📊 response: {r.text[:200]}\n\n"
+                        f"<i>ระบบจะ fallback เป็น Layer 2 (Gemini Vision) จนกว่าจะหายต้อง</i>",
+                        parse_mode="HTML",
+                    )
+                except Exception:
+                    pass
+                raise Slip2GoError("RATE_LIMITED", f"http 429: {r.text[:100]}")
+            # Treat 5xx as transient
+            if 500 <= r.status_code < 600 and attempt < 2:
+                last_err = Slip2GoError("HTTP_5XX", f"http {r.status_code}: {r.text[:100]}")
+                delay = 2 ** (attempt + 1)
+                await _asyncio.sleep(delay)
+                continue
+            try:
+                body = r.json()
+            except Exception:
+                raise Slip2GoError("BAD_RESPONSE", f"non-json response: {r.text[:200]}")
+            code = body.get("code", "")
+            msg = body.get("message", "")
+            if str(code) == "200000":
+                return body.get("data", {}) or {}
+            # Permanent business-logic error — no retry
+            raise Slip2GoError(str(code), msg or r.text[:200])
+        except httpx.RequestError as exc:
+            last_err = Slip2GoError("NETWORK", f"network error: {exc}")
+            if attempt < 2:
+                delay = 2 ** (attempt + 1)  # 2s, 4s
+                await _asyncio.sleep(delay)
+                continue
+            raise last_err
+    # Exhausted retries
+    raise last_err or Slip2GoError("UNKNOWN", "retries exhausted")
 
 
 async def get_account_info(timeout: float = 10.0) -> dict:

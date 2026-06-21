@@ -23,6 +23,7 @@ from shared.models import (
     Subscription, SubscriptionStatus,
     Package, PackageTier, GroupRegistry,
 )
+from bots.sales_bot.payment_util.utils import _resolve_tier
 from shared.tz import TH_TZ
 from shared.utils import (
     check_duplicate_slip,
@@ -130,15 +131,15 @@ async def handle_truemoney_link(
             await session.flush()
 
         pkg_result = await session.execute(
-            select(Package).where(Package.tier == PackageTier(selected_tier))
+            select(Package).where(Package.tier == _resolve_tier(selected_tier))
         )
         package = pkg_result.scalar_one_or_none()
         if not package:
             await update.message.reply_text("ไม่พบแพ็กเกจในระบบค่ะ ติดต่อแอดมิน @sperm6969นะคะ")
             return
 
-        # Duplicate payment guard: same user + same amount within 60 seconds
-        dedup_cutoff = datetime.utcnow() - timedelta(seconds=60)
+        # Duplicate payment guard: same user + same amount within 120 seconds (extended 2026-06-21 — redeem can take 90s+)
+        dedup_cutoff = datetime.utcnow() - timedelta(seconds=120)
         dup_check = await session.execute(
             select(Payment).where(
                 Payment.user_id == db_user.id,
@@ -270,7 +271,7 @@ async def handle_truemoney_link(
 
     if not reasons and tm_result["valid"]:
         # APPROVED
-        invite_links_raw = await _approve_payment(payment, user.id, context.bot)
+        invite_links_raw = await _approve_payment(payment, user.id, context.bot, source="truemoney")
 
         # Flash Sale: increment sold_slots if active
         if context.user_data.get("flash_sale_id") and selected_tier == "300":

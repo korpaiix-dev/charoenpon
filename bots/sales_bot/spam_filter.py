@@ -151,12 +151,24 @@ def _load_ignored_chat_ids() -> set[int]:
 IGNORED_CHAT_IDS: set[int] = _load_ignored_chat_ids()
 
 
+# ── prae v2 staging — these tg_ids bypass spam filter completely ──
+PRAE_V2_BYPASS = {
+    8502597269,   # บอส
+    7387557933,   # admin
+}
+
+
 async def spam_filter_middleware(update: Update, context: CallbackContext) -> bool:
     """Middleware that filters messages before passing to handlers.
 
     Returns True if message should be BLOCKED (not passed to handlers).
     Returns False if message should CONTINUE to handlers.
     """
+    # ── prae v2 bypass: whitelist users go straight to AI ──
+    _u = update.effective_user
+    if _u and _u.id in PRAE_V2_BYPASS:
+        return False
+
     # --- Ignore messages from specific chats (e.g., admin group) ---
     chat = update.effective_chat
     if chat and chat.id in IGNORED_CHAT_IDS:
@@ -173,6 +185,26 @@ async def spam_filter_middleware(update: Update, context: CallbackContext) -> bo
 
     user_id = user.id
     username = user.username
+
+    # --- RATE LIMIT (added 2026-06-15) ---
+    try:
+        from shared.rate_limit import check_rate_limit
+        allowed, reason = check_rate_limit(user_id, max_per_window=25, window_seconds=60)
+        if not allowed:
+            logger.warning("rate_limit blocked user=%s reason=%s", user_id, reason)
+            try:
+                # Only warn once per block period — silent block otherwise
+                bucket_key = f"_ratelimit_warned_{user_id}"
+                if not context.user_data.get(bucket_key):
+                    await update.message.reply_text(
+                        "\u23f3 \u0e0a\u0e49\u0e32\u0e25\u0e07\u0e2b\u0e19\u0e48\u0e2d\u0e22\u0e04\u0e23\u0e31\u0e1a \u0e22\u0e34\u0e07\u0e02\u0e49\u0e2d\u0e04\u0e27\u0e32\u0e21\u0e21\u0e32\u0e01\u0e44\u0e1b"
+                    )
+                    context.user_data[bucket_key] = True
+            except Exception:
+                pass
+            return True  # block
+    except Exception as exc:
+        logger.debug("rate_limit check failed: %s", exc)
 
     # --- Commands always pass through ---
     if text.startswith("/"):

@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 
 from sqlalchemy import select
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -31,6 +31,7 @@ MAIN_KEYBOARD = InlineKeyboardMarkup(
     [
         [InlineKeyboardButton("⚡ Flash Sale", callback_data="view_flashsale")],
         [InlineKeyboardButton("📦 ดูแพ็กเกจ", callback_data="view_packages")],
+        [InlineKeyboardButton("📊 ข้อมูลของฉัน", web_app=WebAppInfo(url="https://telebord.net/webapp/customer"))],
         [
             InlineKeyboardButton("📋 เช็คเครดิต/รีวิว", url="https://t.me/+hv7uXYj4bxFhODZl"),
             InlineKeyboardButton("👀 ดูตัวอย่างงาน", url="https://t.me/+Q0Qf-4t8TQo3YTBl"),
@@ -175,8 +176,24 @@ async def _build_main_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
     # VIPมีคนชัก — always show (lottery group ฿100)
     rows.append([InlineKeyboardButton("🎰 VIPมีคนชัก ฿100 — ลุ้น GOD ทุกจันทร์!", callback_data="view_shaker")])
 
+    # Discount button — only show if user has balance > 0
+    try:
+        from bots.sales_bot.handlers.discount_button import get_balance_for_user
+        _disc_bal = await get_balance_for_user(telegram_id)
+        if _disc_bal > 0:
+            rows.append([InlineKeyboardButton(
+                f"💰 ส่วนลดของฉัน ฿{int(_disc_bal):,}",
+                callback_data="view_discount"
+            )])
+    except Exception:
+        pass
+
+    # Gacha buy — เติมสิทธิ์หมุน
+    rows.append([InlineKeyboardButton("🎁 เติมสิทธิ์หมุนกาชาปอง", callback_data="view_gacha_buy")])
+
     # ดูแพ็กเกจ — moved to position 4 (per boss)
     rows.append([InlineKeyboardButton("📦 ดูแพ็กเกจ", callback_data="view_packages")])
+    rows.append([InlineKeyboardButton("📊 ข้อมูลของฉัน", web_app=WebAppInfo(url="https://telebord.net/webapp/customer"))])
 
     # Referral — moved to position 5
     rows.append([InlineKeyboardButton("🎁 ชวนเพื่อน ได้ VIP ฟรี!", callback_data="referral_menu")])
@@ -207,6 +224,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         user = result.scalar_one_or_none()
 
+        is_new_user = False
         if user is None:
             user = User(
                 telegram_id=tg_user.id,
@@ -216,6 +234,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             )
             session.add(user)
             await session.flush()
+            is_new_user = True
             logger.info(
                 "New user registered: %s (tg:%d) source=%s",
                 tg_user.username,
@@ -308,6 +327,34 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await view_packages_command(update, context)
         return
 
+    # Handle gacha buy deeplink (from gacha webapp top-up button)
+    if source == "gacha_buy":
+        from bots.sales_bot.handlers.gacha_buy import _get_user_credit_balance, _build_buy_caption, _build_buy_keyboard
+        state = await _get_user_credit_balance(tg_user.id)
+        await update.message.reply_text(
+            _build_buy_caption(state),
+            parse_mode="HTML",
+            reply_markup=_build_buy_keyboard(),
+        )
+        return
+
+    # Handle gacha promo deeplink (from FREE group ad button)
+    if source == "gacha":
+        from bots.sales_bot.handlers.gacha_buy import _get_user_credit_balance, _build_buy_caption, _build_buy_keyboard
+        state = await _get_user_credit_balance(tg_user.id)
+        await update.message.reply_text(
+            _build_buy_caption(state),
+            parse_mode="HTML",
+            reply_markup=_build_buy_keyboard(),
+        )
+        return
+
+    # Handle shaker deeplink (from FREE group ad button)
+    if source == "shaker":
+        from bots.sales_bot.handlers.shaker import cmd_shaker
+        await cmd_shaker(update, context)
+        return
+
     # MAIN_KBD_V2 — unified builder w/ flash-sale conditional
     dynamic_keyboard = await _build_main_keyboard(tg_user.id)
 
@@ -336,13 +383,30 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         from bots.sales_bot.handlers.packages import view_packages_command
         await view_packages_command(update, context)
 
+    # NEW 2026-06-20 V2: Instant Welcome DM (Stage 0) — only for genuinely new users
+    # is_new_user is defined inside session block above (function scope)
+    if is_new_user:
+        try:
+            import asyncio as _a
+            await _a.sleep(2.0)
+            from shared.welcome_journey import send_instant_welcome
+            await send_instant_welcome(
+                user_id=user.id, telegram_id=tg_user.id,
+                first_name=tg_user.first_name or "", bot=context.bot,
+            )
+        except Exception as _exc_w:
+            logger.warning("instant welcome DM failed: %s", _exc_w)
+
 
 async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Callback: return to the main menu (uses dynamic kbd w/ referral button)."""
     query = update.callback_query
     if not query or not update.effective_user:
         return
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass  # callback may be too old / already answered
     tg_user = update.effective_user
     kb = await _build_main_keyboard(tg_user.id)
     try:
@@ -360,7 +424,10 @@ async def free_room_callback(
     query = update.callback_query
     if not query:
         return
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass  # callback may be too old / already answered
 
     text = (
         "🆓 <b>ห้องฟรี</b>\n\n"
@@ -385,7 +452,10 @@ async def contact_admin_callback(
     query = update.callback_query
     if not query:
         return
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass  # callback may be too old / already answered
 
     text = (
         "👩‍💼 <b>ติดต่อแอดมิน</b>\n\n"
@@ -405,7 +475,10 @@ async def referral_menu_callback(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     if not query or not update.effective_user:
         return
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass  # callback may be too old / already answered
 
     from bots.sales_bot.handlers.referral import _is_vip_active
     tg_user = update.effective_user
@@ -454,7 +527,10 @@ async def view_upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     if not query:
         return
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass  # callback may be too old / already answered
     from bots.sales_bot.handlers.upsell import UPGRADE_TEXT
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("💎 GOD MODE 90 วัน ฿1,299", callback_data="buy_1299")],

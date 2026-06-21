@@ -15,6 +15,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from shared.slip_review import get_slip_review_handlers
 
 from shared.database import close_db, init_db
 
@@ -31,6 +32,7 @@ from bots.admin_bot.handlers.approval import (
     reject_user_callback,
     ban_user_callback,
     sos_resend_callback,
+    sos_resolve_callback,
     copy_invites_callback,
     sos_deny_callback,
     sos_ban_callback,
@@ -38,6 +40,9 @@ from bots.admin_bot.handlers.approval import (
 )
 from bots.admin_bot.handlers.where import cmd_where
 from bots.admin_bot.handlers.broadcast import get_broadcast_handlers
+from bots.admin_bot.handlers.receivers import get_receivers_handlers
+from bots.admin_bot.handlers.admin_tools import get_admin_tools_handlers
+from bots.admin_bot.handlers.ban import get_ban_handlers
 from bots.admin_bot.handlers.reports import (
     cmd_costs,
     cmd_members,
@@ -222,6 +227,14 @@ def main() -> None:
     for handler in get_broadcast_handlers():
         application.add_error_handler(_global_error_handler)
         application.add_handler(handler)
+    for h in get_slip_review_handlers():
+        application.add_handler(h)
+    for h in get_receivers_handlers():
+        application.add_handler(h)
+    for h in get_admin_tools_handlers():
+        application.add_handler(h)
+    for h in get_ban_handlers():
+        application.add_handler(h)
 
     # Command handlers
     application.add_handler(CommandHandler("start", cmd_start))
@@ -253,6 +266,7 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(copy_invites_callback, pattern=r"^copy_invites_\d+$"))
     application.add_handler(CallbackQueryHandler(sos_deny_callback, pattern=r"^sos_deny_\d+$"))
     application.add_handler(CallbackQueryHandler(sos_ban_callback, pattern=r"^sos_ban_\d+$"))
+    application.add_handler(CallbackQueryHandler(sos_resolve_callback, pattern=r"^sos_resolve:\d+$"))
     application.add_handler(CallbackQueryHandler(chat_user_callback, pattern=r"^chat_user_\d+$"))
 
 

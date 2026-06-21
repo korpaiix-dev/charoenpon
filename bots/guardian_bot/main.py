@@ -131,6 +131,11 @@ async def handle_chat_member_update(
     if not group:
         return  # Not a monitored group
 
+    # 2026-06-18: skip FREE groups — anyone can join, no sub check, no log spam
+    tier_str = group.min_tier.value if hasattr(group.min_tier, "value") else str(group.min_tier)
+    if tier_str in ("FREE", "TIER_FREE"):
+        return
+
     slug = group.slug.value if hasattr(group.slug, "value") else str(group.slug)
 
     # Check authorization
@@ -320,6 +325,10 @@ def create_application() -> Application:
     # --- Content distributor: capture media from source group ---
     for h in get_distributor_handlers():
         app.add_handler(h)
+
+    # --- Gacha clip listener: capture media in CLIP source groups ---
+    from bots.guardian_bot.gacha_clip_listener import get_gacha_clip_listener_handler
+    app.add_handler(get_gacha_clip_listener_handler())
 
     # --- Scheduled jobs ---
     job_queue = app.job_queue

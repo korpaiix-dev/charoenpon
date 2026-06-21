@@ -1,0 +1,16 @@
+{
+  "name": "charoenpon-relay-bot",
+  "version": "1.0.0",
+  "description": "Relay/broadcast bot for charoenpon VIP content distribution",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "node-telegram-bot-api": "^0.66.0",
+    "express": "^4.21.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

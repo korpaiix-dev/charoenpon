@@ -36,7 +36,12 @@ import logging
 from typing import Any, Iterable
 
 from shared.discord_alert import notify_discord
-from shared.admin_alert import notify_admin_group, notify_admin_photo
+from shared.admin_alert import (
+    notify_admin_group,
+    notify_admin_photo,
+    notify_admin_report,
+    notify_admin_report_photo,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +67,9 @@ ROUTES: dict[str, list[str]] = {
 
     # ─ Broadcast events ─
     "broadcast_enqueued":      ["discord:broadcast", "log:info"],
-    "broadcast_paused":        ["discord:broadcast", "telegram:admin", "log:warning"],
+    "broadcast_paused":        ["discord:broadcast", "telegram:report", "log:warning"],
     "broadcast_completed":     ["discord:broadcast", "log:info"],
-    "broadcast_preview":       ["telegram:admin"],                     # send preview to boss
+    "broadcast_preview":       ["telegram:report"],                    # send preview to boss
     "broadcast_429":           ["discord:broadcast", "log:warning"],   # Telegram throttle
 
     # ─ Content distributor ─
@@ -72,29 +77,29 @@ ROUTES: dict[str, list[str]] = {
     "content_distribute_fail": ["discord:content", "log:warning"],
 
     # ─ Bot health / system ─
-    "bot_crash":               ["discord:system", "telegram:admin", "log:error"],
+    "bot_crash":               ["discord:system", "telegram:report", "log:error"],
     "bot_restart":             ["discord:system", "log:info"],
-    "ai_circuit_open":         ["discord:system", "telegram:admin", "log:warning"],
+    "ai_circuit_open":         ["discord:system", "telegram:report", "log:warning"],
     "ai_circuit_closed":       ["discord:system", "log:info"],
     "ai_fail":                 ["discord:system", "log:warning"],
-    "slip2go_balance_low":     ["discord:alerts", "telegram:admin", "log:warning"],
+    "slip2go_balance_low":     ["discord:alerts", "telegram:report", "log:warning"],
 
     # ─ Spam / abuse ─
     "spam_filter_hit":         ["discord:alerts", "log:info"],         # not admin (would spam)
-    "abuse_detected":          ["discord:alerts", "telegram:admin", "log:warning"],
+    "abuse_detected":          ["discord:alerts", "telegram:report", "log:warning"],
 
     # ─ Daily / weekly reports ─
-    "daily_report":            ["telegram:admin", "discord:report"],
-    "weekly_report":           ["telegram:admin", "discord:report"],
-    "daily_expiry_report":     ["telegram:admin"],
-    "daily_content_report":    ["telegram:admin", "discord:content"],
+    "daily_report":            ["telegram:report", "discord:report"],
+    "weekly_report":           ["telegram:report", "discord:report"],
+    "daily_expiry_report":     ["telegram:report"],
+    "daily_content_report":    ["telegram:report", "discord:content"],
 
     # ─ Manager-agent insights ─
     "manager_insight":         ["discord:manager"],                    # exec-only
 
     # ─ Sheets sync ─
     "sheets_synced":           ["discord:sheets"],
-    "sheets_sync_fail":        ["discord:sheets", "telegram:admin", "log:warning"],
+    "sheets_sync_fail":        ["discord:sheets", "telegram:report", "log:warning"],
 
     # ─ SOS / urgent ─
     "sos":                     ["discord:alerts", "telegram:admin", "log:error"],
@@ -164,6 +169,19 @@ async def notify(
                     )
                 else:
                     msg = await notify_admin_group(
+                        telegram_text, reply_markup=reply_markup,
+                        silent_on_error=silent_on_error,
+                    )
+                results[route] = msg is not None
+            elif kind == "telegram" and target == "report":
+                if photo is not None:
+                    msg = await notify_admin_report_photo(
+                        photo, caption=telegram_text,
+                        reply_markup=reply_markup,
+                        silent_on_error=silent_on_error,
+                    )
+                else:
+                    msg = await notify_admin_report(
                         telegram_text, reply_markup=reply_markup,
                         silent_on_error=silent_on_error,
                     )

@@ -242,8 +242,73 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
                 await query.answer(f"❌ ราคา {price} ไม่ถูกต้อง", show_alert=True)
                 return
 
+            # GACHA tiers: handle separately (not a Package)
+            if tier.startswith("GACHA_"):
+                _spins_map = {"GACHA_1": 1, "GACHA_3": 3, "GACHA_10": 10}
+                _spins = _spins_map.get(tier, 0)
+                if _spins <= 0:
+                    await query.answer(f"❌ Gacha tier {tier} unknown", show_alert=True)
+                    return
+                from sqlalchemy import text as _gt
+                async with get_session() as _gs:
+                    _gu = await _gs.execute(select(User).where(User.telegram_id == target_user_id))
+                    _gurow = _gu.scalar_one_or_none()
+                    if not _gurow:
+                        await query.answer("❌ User not found", show_alert=True)
+                        return
+                    await _gs.execute(_gt(
+                        "INSERT INTO gachapon_credits (user_id, telegram_id, credits, total_purchased) "
+                        "VALUES (:uid, :tg, :sp, :sp) "
+                        "ON CONFLICT (user_id) DO UPDATE SET "
+                        "credits = gachapon_credits.credits + :sp, "
+                        "total_purchased = gachapon_credits.total_purchased + :sp, "
+                        "updated_at = NOW()"
+                    ), {"uid": _gurow.id, "tg": target_user_id, "sp": _spins})
+                    from shared.pricing import TIER_PRICES as _TP
+                    _amt = float(_TP.get(tier, 0))
+                    await _gs.execute(_gt(
+                        "INSERT INTO payments (user_id, package_id, amount, method, status, auto_approved, verified_at, verified_by, created_at) "
+                        "VALUES (:uid, 1, :amt, 'SLIP', 'CONFIRMED', false, NOW(), :admin, NOW())"
+                    ), {"uid": _gurow.id, "amt": _amt, "admin": query.from_user.id if query.from_user else None})
+                    await _gs.commit()
+                try:
+                    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+                    _kb = InlineKeyboardMarkup([[InlineKeyboardButton(
+                        f"🎰 หมุนเลย! (มี {_spins} สิทธิ์)",
+                        web_app=WebAppInfo(url="https://telebord.net/gacha/"))]])
+                    _gacha_msg = "🎉 <b>ได้รับสิทธิ์หมุนกาชาปอง " + str(_spins) + " ครั้ง!</b>\n\nกดปุ่มด้านล่างเริ่มหมุนเลยค่ะ 🎁"
+                    await context.bot.send_message(
+                        chat_id=target_user_id,
+                        text=_gacha_msg,
+                        parse_mode="HTML", reply_markup=_kb,
+                    )
+                except Exception:
+                    pass
+                try:
+                    actor = query.from_user.username or query.from_user.first_name or "admin"
+                    new_marker = "\n\n✅ <b>GACHA APPROVED</b> (" + str(_spins) + " spins) by @" + str(actor)
+                    if query.message and query.message.caption:
+                        await query.edit_message_caption(
+                            caption=(query.message.caption + new_marker),
+                            parse_mode="HTML", reply_markup=None,
+                        )
+                    elif query.message and query.message.text:
+                        await query.edit_message_text(
+                            text=(query.message.text + new_marker),
+                            parse_mode="HTML", reply_markup=None,
+                        )
+                except Exception:
+                    pass
+                return
+
+            # Resolve tier string to enum safely (handles TIER_100 inconsistency)
+            from bots.sales_bot.payment_util.utils import _resolve_tier
+            _tier_enum = _resolve_tier(tier)
+            if not _tier_enum:
+                await query.answer(f"❌ tier {tier} ไม่รู้จัก", show_alert=True)
+                return
             pkg_result = await session.execute(
-                select(Package).where(Package.tier == PackageTier(tier))
+                select(Package).where(Package.tier == _tier_enum)
             )
             package = pkg_result.scalar_one_or_none()
             if not package:
@@ -259,21 +324,23 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
             )
             _u_row_chk = _u_for_check.scalar_one_or_none()
             if _u_row_chk is not None:
-                # >>> BUG5_GUARD_PKG_MATCH <<<
-                # Only block if RECENT payment is for the SAME tier/package
-                # (legitimate case: ลูกค้าซื้อโปร แล้วซื้อ add-on add-500 ใน 5 นาที = OK)
-                _recent = await session.execute(
-                    select(Payment).where(
-                        Payment.user_id == _u_row_chk.id,
-                        Payment.status == PaymentStatus.CONFIRMED,
-                        Payment.package_id == package.id,
-                        Payment.created_at >= _dt.utcnow() - _td(minutes=15),
-                    ).order_by(Payment.created_at.desc()).limit(1)
+                # >>> BUG5_GUARD_PKG_MATCH <<< (UPDATED 2026-06-16)
+                # Block any CONFIRMED payment in 15min EXCEPT when buying ADD500 add-on
+                # legitimate add-on: lifetime + ADD500 within 5 minutes
+                _is_addon_purchase = (tier == "ADD500")
+                _guard_query = select(Payment).where(
+                    Payment.user_id == _u_row_chk.id,
+                    Payment.status == PaymentStatus.CONFIRMED,
+                    Payment.created_at >= _dt.utcnow() - _td(minutes=15),
                 )
+                if _is_addon_purchase:
+                    # When admin clicks ADD500: only block if there\u0027s already an ADD500 in 15min
+                    _guard_query = _guard_query.where(Payment.package_id == package.id)
+                _recent = await session.execute(_guard_query.order_by(Payment.created_at.desc()).limit(1))
                 _recent_pay = _recent.scalar_one_or_none()
                 if _recent_pay is not None:
                     await query.answer(
-                        f"⛔ ลูกค้านี้เพิ่งถูกอนุมัติแล้ว (payment #{_recent_pay.id}, ฿{_recent_pay.amount}). อย่ากดซ้ำ",
+                        f"\u26d4 \u0e25\u0e39\u0e01\u0e04\u0e49\u0e32\u0e19\u0e35\u0e49\u0e40\u0e1e\u0e34\u0e48\u0e07\u0e16\u0e39\u0e01\u0e2d\u0e19\u0e38\u0e21\u0e31\u0e15\u0e34\u0e41\u0e25\u0e49\u0e27 (payment #{_recent_pay.id}, \u0e3f{_recent_pay.amount}, pkg={_recent_pay.package_id}). \u0e2d\u0e22\u0e48\u0e32\u0e01\u0e14\u0e0b\u0e49\u0e33",
                         show_alert=True,
                     )
                     return
@@ -340,7 +407,7 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
             # Source of truth for amount_paid: actual slip amount (verify_payment.amount)
             # if available. Falls back to button-derived promo price.
             # Prevents revenue understatement when customer pays FULL price during promo.
-            _slip_amt = getattr(verify_payment, "amount", None) if "verify_payment" in dir() else None
+            _slip_amt = getattr(verify_payment, "amount", None) if "verify_payment" in locals() else None
             if price == "200" and tier == "300" and is_endmonth_vip_promo_active():
                 amount_paid = _slip_amt if _slip_amt and _slip_amt >= PROMO_PRICE else PROMO_PRICE
             elif price == "2000" and tier == "2499" and is_endmonth_vip_promo_active():

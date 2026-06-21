@@ -121,7 +121,10 @@ async def cmd_shaker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def cb_view_shaker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Callback for main menu 'กิจกรรมห้องมีคนชัก' button."""
     q = update.callback_query
-    await q.answer()
+    try:
+        await q.answer()
+    except Exception:
+        pass  # callback may be too old / already answered
     if not q.message or not q.from_user:
         return
     pool = await _pool_status()
@@ -161,7 +164,10 @@ async def cmd_myticket(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def cb_shaker_buy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
-    await q.answer()
+    try:
+        await q.answer()
+    except Exception:
+        pass  # callback may be too old / already answered
     if not q.from_user:
         return
     n = int(q.data.rsplit("_", 1)[1])
@@ -179,7 +185,8 @@ async def cb_shaker_buy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     from shared.receiver_pool import pick_random
     acct = await pick_random()
     if not acct:
-        await q.edit_message_text("⚠️ ระบบไม่พร้อม กรุณาทักแอดมินค่ะ")
+        from shared.contact_admin import contact_admin_kb as _cak
+        await q.edit_message_text("⚠️ ระบบไม่พร้อม กดปุ่มด้านล่างทักแอดมินได้เลยค่ะ", reply_markup=_cak())
         return
 
     msg = (
@@ -187,15 +194,32 @@ async def cb_shaker_buy(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "━━━━━━━━━━━━━━━\n\n"
         f"💰 ยอด: <b>฿{price:,}</b>\n"
         f"🎫 จำนวนเลข: <b>{n} ใบ</b> (โอกาสถูก {n}%)\n\n"
-        f"🏦 โอนเข้า: <b>{acct['bank_name_th']}</b>\n"
-        f"👤 ชื่อบัญชี: <code>{acct['owner_name']}</code>\n"
-        f"🔢 เลขบัญชี: <code>{acct['account_no']}</code>\n"
+        f"📌 <b>วิธีชำระเงิน:</b>\n"
+        f"1️⃣ สแกน QR PromptPay ด้านล่าง หรือโอนตามยอด\n"
+        f"2️⃣ ส่งสลิปโอนในแชทนี้\n"
+        f"3️⃣ ระบบสุ่มเลขให้อัตโนมัติทันที\n\n"
+        f"💳 <b>ช่องทางชำระ:</b>\n"
+        f"🏦 {acct['bank_name_th']}\n"
+        f"👤 <code>{acct['owner_name']}</code>\n"
+        f"🔢 <code>{acct['account_no']}</code>\n"
         f"📱 PromptPay: <code>{acct.get('promptpay_number','')}</code>\n\n"
         "━━━━━━━━━━━━━━━\n"
-        f"📸 ส่งสลิปการโอนในแชทนี้\n"
-        "⚡ ระบบจะสุ่มเลขให้อัตโนมัติทันที"
+        "⚠️ กรุณาโอนตามยอด <b>฿{}</b> เท่านั้นค่ะ".format(price)
     )
     await q.edit_message_text(msg, parse_mode="HTML")
+
+    # Send QR PromptPay (matches packages.py pattern — every tier shows QR)
+    qr_url = acct.get("qr_url") or "https://img2.pic.in.th/-2026-03-15-143743.png"
+    try:
+        await context.bot.send_photo(
+            chat_id=q.message.chat_id,
+            photo=qr_url,
+            caption=f"📱 สแกน QR PromptPay เพื่อโอน <b>฿{price:,}</b>\nแล้วส่งสลิปมาที่แชทนี้เลยค่ะ 🙏",
+            parse_mode="HTML",
+        )
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Shaker QR send failed: %s", exc)
 
 
 def get_shaker_handlers() -> list:

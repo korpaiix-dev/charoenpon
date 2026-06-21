@@ -155,7 +155,10 @@ async def trial_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     query = update.callback_query
     if not query:
         return
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass  # callback may be too old / already answered
 
     tg_user = update.effective_user
     if not tg_user:

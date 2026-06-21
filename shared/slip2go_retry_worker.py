@@ -66,8 +66,8 @@ async def _claim_pending_rows():
 
 async def _process_one(row: dict, bot: Bot) -> None:
     """Try Slip2Go again, approve if successful, else schedule retry/escalate."""
-    from shared.slip2go import verify_slip_image, Slip2GoError, receiver_match_pool
-    from shared.receiver_pool import list_enabled
+    from shared.slip2go import verify_slip_image, Slip2GoError
+    from shared.receiver_pool import list_enabled, match_receiver
     from bots.sales_bot.payment_util.approve import _approve_payment
     from sqlalchemy import select
     from shared.models import Payment
@@ -77,6 +77,21 @@ async def _process_one(row: dict, bot: Bot) -> None:
     attempt = row["attempt"] + 1
 
     logger.info("Slip2Go retry attempt %d/%d for payment %s", attempt, MAX_ATTEMPTS, payment_id)
+
+    # NEW 2026-06-21: Stop retry ถ้า payment confirmed แล้ว (admin manual approve)
+    if payment_id:
+        try:
+            from sqlalchemy import select
+            from shared.models import Payment
+            from shared.database import get_session as _gs
+            async with _gs() as _s:
+                _p = (await _s.execute(select(Payment).where(Payment.id == payment_id))).scalar_one_or_none()
+                if _p and str(_p.status.value if hasattr(_p.status, "value") else _p.status).upper() == "CONFIRMED":
+                    logger.info("Payment %s already CONFIRMED — skip retry + close queue", payment_id)
+                    await _mark_status(row_id, "COMPLETED", attempt - 1, "payment already confirmed by admin")
+                    return
+        except Exception as _exc:
+            logger.warning("retry pre-check failed: %s", _exc)
 
     # Download the slip image via cached file_id
     try:
@@ -111,7 +126,7 @@ async def _process_one(row: dict, bot: Bot) -> None:
 
     # Check receiver match (must be one of our enabled accounts)
     accounts = await list_enabled()
-    matched = receiver_match_pool(s2g, accounts)
+    matched = match_receiver(s2g, accounts)
     if not matched:
         logger.warning("Slip2Go OK but receiver not in our pool for payment %s — escalate", payment_id)
         await _escalate_to_admin(row, attempt, "wrong receiver", bot)
@@ -137,7 +152,7 @@ async def _process_one(row: dict, bot: Bot) -> None:
         return
 
     try:
-        links = await _approve_payment(payment, row["telegram_id"], bot)
+        links = await _approve_payment(payment, row["telegram_id"], bot, source="retry_worker")
         await _send_customer_dm(bot, row["telegram_id"], links)
         await _mark_status(row_id, "RESOLVED", attempt, "approved via auto-retry")
         logger.info("AUTO-APPROVED payment %s via retry (attempt %d)", payment_id, attempt)
@@ -173,13 +188,22 @@ async def _reschedule(row_id: int, attempt: int, err: str):
 
 
 async def _mark_status(row_id: int, status: str, attempt: int, err: str):
+    # FIX 2026-06-21: asyncpg "inconsistent types" — :s ใช้ทั้ง SET + CASE WHEN ทำให้ infer type ไม่ได้.
+    # แก้โดยตัดสินใจ resolved_at ใน Python แล้วใช้ 2 query แทน.
+    is_terminal = status in ("RESOLVED", "FAILED", "COMPLETED")
     async with get_session() as s:
-        await s.execute(sql_text("""
-            UPDATE slip2go_retry_queue
-            SET status = :s, attempt = :a, last_error = :e,
-                resolved_at = CASE WHEN :s IN ('RESOLVED','FAILED') THEN NOW() ELSE resolved_at END
-            WHERE id = :i
-        """), {"s": status, "a": attempt, "e": err[:500], "i": row_id})
+        if is_terminal:
+            await s.execute(sql_text("""
+                UPDATE slip2go_retry_queue
+                SET status = :s, attempt = :a, last_error = :e, resolved_at = NOW()
+                WHERE id = :i
+            """), {"s": status, "a": attempt, "e": err[:500], "i": row_id})
+        else:
+            await s.execute(sql_text("""
+                UPDATE slip2go_retry_queue
+                SET status = :s, attempt = :a, last_error = :e
+                WHERE id = :i
+            """), {"s": status, "a": attempt, "e": err[:500], "i": row_id})
         await s.commit()
 
 
@@ -209,6 +233,61 @@ async def _escalate_to_admin(row: dict, attempt: int, err: str, bot: Bot):
         logger.warning("Admin escalation send failed: %s", exc)
 
 
+async def _sweep_stale_processing():
+    """FIX 2026-06-21: Sweep stale PROCESSING rows — 2 actions:
+
+    1. ถ้า attempt >= max_attempts → mark FAILED + escalate (ไม่ retry ต่อ)
+    2. ถ้า next_retry_at < NOW() - 15 min (worker crashed mid-process) → reset เป็น WAITING
+
+    Bug เดิม: ใช้ enqueued_at (static) → พอเกิน timeout ก็ reset ทุก poll cycle = infinite loop.
+    Fix: ใช้ next_retry_at (dynamic) ที่อัปเดตทุก reschedule/claim.
+    """
+    async with get_session() as s:
+        # 1. Mark FAILED rows ที่ attempt >= max_attempts (กัน retry ต่อ)
+        r1 = await s.execute(sql_text("""
+            UPDATE slip2go_retry_queue
+            SET status = 'FAILED', resolved_at = NOW(),
+                last_error = COALESCE(last_error, '') || ' [auto-failed: max attempts reached]'
+            WHERE status = 'PROCESSING'
+              AND attempt >= max_attempts
+            RETURNING id
+        """))
+        failed_rows = list(r1.fetchall())
+
+        # 2. Reset PROCESSING rows ที่ค้าง > 15 min (worker crash recovery)
+        r2 = await s.execute(sql_text("""
+            UPDATE slip2go_retry_queue
+            SET status = 'WAITING', next_retry_at = NOW() + interval '5 minutes'
+            WHERE status = 'PROCESSING'
+              AND attempt < max_attempts
+              AND next_retry_at < NOW() - interval '15 minutes'
+            RETURNING id
+        """))
+        reset_rows = list(r2.fetchall())
+        await s.commit()
+
+        if failed_rows:
+            logger.warning("Auto-failed %d retry rows (max attempts)", len(failed_rows))
+        if reset_rows:
+            logger.warning("Swept %d stale PROCESSING rows (worker crash recovery)", len(reset_rows))
+
+
+async def _cleanup_old_resolved():
+    """FIX 2026-06-21: ลบ retry queue rows ที่ resolved/failed > 7 วัน
+    (กัน table โตเรื่อยๆ)."""
+    async with get_session() as s:
+        r = await s.execute(sql_text("""
+            DELETE FROM slip2go_retry_queue
+            WHERE status IN ('RESOLVED','COMPLETED','FAILED')
+              AND resolved_at < NOW() - INTERVAL '7 days'
+            RETURNING id
+        """))
+        rows = list(r.fetchall())
+        await s.commit()
+        if rows:
+            logger.info("Cleaned up %d old retry queue rows (>7d)", len(rows))
+
+
 async def worker_loop():
     """Main worker loop — called by guardian-bot scheduler every 2 min."""
     bot = Bot(SALES_BOT_TOKEN) if SALES_BOT_TOKEN else None
@@ -216,6 +295,18 @@ async def worker_loop():
         logger.error("SALES_BOT_TOKEN not set — slip2go retry worker disabled")
         return
     try:
+        # FIX 2026-06-16: sweep stale PROCESSING (worker crash recovery)
+        try:
+            await _sweep_stale_processing()
+        except Exception as _sw:
+            logger.error("Stale sweep failed: %s", _sw)
+
+        # FIX 2026-06-21: cleanup old resolved rows (ทุก poll = เร็ว เพราะ index)
+        try:
+            await _cleanup_old_resolved()
+        except Exception as _cl:
+            logger.error("Cleanup failed: %s", _cl)
+
         rows = await _claim_pending_rows()
         if rows:
             logger.info("Slip2Go retry: processing %d pending rows", len(rows))

@@ -131,7 +131,10 @@ async def flashsale_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     if not query:
         return
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass  # callback may be too old / already answered
 
     flash = await _get_active_flash_sale()
     if not flash:
@@ -161,7 +164,10 @@ async def buy_flash_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     if not query:
         return
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception:
+        pass  # callback may be too old / already answered
 
     flash = await _get_active_flash_sale()
     if not flash:

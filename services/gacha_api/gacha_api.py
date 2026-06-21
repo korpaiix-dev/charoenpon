@@ -209,6 +209,13 @@ async def spin(req: SpinRequest):
     pool = await _get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
+            # FIX 2026-06-21: Block banned users from spinning (scam ring defense)
+            ban_row = await conn.fetchrow(
+                "SELECT id, is_banned FROM users WHERE telegram_id=$1", tg_id
+            )
+            if ban_row and ban_row["is_banned"]:
+                raise HTTPException(403, "account banned")
+
             row = await conn.fetchrow(
                 "SELECT user_id, credits FROM gachapon_credits WHERE telegram_id=$1 FOR UPDATE",
                 tg_id
