@@ -481,6 +481,7 @@ async def _notify_admin_group_access(
     discount_pct: int | None = None,
     promo_code: str | None = None,
     link_count: int = 0,
+    username: str | None = None,
 ) -> None:
     """Notify admin group when AI triggers group-access flow."""
     import os as _os
