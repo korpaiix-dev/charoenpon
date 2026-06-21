@@ -83,9 +83,13 @@ async def api_me(request: Request,
                 "subscription": None, "last_payments": [], "gacha": None
             })
         user = dict(row)
+        # FIX 2026-06-22: JOIN packages to return tier name + package name + price
         sub_row = await conn.fetchrow(
-            "SELECT package_id, status, start_date, end_date FROM subscriptions "
-            "WHERE user_id=$1 ORDER BY end_date DESC NULLS LAST LIMIT 1",
+            "SELECT s.package_id, s.status, s.start_date, s.end_date, "
+            "       p.name AS package_name, p.tier AS tier_name, p.price AS tier_price "
+            "FROM subscriptions s "
+            "LEFT JOIN packages p ON p.id = s.package_id "
+            "WHERE s.user_id=$1 ORDER BY s.end_date DESC NULLS LAST LIMIT 1",
             user["id"]
         )
         sub = None
@@ -94,11 +98,18 @@ async def api_me(request: Request,
             days_left = None
             if srow["end_date"]:
                 days_left = (srow["end_date"] - datetime.utcnow()).days
+            # Friendly tier label (strip TIER_ prefix; LIFETIME = 36500 days)
+            tier_label = (srow.get("tier_name") or "").replace("TIER_", "") or str(srow.get("package_id") or "?")
             sub = {
-                "tier": srow["package_id"],
+                "tier": tier_label,                            # NEW: clean label เช่น "1299"
+                "tier_name": srow.get("tier_name"),            # NEW: "TIER_1299"
+                "package_id": srow.get("package_id"),          # raw int (เก็บไว้ debug)
+                "package_name": srow.get("package_name") or "",# NEW: "GOD MODE 90 วัน"
+                "tier_price": float(srow["tier_price"]) if srow.get("tier_price") is not None else None,
                 "status": srow["status"],
                 "end_date": srow["end_date"].isoformat() if srow["end_date"] else None,
                 "days_left": days_left,
+                "is_lifetime": (days_left is not None and days_left > 30000),
             }
         pay_rows = await conn.fetch(
             "SELECT amount, status, created_at FROM payments "

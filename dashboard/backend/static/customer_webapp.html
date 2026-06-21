@@ -96,15 +96,34 @@ function render(d) {
     html += '<div style="font-size:34px;margin:8px 0">' + r.emoji + ' <b>' + r.title + '</b></div>';
     html += '<div style="opacity:.7;font-size:14px">' + r.desc + '</div>';
     html += '</div>';
+  } else {
+    // FIX 2026-06-22: always show rank card — guide ลูกค้าใหม่ให้รู้ว่าระบบยศมี
+    html += '<div class="card" style="border-left:5px solid #555">';
+    html += '<div class="card-title">🎖️ ยศของคุณ</div>';
+    html += '<div style="font-size:22px;margin:8px 0;color:#aaa">⚪ <b>ยังไม่มียศ</b></div>';
+    html += '<div style="opacity:.7;font-size:13px">อยู่ครบ 30 วัน → 🥉 ขาประจำ<br>อยู่ครบ 90 วัน หรือจ่ายเกิน ฿1,000 → 🥈 เซเลบเจริญพร<br>จ่ายเกิน ฿4,000 → 💎 เจ้าพ่อเจริญพร</div>';
+    html += '</div>';
   }
+  // FIX 2026-06-22: ใช้ package_name + tier badge + แก้ typo "ทียร์" → "เทียร์"
   html += '<div class="card">';
   html += '<div class="card-title">📋 สมาชิก</div>';
-  html += '<div class="big">' + (sub ? "ทียร์ " + sub.tier : "ยังไม่มีแพ็คเกจ") + '</div>';
+  if (sub) {
+    var tierBadge = sub.tier_price ? ('฿' + sub.tier_price.toLocaleString()) : ('เทียร์ ' + (sub.tier || '?'));
+    var pkgName = sub.package_name || '';
+    html += '<div class="big">' + (pkgName || ('เทียร์ ' + sub.tier)) + '</div>';
+    html += '<div style="margin:6px 0;font-size:14px;opacity:.8">💎 ' + tierBadge + '</div>';
+  } else {
+    html += '<div class="big">ยังไม่มีแพ็คเกจ</div>';
+  }
   html += badge;
   html += '<div style="margin-top:14px">';
-  html += '<div class="row"><span class="label">หมดอายุ</span><span class="value">' + (sub ? fmtDate(sub.end_date) : "-") + '</span></div>';
-  if (sub && sub.days_left !== null) {
-    html += '<div class="row"><span class="label">เหลือ</span><span class="value">' + sub.days_left + ' วัน</span></div>';
+  if (sub && sub.is_lifetime) {
+    html += '<div class="row"><span class="label">สถานะ</span><span class="value">♾️ Lifetime</span></div>';
+  } else {
+    html += '<div class="row"><span class="label">หมดอายุ</span><span class="value">' + (sub ? fmtDate(sub.end_date) : "-") + '</span></div>';
+    if (sub && sub.days_left !== null) {
+      html += '<div class="row"><span class="label">เหลือ</span><span class="value">' + sub.days_left + ' วัน</span></div>';
+    }
   }
   html += '</div></div>';
   html += '<div class="card">';
