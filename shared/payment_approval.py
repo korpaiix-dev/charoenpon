@@ -800,6 +800,21 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
         except Exception as exc:
             logger.error("[approval] customer DM failed tg=%s: %s", inp.telegram_id, exc)
 
+    # STEP 21 (NEW 2026-06-22): Immediate loyalty rank check
+    # ก่อนหน้านี้ลูกค้าต้องรอ scheduler 6 ชม. → trigger ทันทีหลังจ่ายแบบ idempotent
+    # promote_user_to_rank มี advisory lock + ตรวจ rank_higher ในตัว → ปลอดภัย
+    try:
+        from shared.loyalty_rank import compute_rank_for_user, promote_user_to_rank, rank_higher
+        async with get_session() as _ls:
+            r = await _ls.execute(sql_text("SELECT loyalty_rank FROM users WHERE id=:i"), {"i": db_user_id})
+            current_rank = (r.scalar() or "NONE")
+        target_rank = await compute_rank_for_user(db_user_id)
+        if target_rank and target_rank != "NONE" and rank_higher(target_rank, current_rank):
+            logger.info("[approval] loyalty trigger: user=%s %s -> %s", db_user_id, current_rank, target_rank)
+            await promote_user_to_rank(db_user_id, target_rank, silent=False)
+    except Exception as exc:
+        logger.warning("[approval] loyalty trigger failed: %s", exc)
+
     # STEP 22: Admin alert if customer didn't get DM OR no links
     if (not customer_dm_sent and not inp.skip_dm) or (not invite_links_list and not is_gacha):
         try:
