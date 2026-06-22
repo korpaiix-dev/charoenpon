@@ -178,14 +178,18 @@ async def health_check_payment_system():
     try:
         from shared.database import get_session
         from sqlalchemy import text as _t
+        # FIX 2026-06-22: kick_expired_6h runs every 6h, so subs expiring just before
+        # a run can sit ACTIVE-but-expired up to 6h legitimately. Only alert if
+        # the sub has been overdue by >7h = job had 1+ chance and failed.
         async with get_session() as s:
             r = await s.execute(_t("""
                 SELECT COUNT(*) FROM subscriptions
-                WHERE status::text = 'ACTIVE' AND end_date < NOW()
+                WHERE status::text = 'ACTIVE'
+                  AND end_date < NOW() - INTERVAL '7 hours'
             """))
             n = r.scalar() or 0
             if n > 0:
-                issues.append(f"⚠️ {n} ACTIVE sub หมดอายุแล้ว (kick_expired ไม่รัน?)")
+                issues.append(f"⚠️ {n} ACTIVE sub หมดอายุเกิน 7 ชม.แล้ว (kick_expired ไม่รัน?)")
     except Exception as exc:
         issues.append(f"💥 expired-sub check crashed: {exc}")
 
