@@ -177,11 +177,20 @@ async def help_cmd(ctx: commands.Context) -> None:
 @tasks.loop(hours=24)
 async def daily_report_task() -> None:
     """ส่งรายงานประจำวันไปที่ #daily-report เวลา 08:00 UTC+7 (01:00 UTC)."""
-    now = datetime.now(timezone.utc)
-    # DB uses naive datetime, so strip tz for queries
+    # FIX 2026-06-22: ใช้ BKK timezone กำหนดขอบเขต "วันนี้" / "เดือนนี้"
+    # เพราะลูกค้าอยู่ไทย — payment 06-22 BKK 00:54 = 06-21 UTC 17:54 ในฐาน
+    # ถ้า filter UTC midnight จะตกหล่น payment ของเช้ามืดไทย
+    from zoneinfo import ZoneInfo
+    BKK = ZoneInfo("Asia/Bangkok")
+    UTC = timezone.utc
+    now = datetime.now(UTC)
+    now_bkk = datetime.now(BKK)
     now_naive = now.replace(tzinfo=None)
-    today_start = now_naive.replace(hour=0, minute=0, second=0, microsecond=0)
-    month_start = now_naive.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    # คำนวณขอบเขตใน BKK ก่อน แล้วแปลงเป็น naive UTC (DB เก็บแบบ naive UTC)
+    today_bkk = now_bkk.replace(hour=0, minute=0, second=0, microsecond=0)
+    month_bkk = now_bkk.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    today_start = today_bkk.astimezone(UTC).replace(tzinfo=None)
+    month_start = month_bkk.astimezone(UTC).replace(tzinfo=None)
 
     async with get_session() as session:
         # Revenue today

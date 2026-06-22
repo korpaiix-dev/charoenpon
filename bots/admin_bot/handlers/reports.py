@@ -35,6 +35,28 @@ def _admin_ids() -> list[int]:
     ]
 
 
+
+
+# FIX 2026-06-22: ใช้ BKK timezone กำหนดขอบเขต "วันนี้"/"เดือนนี้"
+# (DB เก็บ UTC naive → แปลงกลับเป็น UTC naive ก่อน query)
+from zoneinfo import ZoneInfo as _ZoneInfo
+from datetime import timezone as _tz
+
+_BKK = _ZoneInfo("Asia/Bangkok")
+
+def _bkk_today_start_utc_naive() -> datetime:
+    """Return UTC-naive datetime for today 00:00:00 in Bangkok."""
+    now_bkk = datetime.now(_BKK)
+    today_bkk = now_bkk.replace(hour=0, minute=0, second=0, microsecond=0)
+    return today_bkk.astimezone(_tz.utc).replace(tzinfo=None)
+
+def _bkk_month_start_utc_naive() -> datetime:
+    """Return UTC-naive datetime for first of this month 00:00:00 in Bangkok."""
+    now_bkk = datetime.now(_BKK)
+    month_bkk = now_bkk.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return month_bkk.astimezone(_tz.utc).replace(tzinfo=None)
+
+
 def _is_admin(user_id: int) -> bool:
     return user_id in _admin_ids()
 
@@ -46,8 +68,8 @@ async def cmd_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     now = datetime.utcnow()
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    today_start = _bkk_today_start_utc_naive()
+    month_start = _bkk_month_start_utc_naive()
 
     async with get_session() as session:
         # Revenue today
@@ -151,7 +173,7 @@ async def cmd_members(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         expiring_3d = expiring_q.scalar()
 
         # New members today
-        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start = _bkk_today_start_utc_naive()
         new_today_q = await session.execute(
             select(func.count(User.id)).where(User.created_at >= today_start)
         )
@@ -230,7 +252,7 @@ async def cmd_teaser(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         since = now - timedelta(days=7)
         period_label = "7 วันที่ผ่านมา"
     else:
-        since = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        since = _bkk_today_start_utc_naive()
         period_label = "วันนี้"
 
     async with get_session() as session:
@@ -326,8 +348,8 @@ async def cmd_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     now = datetime.utcnow()
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    today_start = _bkk_today_start_utc_naive()
+    month_start = _bkk_month_start_utc_naive()
 
     async with get_session() as session:
         # Revenue today
