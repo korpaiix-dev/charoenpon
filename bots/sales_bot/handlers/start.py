@@ -36,7 +36,7 @@ MAIN_KEYBOARD = InlineKeyboardMarkup(
             InlineKeyboardButton("📋 เช็คเครดิต/รีวิว", url="https://t.me/+hv7uXYj4bxFhODZl"),
             InlineKeyboardButton("👀 ดูตัวอย่างงาน", url="https://t.me/+Q0Qf-4t8TQo3YTBl"),
         ],
-        [InlineKeyboardButton("🆓 ห้องฟรี", url="https://t.me/addlist/2xN-ag15W4U2MTNl")],
+        [InlineKeyboardButton("🆓 ห้องฟรี", url="https://t.me/addlist/w0YSyuHC_aE2ZGVl")],
         [InlineKeyboardButton("👩‍💼 ติดต่อแอดมิน", url="https://t.me/sperm6969")],
     ]
 )
@@ -203,7 +203,7 @@ async def _build_main_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton("📋 เช็คเครดิต/รีวิว", url="https://t.me/+hv7uXYj4bxFhODZl"),
             InlineKeyboardButton("👀 ดูตัวอย่างงาน", url="https://t.me/+Q0Qf-4t8TQo3YTBl"),
         ],
-        [InlineKeyboardButton("🆓 ห้องฟรี", url="https://t.me/addlist/2xN-ag15W4U2MTNl")],
+        [InlineKeyboardButton("🆓 ห้องฟรี", url="https://t.me/addlist/w0YSyuHC_aE2ZGVl")],
         [InlineKeyboardButton("👩‍💼 ติดต่อแอดมิน", url="https://t.me/sperm6969")],
     ])
     return InlineKeyboardMarkup(rows)

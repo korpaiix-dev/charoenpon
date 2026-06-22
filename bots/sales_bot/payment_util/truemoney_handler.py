@@ -313,7 +313,7 @@ async def handle_truemoney_link(
             f"แพ็กเกจ: {pkg_name}\n"
             f"📅 หมดอายุ: {expire_date}\n\n"
             f"👆 <b>กดเข้ากลุ่มที่ปุ่มด้านล่างได้เลย</b>\n\n"
-            f"🆓 <b>ห้องฟรี:</b> https://t.me/addlist/2xN-ag15W4U2MTNl",
+            f"🆓 <b>ห้องฟรี:</b> https://t.me/addlist/w0YSyuHC_aE2ZGVl",
             parse_mode="HTML",
             reply_markup=keyboard,
         )
