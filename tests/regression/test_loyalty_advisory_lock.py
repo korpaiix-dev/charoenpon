@@ -53,10 +53,10 @@ async def test_concurrent_promote_to_silver_awards_rewards_once(clean_db):
         ), {"tg": tg_id})
         credits = r.scalar() or 0
 
-        # subscriptions TIER_1299 — ต้องมี 1 อัน
+        # subscriptions TIER_300 — ต้องมี 1 อัน (Silver reward 5 days TIER_300 per policy 2026-06-22)
         r = await s.execute(text(
             "SELECT COUNT(*) FROM subscriptions s JOIN packages p ON p.id = s.package_id "
-            "WHERE s.user_id = :uid AND p.tier::text = 'TIER_1299'"
+            "WHERE s.user_id = :uid AND p.tier::text = 'TIER_300'"
         ), {"uid": user_id})
         sub_count = r.scalar()
 
@@ -67,8 +67,8 @@ async def test_concurrent_promote_to_silver_awards_rewards_once(clean_db):
         final_rank = r.scalar()
 
     try:
-        assert credits == 5, f"Expected 5 gacha credits, got {credits} (race condition!)"
-        assert sub_count == 1, f"Expected 1 TIER_1299 sub, got {sub_count} (duplicate award!)"
+        assert credits == 2, f"Expected 2 gacha credits, got {credits} (race condition!)"
+        assert sub_count == 1, f"Expected 1 TIER_300 sub, got {sub_count} (duplicate award!)"
         assert final_rank == "SILVER", f"Expected SILVER rank, got {final_rank}"
     finally:
         # Cleanup test artifacts (กัน mismatch ตอน invariants test รันหลัง)
