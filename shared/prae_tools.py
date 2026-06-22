@@ -522,14 +522,20 @@ async def _notify_admin_group_access(
                     f"🆔 <code>{telegram_id}</code>"
                 )
 
-            # FIX 2026-06-22: ปุ่มเปิดแชทตาม username เท่านั้น (ห้าม fallback ไป sperm6969 = แอดมินเอง)
-            # ถ้าไม่มี username → ใช้ HTML mention tg://user?id= ในข้อความแทน (กดที่ชื่อก็เปิดได้)
-            if username:
+            # FIX 2026-06-22: ปุ่มแยกตาม branch (ไม่ใช่ "เปิดแชท" ซ้ำๆ)
+            # Branch A (link_resent): ไม่ต้องมีปุ่ม — Prae จัดการแล้ว audit อย่างเดียว
+            # Branch B (renewal_offered): "💬 ทักตามต่ออายุ" — follow up หลัง promo
+            # Branch C (recommend_new): "🛒 ทักปิดการขาย" — admin ลองปิดดีล
+            kb = None
+            if action == "renewal_offered" and username:
                 kb = InlineKeyboardMarkup([[
-                    InlineKeyboardButton("💬 เปิดแชท", url=f"https://t.me/{username}"),
+                    InlineKeyboardButton("💬 ทักตามต่ออายุ", url=f"https://t.me/{username}"),
                 ]])
-            else:
-                kb = None  # ไม่มี username → ไม่ใส่ปุ่ม (mention ในข้อความใช้แทน)
+            elif action == "recommend_new" and username:
+                kb = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🛒 ทักปิดการขาย", url=f"https://t.me/{username}"),
+                ]])
+            # ถ้าไม่มี username → กดที่ชื่อ (mention link ในข้อความ) แทน
             send_kwargs = {
                 "chat_id": admin_chat_id, "text": msg, "parse_mode": "HTML",
                 "disable_web_page_preview": True,
