@@ -55,11 +55,14 @@ async def compute_rank_for_user(user_id: int) -> str:
         spent = int(row.spent or 0)
         first_paid = row.loyalty_first_paid_at
         days_paid = (datetime.utcnow() - first_paid).days if first_paid else 0
+        # FIX 2026-06-22: ลบ tenure-only path สำหรับ Silver — ต้องจ่ายเกิน ฿1,000 เท่านั้น
+        # ก่อนหน้านี้ลูกค้าจ่าย ฿300 ครั้งเดียว + อยู่ครบ 90 วัน → ได้ Silver + ของฟรี ฿1,549
+        # ใหม่: rank-up เฉพาะจากเงินจริง (monotonic up, ไม่มี downgrade)
         if spent >= 4000:
             return "DIAMOND"
-        if spent >= 1000 or days_paid >= 90:
+        if spent >= 1000:
             return "SILVER"
-        if days_paid >= 30:
+        if days_paid >= 30:  # Bronze: เคยจ่าย (loyalty_first_paid_at มีค่า) + 30 วัน
             return "BRONZE"
         return "NONE"
 
@@ -85,47 +88,63 @@ async def _award_bronze(user_id: int, telegram_id: int) -> dict:
 
 
 async def _award_silver(user_id: int, telegram_id: int) -> dict:
-    """+5 gacha credits + TIER_1299 free 14 days (extend OR create)."""
+    """FIX 2026-06-22: ลดของแจก 90% — ของเดิม ฿1,549 → ใหม่ ~฿150
+    +2 gacha credits + TIER_300 free 5 days (extend OR create)."""
     from shared.database import get_session
     async with get_session() as s:
-        # 1. Gacha credits
+        # 1. Gacha credits (ลด 5 → 2)
         await s.execute(_t(
             "INSERT INTO gachapon_credits (user_id, telegram_id, credits, total_purchased) "
-            "VALUES (:uid, :tg, 5, 0) "
+            "VALUES (:uid, :tg, 2, 0) "
             "ON CONFLICT (user_id) DO UPDATE SET "
-            "  credits = gachapon_credits.credits + 5, updated_at = NOW()"
+            "  credits = gachapon_credits.credits + 2, updated_at = NOW()"
         ), {"uid": user_id, "tg": telegram_id})
 
-        # 2. TIER_1299 — find package
+        # 2. TIER_300 — find package (ลด tier 1299 → 300)
         pkg_row = (await s.execute(_t(
-            "SELECT id FROM packages WHERE tier = 'TIER_1299' LIMIT 1"
+            "SELECT id FROM packages WHERE tier = 'TIER_300' AND is_active = TRUE ORDER BY id LIMIT 1"
         ))).fetchone()
         if not pkg_row:
             await s.commit()
-            return {"gacha": 5, "sub_days": 0}
+            return {"gacha": 2, "sub_days": 0}
         pkg_id = pkg_row.id
 
-        # 3. Check existing ACTIVE TIER_1299 sub
+        # 3. Check existing ACTIVE sub of TIER_300 OR higher
+        # ถ้าลูกค้ามี active sub สูงกว่าอยู่แล้ว → ไม่ต้องสร้าง TIER_300 (ลดลำดับ)
+        # ถ้าเท่ากันหรือต่ำกว่า → extend / create
         existing = (await s.execute(_t(
+            "SELECT s.id, pk.tier FROM subscriptions s "
+            "JOIN packages pk ON pk.id = s.package_id "
+            "WHERE s.user_id = :uid AND s.status = 'ACTIVE' AND s.end_date > NOW() "
+            "ORDER BY pk.id DESC LIMIT 1"
+        ), {"uid": user_id})).fetchone()
+
+        if existing and str(existing.tier) in ("TIER_500", "TIER_1299", "TIER_2499"):
+            # ลูกค้ามี tier สูงกว่าอยู่แล้ว → ไม่ extend (ไม่ลดเขา)
+            await s.commit()
+            return {"gacha": 2, "sub_days": 0, "package_id": pkg_id, "skipped_higher_tier": True}
+
+        # มี TIER_300 อยู่ → extend; ไม่มี → สร้างใหม่
+        existing_300 = (await s.execute(_t(
             "SELECT id FROM subscriptions "
             "WHERE user_id = :uid AND package_id = :pid AND status = 'ACTIVE' AND end_date > NOW() "
             "ORDER BY end_date DESC LIMIT 1"
         ), {"uid": user_id, "pid": pkg_id})).fetchone()
 
-        if existing:
+        if existing_300:
             await s.execute(_t(
-                "UPDATE subscriptions SET end_date = end_date + INTERVAL '14 days', "
+                "UPDATE subscriptions SET end_date = end_date + INTERVAL '5 days', "
                 "updated_at = NOW() WHERE id = :sid"
-            ), {"sid": existing.id})
+            ), {"sid": existing_300.id})
         else:
             await s.execute(_t(
                 "INSERT INTO subscriptions "
                 "(user_id, package_id, start_date, end_date, status, created_at, updated_at) "
-                "VALUES (:uid, :pid, NOW(), NOW() + INTERVAL '14 days', "
+                "VALUES (:uid, :pid, NOW(), NOW() + INTERVAL '5 days', "
                 "'ACTIVE'::subscriptionstatus, NOW(), NOW())"
             ), {"uid": user_id, "pid": pkg_id})
         await s.commit()
-    return {"gacha": 5, "sub_days": 14, "package_id": pkg_id}
+    return {"gacha": 2, "sub_days": 5, "package_id": pkg_id}
 
 
 async def _award_diamond(user_id: int, telegram_id: int) -> dict:
