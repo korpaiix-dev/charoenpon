@@ -480,6 +480,62 @@ async def send_sheets_update(sheet_name: str, action: str, details: str = "") ->
 
 # ─── Entry Point ─────────────────────────────────────────────────────────────
 
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# AI PRAE DISCORD (added 2026-06-22)
+# Listen for messages in #คุย-กับ-แพร channel → reply via shared/prae_engine
+# Boss spec: dedicated channel only, team context
+# ─────────────────────────────────────────────────────────────────────────
+PRAE_CHANNEL_ID = int(os.environ.get("DISCORD_PRAE_CHANNEL_ID", "0") or 0)
+
+# Use negative TG IDs to namespace team members (avoid collision with real customers)
+# Format: -1_<discord_user_id> — so prae_engine memory tables track team chat separately
+def _discord_to_tg(discord_uid: int) -> int:
+    return -(discord_uid)  # negative = team context
+
+
+@bot.event
+async def on_message(message: discord.Message) -> None:
+    """Listen to team chat in #คุย-กับ-แพร."""
+    # Skip bots + non-target channels
+    if message.author.bot:
+        return
+    if not PRAE_CHANNEL_ID or message.channel.id != PRAE_CHANNEL_ID:
+        # Still allow commands to work in other channels
+        await bot.process_commands(message)
+        return
+    
+    # Skip empty / commands
+    text = (message.content or "").strip()
+    if not text or text.startswith("/") or text.startswith("!"):
+        await bot.process_commands(message)
+        return
+    
+    # Show typing indicator while waiting
+    async with message.channel.typing():
+        try:
+            from shared.prae_engine import reply_to_user
+            team_tg = _discord_to_tg(message.author.id)
+            result = await reply_to_user(team_tg, text)
+            reply_text = result.get("reply", "").strip()
+            if not reply_text:
+                reply_text = "(ขออภัย แพรไม่ได้คำตอบจาก AI ลองพิมพ์ใหม่)"
+            # Truncate to Discord 2000-char limit
+            if len(reply_text) > 1900:
+                reply_text = reply_text[:1900] + "…"
+            await message.reply(reply_text, mention_author=False)
+            logger.info("Prae-Discord: user=%s text_len=%d cost=$%.4f",
+                        message.author.name, len(text), result.get("cost_usd", 0))
+        except Exception as exc:
+            logger.exception("Prae-Discord reply failed: %s", exc)
+            await message.reply("ขออภัย แพรเกิดปัญหา ลองใหม่นะคะ 🙏", mention_author=False)
+    
+    # Still process commands if any (allows future /commands in same channel)
+    await bot.process_commands(message)
+
+
+
 def main() -> None:
     """Entry point for Discord Bot."""
     if not DISCORD_BOT_TOKEN:
