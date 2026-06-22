@@ -25,6 +25,7 @@ from typing import Optional
 from urllib.parse import unquote, parse_qsl
 
 import asyncpg
+from gacha_deliver import deliver_prize as _gacha_deliver_prize
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -400,6 +401,19 @@ async def claim(req: ClaimRequest):
             msg = "ระบบจะส่งให้คุณ"
     else:
         msg = msg_label
+
+    # ───── EVENT-DRIVEN DELIVERY (2026-06-22) ─────
+    try:
+        await _gacha_deliver_prize(
+            pool, int(pull["id"]), tg_id,
+            str(pull["prize_code"]), str(pull["prize_label"]),
+            str(prize["type"]),
+            str(prize["tier"]) if prize.get("tier") else None,
+            float(prize.get("value_thb") or 0),
+            str(outcome),
+        )
+    except Exception as exc:
+        print("[gacha_claim] delivery failed pull=", pull["id"], "err=", exc)
 
     return {"ok": True, "outcome": outcome, "applied": applied, "message": msg}
 
