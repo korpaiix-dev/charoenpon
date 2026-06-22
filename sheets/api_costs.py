@@ -134,6 +134,7 @@ class ApiCostsSheet:
             revenue_q = await session.execute(
                 select(func.coalesce(func.sum(Payment.amount), 0)).where(
                     Payment.status == PaymentStatus.CONFIRMED,
+                    Payment.amount > 0,
                     Payment.created_at >= month_start_utc,
                     Payment.created_at < today_end_utc,
                 )

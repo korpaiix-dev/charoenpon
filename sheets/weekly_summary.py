@@ -56,6 +56,7 @@ class WeeklySummarySheet:
             revenue_q = await session.execute(
                 select(func.coalesce(func.sum(Payment.amount), 0)).where(
                     Payment.status == PaymentStatus.CONFIRMED,
+                    Payment.amount > 0,
                     Payment.created_at >= week_start_utc,
                     Payment.created_at < week_end_utc,
                 )

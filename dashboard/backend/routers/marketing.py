@@ -9,7 +9,7 @@ router = APIRouter(prefix="/api/marketing", tags=["marketing"])
 async def kpi(days: int = 30, admin=Depends(require_role("admin"))):
     row = await pool.fetchrow("""
         SELECT
-            COALESCE(SUM(CASE WHEN p.status = 'CONFIRMED' AND p.created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day' THEN p.amount END), 0) as revenue,
+            COALESCE(SUM(CASE WHEN p.status = 'CONFIRMED' AND p.amount > 0 AND p.created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day' THEN p.amount END), 0) as revenue,
             (SELECT COUNT(*) FROM users WHERE created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day') as new_members,
             (SELECT COUNT(*) FROM subscriptions WHERE status = 'EXPIRED' AND updated_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day') as churned,
             (SELECT COUNT(*) FROM subscriptions WHERE status = 'ACTIVE') as active_members

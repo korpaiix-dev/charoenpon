@@ -336,6 +336,7 @@ async def generate_daily_report(bot: Bot) -> str:
             .where(
                 Payment.created_at >= today_start,
                 Payment.status == PaymentStatus.CONFIRMED,
+                Payment.amount > 0,
             )
         )
         payment_row = payments_result.one()

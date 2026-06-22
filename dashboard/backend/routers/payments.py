@@ -533,7 +533,7 @@ async def payment_summary(admin=Depends(require_role("admin"))):
             COALESCE(SUM(CASE WHEN (created_at AT TIME ZONE 'Asia/Bangkok')::date >= date_trunc('week', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN amount END), 0) as week,
             COALESCE(SUM(CASE WHEN (created_at AT TIME ZONE 'Asia/Bangkok')::date >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN amount END), 0) as month,
             COALESCE(SUM(CASE WHEN (created_at AT TIME ZONE 'Asia/Bangkok')::date >= date_trunc('year', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN amount END), 0) as year
-        FROM payments WHERE status = 'CONFIRMED'
+        FROM payments WHERE status = 'CONFIRMED' AND amount > 0
     """)
     return {k: float(v) for k, v in dict(row).items()}
 
@@ -542,7 +542,7 @@ async def chart_by_package(days: int = 30, admin=Depends(require_role("admin")))
     rows = await pool.fetch("""
         SELECT pk.name, pk.tier, COALESCE(SUM(p.amount), 0) as total
         FROM payments p JOIN packages pk ON p.package_id = pk.id
-        WHERE p.status = 'CONFIRMED' AND pk.is_active = TRUE AND p.created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day'
+        WHERE p.status = 'CONFIRMED' AND p.amount > 0 AND pk.is_active = TRUE AND p.created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day'
         GROUP BY pk.name, pk.tier ORDER BY total DESC
     """, days)
     return [dict(r) for r in rows]
@@ -552,7 +552,7 @@ async def chart_by_method(days: int = 30, admin=Depends(require_role("admin"))):
     rows = await pool.fetch("""
         SELECT method::text, COALESCE(SUM(amount), 0) as total, COUNT(*) as count
         FROM payments
-        WHERE status = 'CONFIRMED' AND created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day'
+        WHERE status = 'CONFIRMED' AND amount > 0 AND created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day'
         GROUP BY method ORDER BY total DESC
     """, days)
     return [dict(r) for r in rows]

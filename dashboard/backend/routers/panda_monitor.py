@@ -23,7 +23,7 @@ async def panda_monitor_data(request: Request, token: str = Query(None)):
             SELECT p.amount, (p.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok' AS bkk
             FROM payments p
             JOIN users u ON u.id = p.user_id
-            WHERE p.status::text = 'CONFIRMED' AND u.telegram_id < 9000000000
+            WHERE p.status::text = 'CONFIRMED' AND p.amount > 0 AND p.amount > 0 AND u.telegram_id < 9000000000
         ), today AS (SELECT (NOW() AT TIME ZONE 'Asia/Bangkok')::date AS d)
         SELECT
             COALESCE(SUM(CASE WHEN bkk::date = (SELECT d FROM today) THEN amount ELSE 0 END), 0)::int AS today,
@@ -79,7 +79,7 @@ async def panda_monitor_data(request: Request, token: str = Query(None)):
     rows = await pool.fetch("""
         SELECT u.first_name AS name, u.telegram_id AS tg, SUM(p.amount)::int AS total
         FROM payments p JOIN users u ON u.id = p.user_id
-        WHERE p.status::text = 'CONFIRMED'
+        WHERE p.status::text = 'CONFIRMED' AND p.amount > 0
           AND (p.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok' > NOW() AT TIME ZONE 'Asia/Bangkok' - INTERVAL '30 days'
           AND u.telegram_id < 9000000000
         GROUP BY u.id, u.first_name, u.telegram_id

@@ -57,6 +57,7 @@ class DailyRevenueSheet:
                 .join(User, Payment.user_id == User.id)
                 .where(
                     Payment.status == PaymentStatus.CONFIRMED,
+                    Payment.amount > 0,
                     Payment.verified_at >= day_start_utc,
                     Payment.verified_at < day_end_utc,
                     User.telegram_id.notin_(EXCLUDED_TELEGRAM_IDS),
@@ -80,6 +81,7 @@ class DailyRevenueSheet:
                 .join(User, Payment.user_id == User.id)
                 .where(
                     Payment.status == PaymentStatus.CONFIRMED,
+                    Payment.amount > 0,
                     Payment.verified_at >= day_start_utc,
                     Payment.verified_at < day_end_utc,
                     User.telegram_id.notin_(EXCLUDED_TELEGRAM_IDS),
@@ -94,6 +96,7 @@ class DailyRevenueSheet:
                 .join(User, Payment.user_id == User.id)
                 .where(
                     Payment.status == PaymentStatus.CONFIRMED,
+                    Payment.amount > 0,
                     Payment.verified_at >= day_start_utc,
                     Payment.verified_at < day_end_utc,
                     User.telegram_id.notin_(EXCLUDED_TELEGRAM_IDS),

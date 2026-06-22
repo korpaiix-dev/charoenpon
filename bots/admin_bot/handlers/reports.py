@@ -79,6 +79,7 @@ async def cmd_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 func.coalesce(func.sum(Payment.amount), 0).label("total"),
             ).where(
                 Payment.status == PaymentStatus.CONFIRMED,
+                Payment.amount > 0,
                 Payment.verified_at >= today_start,
             )
         )
@@ -91,6 +92,7 @@ async def cmd_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 func.coalesce(func.sum(Payment.amount), 0).label("total"),
             ).where(
                 Payment.status == PaymentStatus.CONFIRMED,
+                Payment.amount > 0,
                 Payment.verified_at >= month_start,
             )
         )
@@ -359,6 +361,7 @@ async def cmd_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 func.coalesce(func.sum(Payment.amount), 0).label("total"),
             ).where(
                 Payment.status == PaymentStatus.CONFIRMED,
+                Payment.amount > 0,
                 Payment.verified_at >= today_start,
             )
         )
@@ -370,6 +373,7 @@ async def cmd_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 func.coalesce(func.sum(Payment.amount), 0).label("total"),
             ).where(
                 Payment.status == PaymentStatus.CONFIRMED,
+                Payment.amount > 0,
                 Payment.verified_at >= month_start,
             )
         )

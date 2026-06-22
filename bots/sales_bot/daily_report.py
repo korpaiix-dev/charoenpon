@@ -49,23 +49,23 @@ async def generate_daily_report() -> str:
     # --- Revenue ---
     try:
         today_rev = float(await _scalar(
-            "SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status = 'CONFIRMED' AND created_at >= :s",
+            "SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status = 'CONFIRMED' AND amount > 0 AND created_at >= :s",
             {"s": today_start_utc},
         ))
         today_orders = int(await _scalar(
-            "SELECT COUNT(*) FROM payments WHERE status = 'CONFIRMED' AND created_at >= :s",
+            "SELECT COUNT(*) FROM payments WHERE status = 'CONFIRMED' AND amount > 0 AND created_at >= :s",
             {"s": today_start_utc},
         ))
         yesterday_rev = float(await _scalar(
-            "SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status = 'CONFIRMED' AND created_at >= :ys AND created_at < :ts",
+            "SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status = 'CONFIRMED' AND amount > 0 AND created_at >= :ys AND created_at < :ts",
             {"ys": yesterday_start_utc, "ts": today_start_utc},
         ))
         week_rev = float(await _scalar(
-            "SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status = 'CONFIRMED' AND created_at >= :s",
+            "SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status = 'CONFIRMED' AND amount > 0 AND created_at >= :s",
             {"s": week_start_utc},
         ))
         month_rev = float(await _scalar(
-            "SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status = 'CONFIRMED' AND created_at >= :s",
+            "SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status = 'CONFIRMED' AND amount > 0 AND created_at >= :s",
             {"s": month_start_utc},
         ))
 

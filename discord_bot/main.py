@@ -200,6 +200,7 @@ async def daily_report_task() -> None:
                 func.coalesce(func.sum(Payment.amount), 0).label("total"),
             ).where(
                 Payment.status == PaymentStatus.CONFIRMED,
+                Payment.amount > 0,
                 Payment.verified_at >= today_start,
             )
         )
@@ -211,6 +212,7 @@ async def daily_report_task() -> None:
                 func.coalesce(func.sum(Payment.amount), 0).label("total"),
             ).where(
                 Payment.status == PaymentStatus.CONFIRMED,
+                Payment.amount > 0,
                 Payment.verified_at >= month_start,
             )
         )
