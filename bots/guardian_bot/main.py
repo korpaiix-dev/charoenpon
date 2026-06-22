@@ -420,19 +420,24 @@ def create_application() -> Application:
         name="slip2go_retry_2m",
     )
 
-    # Gacha prize delivery — every 30 sec, forward clip pack to winners
-    async def _job_gacha_prize(context):
-        from shared.gacha_prize_worker import worker_loop as _gpw
-        try:
-            await _gpw()
-        except Exception as exc:
-            logger.error("gacha prize worker failed: %s", exc, exc_info=True)
-    job_queue.run_repeating(
-        _job_gacha_prize,
-        interval=timedelta(seconds=30),
-        first=timedelta(seconds=20),
-        name="gacha_prize_30s",
-    )
+    # DISABLED 2026-06-22 — superseded by event-driven delivery in gacha_api
+    # Old worker scanned every 30s for clip_pack delivery.
+    # Event-driven path (gacha_api/gacha_deliver.py) now handles all prize types
+    # immediately on claim. If event delivery fails, customer can request via
+    # Prae bot or admin /resend.
+    #
+    # async def _job_gacha_prize(context):
+    #     from shared.gacha_prize_worker import worker_loop as _gpw
+    #     try:
+    #         await _gpw()
+    #     except Exception as exc:
+    #         logger.error("gacha prize worker failed: %s", exc, exc_info=True)
+    # job_queue.run_repeating(
+    #     _job_gacha_prize,
+    #     interval=timedelta(seconds=30),
+    #     first=timedelta(seconds=20),
+    #     name="gacha_prize_30s",
+    # )
 
     return app
 
