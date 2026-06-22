@@ -127,6 +127,55 @@ def _build_extend_msg(prize_label: str, prize_tier: str | None) -> str:
     return "\n".join(parts)
 
 
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# DISCORD SHOUT-OUT (added 2026-06-22) — big gacha wins only
+# ─────────────────────────────────────────────────────────────────────────
+DISCORD_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
+DISCORD_SHOUT_CHANNEL = os.environ.get("DISCORD_GACHA_SHOUT_CHANNEL_ID", "")
+DISCORD_API = "https://discord.com/api/v10"
+
+# Big-win codes — only shout these in Discord
+BIG_WIN_CODES = {"GOD_1299", "GOD_LIFETIME"}
+
+
+async def send_discord_shout(prize_code: str, prize_label: str,
+                              user_first_name: str, user_telegram_id: int) -> bool:
+    """Post celebration to Discord #ลูกค้า if customer won a big prize."""
+    if not DISCORD_TOKEN or not DISCORD_SHOUT_CHANNEL:
+        return False
+    if prize_code not in BIG_WIN_CODES:
+        return False
+    
+    name = user_first_name or "ลูกค้า"
+    safe_name = name.replace("@", "")[:40]
+    emoji = "👑" if prize_code == "GOD_LIFETIME" else "💎"
+    
+    embed = {
+        "title": f"{emoji} กาชา BIG WIN!",
+        "description": (
+            f"**{safe_name}** สุ่มได้รางวัลใหญ่!\n"
+            f"🎁 รางวัล: **{prize_label}**\n"
+            f"🆔 TG: `{user_telegram_id}`"
+        ),
+        "color": 0xFFD700 if prize_code == "GOD_LIFETIME" else 0x9333EA,
+    }
+    payload = {"embeds": [embed]}
+    
+    try:
+        url = f"{DISCORD_API}/channels/{DISCORD_SHOUT_CHANNEL}/messages"
+        headers = {"Authorization": f"Bot {DISCORD_TOKEN}"}
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(url, json=payload, headers=headers)
+            r.raise_for_status()
+        logger.info("Discord shout sent for prize=%s tg=%s", prize_code, user_telegram_id)
+        return True
+    except Exception as exc:
+        logger.warning("Discord shout failed: %s", exc)
+        return False
+
+
 async def deliver_prize(
     pool,
     pull_id: int,
@@ -208,6 +257,16 @@ async def deliver_prize(
                 ok = await send_dm(tg_id, msg)
                 await log_delivery(conn, pull_id, tg_id, "ok" if ok else "blocked",
                                    f"sub {prize_tier} links={len(links)}")
+                # Discord shout-out for big wins (GOD_1299, GOD_LIFETIME)
+                try:
+                    # Get first_name from DB
+                    user_row = await conn.fetchrow(
+                        "SELECT first_name FROM users WHERE telegram_id=$1", tg_id
+                    )
+                    first_name = (user_row["first_name"] if user_row else None) or "ลูกค้า"
+                    await send_discord_shout(prize_code, prize_label, first_name, tg_id)
+                except Exception as exc:
+                    logger.warning("Discord shout-out err (non-fatal): %s", exc)
                 return
 
             # ── EXTEND ──

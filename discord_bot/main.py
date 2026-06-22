@@ -56,6 +56,9 @@ bot = commands.Bot(
 
 @bot.event
 async def on_ready() -> None:
+    # Start AFK sweep loop (2026-06-22)
+    if not afk_sweep_task.is_running():
+        afk_sweep_task.start()
     """Bot is ready — initialize DB, register views, start tasks."""
     await init_db()
     logger.info("Database initialized")
@@ -173,6 +176,90 @@ async def help_cmd(ctx: commands.Context) -> None:
 
 
 # ─── Scheduled Tasks ─────────────────────────────────────────────────────────
+
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# AFK AUTO-MOVE (added 2026-06-22)
+# Moves user to AFK voice channel after 15 minutes of mute+deafen
+# ─────────────────────────────────────────────────────────────────────────
+from datetime import datetime, timedelta
+
+AFK_CHANNEL_ID = int(os.environ.get("DISCORD_AFK_CHANNEL_ID", "0") or 0)
+AFK_TIMEOUT_MIN = 15  # minutes — boss spec
+
+# Track when user entered "muted + deafened" state
+_afk_tracker: dict[int, datetime] = {}  # user_id → since (UTC naive)
+
+
+@bot.event
+async def on_voice_state_update(member: discord.Member, before: discord.VoiceState,
+                                 after: discord.VoiceState) -> None:
+    """Track when user becomes mute+deaf in voice."""
+    if member.bot:
+        return  # ignore bots
+    
+    # Determine current AFK-eligible state
+    is_muted_and_deaf = (
+        after.channel is not None
+        and after.channel.id != AFK_CHANNEL_ID  # already in AFK = skip
+        and (after.self_mute or after.mute)
+        and (after.self_deaf or after.deaf)
+    )
+    
+    if is_muted_and_deaf:
+        if member.id not in _afk_tracker:
+            _afk_tracker[member.id] = datetime.utcnow()
+            logger.info("AFK track start: %s @ %s", member.name, _afk_tracker[member.id])
+    else:
+        # Either left voice, unmuted, or undeafened → clear
+        if member.id in _afk_tracker:
+            del _afk_tracker[member.id]
+
+
+@tasks.loop(seconds=60)
+async def afk_sweep_task() -> None:
+    """Every 60s — check trackers, move expired users to AFK channel."""
+    if not AFK_CHANNEL_ID:
+        return
+    
+    if not _afk_tracker:
+        return  # no one to check
+    
+    now = datetime.utcnow()
+    threshold = now - timedelta(minutes=AFK_TIMEOUT_MIN)
+    expired_ids = [uid for uid, since in _afk_tracker.items() if since <= threshold]
+    
+    if not expired_ids:
+        return
+    
+    for guild in bot.guilds:
+        afk_ch = guild.get_channel(AFK_CHANNEL_ID)
+        if not afk_ch:
+            continue
+        for uid in expired_ids:
+            try:
+                member = guild.get_member(uid)
+                if not member or not member.voice or not member.voice.channel:
+                    _afk_tracker.pop(uid, None)
+                    continue
+                if member.voice.channel.id == AFK_CHANNEL_ID:
+                    _afk_tracker.pop(uid, None)
+                    continue
+                logger.info("AFK MOVE: %s -> #%s (idle %d min)",
+                            member.name, afk_ch.name, AFK_TIMEOUT_MIN)
+                await member.move_to(afk_ch, reason=f"AFK {AFK_TIMEOUT_MIN}+ min")
+                _afk_tracker.pop(uid, None)
+            except Exception as exc:
+                logger.warning("AFK move fail uid=%s: %s", uid, exc)
+
+
+@afk_sweep_task.before_loop
+async def _afk_sweep_wait() -> None:
+    await bot.wait_until_ready()
+
+
+
 
 @tasks.loop(hours=24)
 async def daily_report_task() -> None:
