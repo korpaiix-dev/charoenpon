@@ -38,8 +38,10 @@ async def _claim_pending_prizes() -> list[dict]:
               AND gp.type = 'clip_pack'
               AND gp.source_chat_id IS NOT NULL
               AND NOT EXISTS (
+                  -- FIX 2026-06-22: include new event-driven marker (no double-send)
                   SELECT 1 FROM admin_logs a
-                  WHERE a.action = 'gacha_clip_delivered' AND a.target_id = p.id
+                  WHERE a.action IN ('gacha_clip_delivered','gacha_reward_delivered')
+                    AND a.target_id = p.id
               )
             ORDER BY p.claimed_at
             LIMIT 10

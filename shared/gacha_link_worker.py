@@ -42,8 +42,9 @@ async def _find_pending() -> list[dict]:
               AND gp.prize_code = ANY(:codes)
               AND gp.pulled_at > NOW() - INTERVAL '24 hours'
               AND NOT EXISTS (
+                  -- FIX 2026-06-22: include new event-driven marker (no double-send)
                   SELECT 1 FROM admin_logs a
-                  WHERE a.action = 'gacha_sub_link_sent'
+                  WHERE a.action IN ('gacha_sub_link_sent','gacha_reward_delivered')
                     AND a.target_id = gp.id
               )
               AND u.is_banned = FALSE
