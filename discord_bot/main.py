@@ -495,9 +495,63 @@ def _discord_to_tg(discord_uid: int) -> int:
     return -(discord_uid)  # negative = team context
 
 
+
+
+def _html_to_discord_md(text: str) -> str:
+    """Convert Telegram HTML to Discord Markdown.
+    
+    <b>x</b> → **x**
+    <i>x</i> → *x*
+    <code>x</code> → `x`
+    <pre>x</pre> → ```x```
+    <u>x</u> → __x__
+    <s>x</s> → ~~x~~
+    <a href='url'>x</a> → [x](url)
+    """
+    import re
+    if not text:
+        return text
+    # Bold
+    text = re.sub(r"<b>(.*?)</b>", r"**\1**", text, flags=re.DOTALL)
+    text = re.sub(r"<strong>(.*?)</strong>", r"**\1**", text, flags=re.DOTALL)
+    # Italic
+    text = re.sub(r"<i>(.*?)</i>", r"*\1*", text, flags=re.DOTALL)
+    text = re.sub(r"<em>(.*?)</em>", r"*\1*", text, flags=re.DOTALL)
+    # Code (inline)
+    text = re.sub(r"<code>(.*?)</code>", r"`\1`", text, flags=re.DOTALL)
+    # Code (block)
+    text = re.sub(r"<pre>(.*?)</pre>", r"```\1```", text, flags=re.DOTALL)
+    # Underline
+    text = re.sub(r"<u>(.*?)</u>", r"__\1__", text, flags=re.DOTALL)
+    # Strikethrough
+    text = re.sub(r"<s>(.*?)</s>", r"~~\1~~", text, flags=re.DOTALL)
+    text = re.sub(r"<del>(.*?)</del>", r"~~\1~~", text, flags=re.DOTALL)
+    # Links: <a href='url'>text</a> or <a href="url">text</a>
+    text = re.sub(r'<a\s+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', r"[\2](\1)", text, flags=re.DOTALL)
+    # Remove any leftover tags (safety)
+    text = re.sub(r"<[^>]+>", "", text)
+    # Decode HTML entities
+    import html
+    text = html.unescape(text)
+    return text
+
+
+
 @bot.event
 async def on_message(message: discord.Message) -> None:
     """Listen to team chat in #คุย-กับ-แพร."""
+    # DEBUG: log every message
+    try:
+        logger.info(
+            "on_message: ch=%s/%s author=%s bot=%s text_len=%d",
+            message.channel.id,
+            getattr(message.channel, "name", "?"),
+            message.author.name,
+            message.author.bot,
+            len(message.content or ""),
+        )
+    except Exception:
+        pass
     # Skip bots + non-target channels
     if message.author.bot:
         return
@@ -521,6 +575,8 @@ async def on_message(message: discord.Message) -> None:
             reply_text = result.get("reply", "").strip()
             if not reply_text:
                 reply_text = "(ขออภัย แพรไม่ได้คำตอบจาก AI ลองพิมพ์ใหม่)"
+            # Convert Telegram HTML to Discord Markdown (FIX 2026-06-22)
+            reply_text = _html_to_discord_md(reply_text)
             # Truncate to Discord 2000-char limit
             if len(reply_text) > 1900:
                 reply_text = reply_text[:1900] + "…"
