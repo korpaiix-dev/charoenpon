@@ -300,6 +300,7 @@ async def handle_group_access_issue(telegram_id: int) -> dict:
             user_row = r_user.fetchone()
             user_id = user_row.id if user_row else None
             customer_name = (user_row.first_name or user_row.username or "ลูกค้า") if user_row else "ลูกค้า"
+            customer_username = (user_row.username if user_row else None) or None  # FIX 2026-06-22: capture for admin alert button
 
             # 2. Check active subscription
             r_active = await s.execute(_t("""
@@ -357,6 +358,7 @@ async def handle_group_access_issue(telegram_id: int) -> dict:
                 tier=active.tier,
                 tier_name=active.name,
                 link_count=len(invite_links),
+                username=customer_username,
             )
 
             return {
@@ -423,6 +425,7 @@ async def handle_group_access_issue(telegram_id: int) -> dict:
                 tier_name=expired.name,
                 discount_pct=discount_pct,
                 promo_code=promo_code,
+                username=customer_username,
             )
 
             return {
@@ -449,6 +452,7 @@ async def handle_group_access_issue(telegram_id: int) -> dict:
             customer_name=customer_name,
             action="recommend_new",
             status="never_paid",
+            username=customer_username,
         )
 
         return {
@@ -498,7 +502,7 @@ async def _notify_admin_group_access(
             if action == "link_resent":
                 msg = (
                     f"🔔 <b>แพรส่งลิงก์เข้ากลุ่มใหม่</b>\n\n"
-                    f"👤 {customer_name}\n"
+                    f"👤 <a href=\"tg://user?id={telegram_id}\">{customer_name}</a>\n"
                     f"🆔 <code>{telegram_id}</code>\n"
                     f"📦 {tier_name or tier}\n"
                     f"🔗 ส่งให้ {link_count} กลุ่ม (one-time, 24h)"
@@ -506,7 +510,7 @@ async def _notify_admin_group_access(
             elif action == "renewal_offered":
                 msg = (
                     f"🔔 <b>แพรเสนอต่ออายุ (ลูกค้าหมดอายุ)</b>\n\n"
-                    f"👤 {customer_name}\n"
+                    f"👤 <a href=\"tg://user?id={telegram_id}\">{customer_name}</a>\n"
                     f"🆔 <code>{telegram_id}</code>\n"
                     f"📦 หมด: {tier_name or tier}\n"
                     f"🎁 Promo: <b>ลด {discount_pct}%</b> code <code>{promo_code}</code>"
@@ -514,17 +518,25 @@ async def _notify_admin_group_access(
             else:  # recommend_new
                 msg = (
                     f"🔔 <b>แพรแนะนำสมัครใหม่ (never paid)</b>\n\n"
-                    f"👤 {customer_name}\n"
+                    f"👤 <a href=\"tg://user?id={telegram_id}\">{customer_name}</a>\n"
                     f"🆔 <code>{telegram_id}</code>"
                 )
 
-            kb = InlineKeyboardMarkup([[
-                InlineKeyboardButton("💬 เปิดแชท", url=f"https://t.me/{username}" if username else "https://t.me/sperm6969"),
-            ]])
-            await b.send_message(
-                chat_id=admin_chat_id, text=msg, parse_mode="HTML",
-                reply_markup=kb, disable_web_page_preview=True,
-            )
+            # FIX 2026-06-22: ปุ่มเปิดแชทตาม username เท่านั้น (ห้าม fallback ไป sperm6969 = แอดมินเอง)
+            # ถ้าไม่มี username → ใช้ HTML mention tg://user?id= ในข้อความแทน (กดที่ชื่อก็เปิดได้)
+            if username:
+                kb = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("💬 เปิดแชท", url=f"https://t.me/{username}"),
+                ]])
+            else:
+                kb = None  # ไม่มี username → ไม่ใส่ปุ่ม (mention ในข้อความใช้แทน)
+            send_kwargs = {
+                "chat_id": admin_chat_id, "text": msg, "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+            }
+            if kb is not None:
+                send_kwargs["reply_markup"] = kb
+            await b.send_message(**send_kwargs)
         finally:
             try: await b.shutdown()
             except Exception: pass
