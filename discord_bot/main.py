@@ -569,13 +569,13 @@ async def on_message(message: discord.Message) -> None:
     # Show typing indicator while waiting
     async with message.channel.typing():
         try:
-            from shared.prae_engine import reply_to_user
-            team_tg = _discord_to_tg(message.author.id)
-            result = await reply_to_user(team_tg, text)
-            reply_text = result.get("reply", "").strip()
+            # FIX 2026-06-23: use team-specific engine instead of customer-facing prae_engine
+            from shared.prae_team_engine import team_reply
+            reply_text = await team_reply(text, user_name=message.author.name)
+            result = {"cost_usd": 0.0}  # team engine doesnt track cost yet
             if not reply_text:
                 reply_text = "(ขออภัย แพรไม่ได้คำตอบจาก AI ลองพิมพ์ใหม่)"
-            # Convert Telegram HTML to Discord Markdown (FIX 2026-06-22)
+            # Team engine outputs Discord markdown natively, but safety-clean HTML if any
             reply_text = _html_to_discord_md(reply_text)
             # Truncate to Discord 2000-char limit
             if len(reply_text) > 1900:
