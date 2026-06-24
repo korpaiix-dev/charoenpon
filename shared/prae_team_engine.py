@@ -212,6 +212,62 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_marketing_goal",
+            "description": (
+                "ตั้งเป้าหมายรายเดือนของ marketer (ยอดเงิน ฿ + จำนวน joins). "
+                "ใช้เมื่อมีคนพิมพ์ 'ตั้งเป้า', 'goal เดือนนี้', 'target' "
+                "ตัวอย่าง: 'ตั้งเป้า ivy 10000 บาท เดือนนี้'"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "marketer": {"type": "string", "enum": ["Ivy", "Wasu", "Pai"]},
+                    "target_revenue": {"type": "number", "description": "เป้ายอดเงิน ฿"},
+                    "target_joins": {"type": "integer", "description": "เป้าจำนวนคนเข้า (optional)"},
+                    "year_month": {"type": "string", "description": "เดือน YYYY-MM (default = current)"},
+                },
+                "required": ["marketer", "target_revenue"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_marketing_goal",
+            "description": (
+                "ดู progress ต่อ goal ของ marketer เดือนนี้ (มี progress bar). "
+                "ใช้เมื่อมีคนถาม 'goal ของฉัน', 'progress', 'เป้าเดือนนี้', 'เหลือเท่าไหร่'"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "marketer": {"type": "string", "description": "Ivy/Wasu/Pai (ไม่ใส่ = ทุกคน)"},
+                    "year_month": {"type": "string", "description": "YYYY-MM (default = current)"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "revoke_marketing_link",
+            "description": (
+                "ลบ/ยกเลิกลิ้งเชิญที่ระบบสร้าง (revoke ทั้งใน Telegram + DB). "
+                "ใช้เมื่อ marketer ตอบ 'revoke <link_id>', 'ลบลิ้ง <id>', 'ยกเลิกลิ้ง'"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "link_id": {"type": "integer", "description": "ID ของลิ้ง"},
+                    "reason": {"type": "string", "description": "เหตุผล optional"},
+                },
+                "required": ["link_id"],
+            },
+        },
+    },
 ]
 
 
@@ -335,6 +391,9 @@ from shared.marketing_tools import (
     marketing_stats as _tool_marketing_stats,
     marketing_links_list as _tool_marketing_links_list,
     marketing_heatmap as _tool_marketing_heatmap,
+    set_marketing_goal as _tool_set_marketing_goal,
+    get_marketing_goal as _tool_get_marketing_goal,
+    revoke_marketing_link as _tool_revoke_marketing_link,
 )
 
 TOOL_HANDLERS = {
@@ -347,6 +406,9 @@ TOOL_HANDLERS = {
     "marketing_stats": _tool_marketing_stats,
     "marketing_links_list": _tool_marketing_links_list,
     "marketing_heatmap": _tool_marketing_heatmap,
+    "set_marketing_goal": _tool_set_marketing_goal,
+    "get_marketing_goal": _tool_get_marketing_goal,
+    "revoke_marketing_link": _tool_revoke_marketing_link,
 }
 
 

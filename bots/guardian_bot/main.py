@@ -470,6 +470,19 @@ def create_application() -> Application:
         name="marketing_leaderboard_monthly",
     )
 
+    # Marketing stale link check — daily 10:00 BKK
+    async def _job_marketing_stale(context):
+        from bots.guardian_bot.scheduler import marketing_stale_link_check
+        try:
+            await marketing_stale_link_check()
+        except Exception as exc:
+            logger.error("marketing_stale_link failed: %s", exc, exc_info=True)
+    job_queue.run_daily(
+        _job_marketing_stale,
+        time=dt_time(hour=10, minute=0, tzinfo=TH_TZ),
+        name="marketing_stale_link_1000",
+    )
+
     # DISABLED 2026-06-22 — superseded by event-driven delivery in gacha_api
     # Old worker scanned every 30s for clip_pack delivery.
     # Event-driven path (gacha_api/gacha_deliver.py) now handles all prize types

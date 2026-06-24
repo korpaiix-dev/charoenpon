@@ -389,3 +389,178 @@ async def marketing_heatmap(
         "filter": {"marketer": marketer, "platform": platform},
         "buckets": buckets,
     }
+
+
+
+def _current_year_month() -> str:
+    """Return YYYY-MM for current month (BKK timezone)."""
+    return (dt.datetime.utcnow() + dt.timedelta(hours=7)).strftime("%Y-%m")
+
+
+# =========================================================
+# TOOL 5: set_marketing_goal
+# =========================================================
+async def set_marketing_goal(
+    marketer: str,
+    target_revenue: float,
+    target_joins: Optional[int] = None,
+    year_month: Optional[str] = None,
+) -> dict:
+    """Set monthly target for a marketer.
+    
+    Args:
+        marketer: Ivy / Wasu / Pai
+        target_revenue: target ฿ for the month
+        target_joins: optional target join count
+        year_month: 'YYYY-MM' (default = current month BKK)
+    """
+    m = (marketer or "").strip()
+    if m.lower() in ("ivy", "ไอวี่"): marketer = "Ivy"
+    elif m.lower() in ("wasu", "วสุ"): marketer = "Wasu"
+    elif m.lower() in ("pai", "ไผ่"): marketer = "Pai"
+    else:
+        return {"error": f"unknown marketer '{m}'"}
+    
+    ym = year_month or _current_year_month()
+    target_joins = int(target_joins) if target_joins is not None else 0
+    
+    try:
+        async with get_session() as s:
+            await s.execute(sql_text("""
+                INSERT INTO marketing_goals (marketer, year_month, target_revenue, target_joins)
+                VALUES (:m, :ym, :tr, :tj)
+                ON CONFLICT (marketer, year_month) DO UPDATE
+                SET target_revenue = EXCLUDED.target_revenue,
+                    target_joins = EXCLUDED.target_joins,
+                    updated_at = now()
+            """), {"m": marketer, "ym": ym, "tr": float(target_revenue), "tj": target_joins})
+            await s.commit()
+        return {"ok": True, "marketer": marketer, "year_month": ym,
+                "target_revenue": float(target_revenue), "target_joins": target_joins}
+    except Exception as exc:
+        return {"error": f"DB save failed: {str(exc)[:200]}"}
+
+
+# =========================================================
+# TOOL 6: get_marketing_goal — with progress bar
+# =========================================================
+async def get_marketing_goal(
+    marketer: Optional[str] = None,
+    year_month: Optional[str] = None,
+) -> dict:
+    """Get goal + current progress for a marketer (or all marketers if not specified)."""
+    m = (marketer or "").strip()
+    if m.lower() in ("ivy", "ไอวี่"): marketer = "Ivy"
+    elif m.lower() in ("wasu", "วสุ"): marketer = "Wasu"
+    elif m.lower() in ("pai", "ไผ่"): marketer = "Pai"
+    elif m:
+        return {"error": f"unknown marketer '{m}'"}
+
+    ym = year_month or _current_year_month()
+    
+    where_marketer = ""
+    params = {"ym": ym}
+    if marketer:
+        where_marketer = "AND g.marketer = :m"
+        params["m"] = marketer
+
+    async with get_session() as s:
+        rows = (await s.execute(sql_text(f"""
+            WITH goals AS (
+                SELECT marketer, year_month, target_revenue, target_joins
+                FROM marketing_goals g
+                WHERE year_month = :ym {where_marketer}
+            ),
+            actuals AS (
+                SELECT l.marketer,
+                       COUNT(DISTINCT j.id)::int AS joins,
+                       COUNT(DISTINCT p.id) FILTER (WHERE p.status = 'CONFIRMED' AND p.amount > 0)::int AS paid,
+                       COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'CONFIRMED' AND p.amount > 0), 0) AS revenue
+                FROM marketing_invite_links l
+                LEFT JOIN marketing_invite_joins j ON j.link_id = l.id
+                  AND date_trunc('month', j.joined_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')
+                    = date_trunc('month', to_timestamp(:ym, 'YYYY-MM'))
+                LEFT JOIN users u ON u.telegram_id = j.telegram_id
+                LEFT JOIN payments p ON p.user_id = u.id
+                  AND p.created_at >= j.joined_at
+                  AND (p.created_at - j.joined_at) <= interval '30 days'
+                GROUP BY l.marketer
+            )
+            SELECT
+              COALESCE(g.marketer, a.marketer) AS marketer,
+              COALESCE(g.target_revenue, 0) AS target_revenue,
+              COALESCE(g.target_joins, 0) AS target_joins,
+              COALESCE(a.revenue, 0) AS actual_revenue,
+              COALESCE(a.joins, 0) AS actual_joins,
+              COALESCE(a.paid, 0) AS actual_paid
+            FROM goals g
+            FULL OUTER JOIN actuals a ON a.marketer = g.marketer
+            ORDER BY COALESCE(g.marketer, a.marketer)
+        """), params)).fetchall()
+
+    results = []
+    for r in rows:
+        tr = float(r.target_revenue or 0)
+        ar = float(r.actual_revenue or 0)
+        rev_pct = (ar / tr * 100) if tr > 0 else 0
+        bar = _progress_bar(rev_pct)
+        results.append({
+            "marketer": r.marketer,
+            "year_month": ym,
+            "target_revenue": tr,
+            "actual_revenue": ar,
+            "revenue_pct": round(rev_pct, 1),
+            "revenue_bar": bar,
+            "target_joins": int(r.target_joins or 0),
+            "actual_joins": int(r.actual_joins or 0),
+            "actual_paid": int(r.actual_paid or 0),
+            "has_goal": tr > 0 or int(r.target_joins or 0) > 0,
+        })
+    return {"year_month": ym, "marketers": results}
+
+
+def _progress_bar(pct: float, width: int = 10) -> str:
+    """Render a unicode progress bar."""
+    pct = max(0, min(pct, 100))
+    filled = int(round(pct / 100 * width))
+    return "█" * filled + "░" * (width - filled) + f" {pct:.0f}%"
+
+
+# =========================================================
+# TOOL 7: revoke_marketing_link
+# =========================================================
+async def revoke_marketing_link(
+    link_id: int,
+    reason: Optional[str] = None,
+) -> dict:
+    """Revoke a marketing invite link — both in Telegram + DB."""
+    try:
+        async with get_session() as s:
+            row = (await s.execute(sql_text(
+                "SELECT id, group_chat_id, invite_link, is_revoked FROM marketing_invite_links WHERE id = :i"
+            ), {"i": int(link_id)})).first()
+            if not row:
+                return {"error": f"link_id {link_id} not found"}
+            if row.is_revoked:
+                return {"ok": True, "already_revoked": True, "link_id": link_id}
+
+            # Revoke in Telegram
+            if GUARDIAN_TOKEN:
+                async with httpx.AsyncClient(timeout=15.0) as cli:
+                    r = await cli.post(
+                        f"https://api.telegram.org/bot{GUARDIAN_TOKEN}/revokeChatInviteLink",
+                        json={"chat_id": row.group_chat_id, "invite_link": row.invite_link},
+                    )
+                    tg_ok = r.json().get("ok", False)
+            else:
+                tg_ok = False
+            
+            # Mark in DB regardless of TG result
+            await s.execute(sql_text(
+                "UPDATE marketing_invite_links SET is_revoked = true, notes = COALESCE(notes,'') || :n WHERE id = :i"
+            ), {"i": int(link_id), "n": f"\n[revoked] {reason or 'manual'}"})
+            await s.commit()
+            
+        return {"ok": True, "link_id": link_id, "tg_revoked": tg_ok, "reason": reason}
+    except Exception as exc:
+        return {"error": f"revoke failed: {str(exc)[:200]}"}

@@ -609,3 +609,89 @@ async def marketing_monthly_leaderboard() -> str:
     except Exception as exc:
         _logger.exception("monthly_leaderboard failed: %s", exc)
         return f"ERROR: {exc}"
+
+
+
+async def marketing_stale_link_check() -> str:
+    """Check for marketing links >30d old with 0 joins → post warning in marketer's channel.
+    
+    Runs daily 10:00 BKK.
+    Posts in #ivy / #wasu / #pai (not feed channel — boss wants chat channel).
+    """
+    import logging as _lg
+    import os as _os
+    _logger = _lg.getLogger(__name__)
+    
+    try:
+        from shared.database import get_session as _gs
+        from shared.discord_notify import post_to_channel
+        from sqlalchemy import text as _t
+        
+        # Marketer → chat channel (not feed)
+        chat_channels = {
+            "Ivy": _os.environ.get("DISCORD_MARKETING_IVY_CHANNEL_ID", ""),
+            "Wasu": _os.environ.get("DISCORD_MARKETING_WASU_CHANNEL_ID", ""),
+            "Pai": _os.environ.get("DISCORD_MARKETING_PAI_CHANNEL_ID", ""),
+        }
+        
+        async with _gs() as s:
+            # Find stale links: created >30 days ago, is_revoked=false, 0 joins, not already warned
+            rows = (await s.execute(_t("""
+                SELECT l.id, l.marketer, l.platform, l.invite_link, l.created_at,
+                       EXTRACT(DAY FROM (now() - l.created_at))::int AS age_days
+                FROM marketing_invite_links l
+                WHERE l.is_revoked = false
+                  AND l.created_at < now() - interval '30 days'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM marketing_invite_joins j WHERE j.link_id = l.id
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM admin_logs
+                    WHERE action = 'marketing_stale_warned'
+                      AND details LIKE '%link_id=' || l.id || '%'
+                  )
+                ORDER BY l.marketer, l.created_at
+            """))).fetchall()
+            
+            if not rows:
+                _logger.info("stale_link_check: no stale links")
+                return "no stale links"
+            
+            # Group by marketer
+            from collections import defaultdict
+            by_marketer = defaultdict(list)
+            for r in rows:
+                by_marketer[r.marketer].append(r)
+            
+            posted = 0
+            for marketer, links in by_marketer.items():
+                ch = chat_channels.get(marketer)
+                if not ch:
+                    continue
+                lines = [
+                    f"👋 หวัดดี {marketer}! แพรเช็คให้แล้วนะ มีลิ้ง **{len(links)} อัน** ที่เก่ากว่า 30 วันแล้วยังไม่มีใครเข้าเลย:\n"
+                ]
+                for r in links[:10]:
+                    lines.append(f"• ลิ้ง **#{r.id}** ({r.platform}) — สร้างมา {r.age_days} วันแล้ว")
+                    lines.append(f"  └ {r.invite_link}")
+                if len(links) > 10:
+                    lines.append(f"... + อีก {len(links)-10} อัน")
+                lines.append("\n💡 ถ้าไม่ใช้แล้วพิมพ์ **'revoke <link_id>'** เพื่อลบ (เช่น `revoke 5`)")
+                lines.append("ถ้าจะเก็บไว้ก็ไม่เป็นไรนะคะ 💕")
+                
+                ok = await post_to_channel(ch, "\n".join(lines))
+                if ok:
+                    posted += 1
+                    # Mark as warned (per-link, idempotent)
+                    for r in links:
+                        await s.execute(_t(
+                            "INSERT INTO admin_logs (admin_id, action, details, created_at) "
+                            "VALUES (0, :a, :d, now())"
+                        ), {"a": "marketing_stale_warned", "d": f"link_id={r.id} marketer={marketer}"})
+                    await s.commit()
+            
+            _logger.info("stale_link_check: warned %d marketers about %d stale links", posted, len(rows))
+            return f"warned {posted} marketers, {len(rows)} links"
+    except Exception as exc:
+        _logger.exception("marketing_stale_link_check failed: %s", exc)
+        return f"ERROR: {exc}"
