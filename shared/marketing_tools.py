@@ -54,6 +54,17 @@ def _bkk_now_str() -> str:
     return (dt.datetime.utcnow() + dt.timedelta(hours=7)).strftime("%Y%m%d-%H%M")
 
 
+
+
+# Char set for short codes — excludes confusing chars (0/O, 1/I/l)
+_SHORTCODE_ALPHABET = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+def _generate_short_code(length: int = 6) -> str:
+    """Generate a random short code (URL-safe, no confusing chars)."""
+    import secrets
+    return "".join(secrets.choice(_SHORTCODE_ALPHABET) for _ in range(length))
+
+
 async def _telegram_create_invite_link(
     chat_id: int, name_tag: str
 ) -> dict:
@@ -135,30 +146,46 @@ async def create_marketing_link(
             return {"error": f"Telegram: {tg_resp['error']}"}
         invite_link = tg_resp["invite_link"]
 
-    # Save to DB
-    try:
-        async with get_session() as s:
-            r = await s.execute(sql_text(
-                """
-                INSERT INTO marketing_invite_links
-                  (marketer, platform, group_slug, group_chat_id, invite_link, name_tag, created_by, link_type)
-                VALUES (:m, :p, CAST(:slug AS groupslug), :cid, :link, :tag, :by, :lt)
-                RETURNING id
-                """
-            ), {
-                "m": marketer, "p": platform, "slug": slug, "cid": chat_id,
-                "link": invite_link, "tag": name_tag, "by": created_by, "lt": link_type,
-            })
-            link_id = r.scalar_one()
-            await s.commit()
-    except Exception as exc:
-        logger.exception("DB insert failed: %s", exc)
-        return {"error": f"DB save failed: {str(exc)[:200]}"}
+    # Save to DB — generate unique short_code with collision retry
+    SHORT_BASE_URL = os.getenv("MARKETING_SHORT_BASE_URL", "https://telebord.net/r").rstrip("/")
+    link_id = None
+    short_code = None
+    for attempt in range(5):
+        candidate = _generate_short_code(6)
+        try:
+            async with get_session() as s:
+                r = await s.execute(sql_text(
+                    """
+                    INSERT INTO marketing_invite_links
+                      (marketer, platform, group_slug, group_chat_id, invite_link, name_tag, created_by, link_type, short_code)
+                    VALUES (:m, :p, CAST(:slug AS groupslug), :cid, :link, :tag, :by, :lt, :sc)
+                    RETURNING id
+                    """
+                ), {
+                    "m": marketer, "p": platform, "slug": slug, "cid": chat_id,
+                    "link": invite_link, "tag": name_tag, "by": created_by, "lt": link_type,
+                    "sc": candidate,
+                })
+                link_id = r.scalar_one()
+                short_code = candidate
+                await s.commit()
+                break
+        except Exception as exc:
+            msg = str(exc)
+            if "uq_milink_short_code" in msg or "unique" in msg.lower():
+                # Collision — retry
+                continue
+            logger.exception("DB insert failed: %s", exc)
+            return {"error": f"DB save failed: {msg[:200]}"}
+    if link_id is None:
+        return {"error": "Short code generation failed after 5 attempts (unlikely)"}
+    short_url = f"{SHORT_BASE_URL}/{short_code}"
 
     return {
         "ok": True, "id": link_id, "marketer": marketer, "platform": platform,
         "group_slug": slug, "group_title": title,
         "invite_link": invite_link, "name_tag": name_tag, "link_type": link_type,
+        "short_code": short_code, "short_url": short_url,
     }
 
 
