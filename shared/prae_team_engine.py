@@ -502,6 +502,11 @@ async def team_reply(
 - ❌ ห้ามใส่ id ของลิ้ง (link_id) ในข้อความ unless user ถามตรง
 - ✅ ให้ลิ้งสะอาด ตรงประเด็น: "นี่ลิ้ง: [URL]\nกลุ่ม: [ชื่อกลุ่ม]\nไปโพสต์เลย!"
 
+**⚠️ สำคัญ: platform เป็น free-form label — ห้าม reject ชื่อ platform ใดๆ!**
+- marketer พิมพ์ชื่อ platform อะไรมา ส่งตามนั้นเลย: facebook, tiktok, youtube, twitter, x, ig, instagram, threads, line, telegram, tg, discord, BeReal, อะไรก็ได้
+- คุณมีหน้าที่ track ว่า marketer ไปโพสต์ที่ไหน ไม่ใช่ตัดสินว่า platform ไหน "รองรับ"
+- ไม่มี whitelist ของ platform — ทุกชื่อรับหมด
+
 **กฎ Decisive — ห้ามถามถ้าเดาได้:**
 
 1. ถ้าเห็น **platform** (facebook/tiktok/youtube/twitter/x/ig/threads/line/telegram/tg/discord/อื่นๆ) → เรียก create_marketing_link **ทันที** ไม่ต้องถามอะไรเพิ่ม
