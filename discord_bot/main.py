@@ -566,7 +566,7 @@ def _generate_qr_for_invite(text: str) -> tuple[bytes, str] | None:
         import re
         import io
         import qrcode
-        m = re.search(r"https?://t\.me/\+[A-Za-z0-9_-]+", text)
+        m = re.search(r"https?://t\.me/(?:\+[A-Za-z0-9_-]+|[A-Za-z0-9_]+\?start=[A-Za-z0-9_-]+)", text)
         if not m:
             return None
         link = m.group(0)
