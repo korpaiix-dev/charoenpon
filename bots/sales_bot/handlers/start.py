@@ -286,6 +286,114 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 except (ValueError, IndexError) as exc:
                     logger.warning("Failed to parse teaser source '%s': %s", source, exc)
 
+    # Handle marketing deep link: /start mkt_{name_tag}
+    # → track attribution + show CUSTOM 2-message welcome (Sprint 2026-06-24)
+    if source and source.startswith("mkt_"):
+        try:
+            from sqlalchemy import text as _t
+            from shared.database import get_session as _gs
+            tg_user = update.effective_user
+            
+            async with _gs() as _s:
+                # Lookup link by name_tag
+                row = (await _s.execute(_t(
+                    "SELECT id, marketer, platform, group_chat_id FROM marketing_invite_links "
+                    "WHERE name_tag = :tag AND link_type = 'bot_deeplink' AND is_revoked = false LIMIT 1"
+                ), {"tag": source})).first()
+                
+                if row:
+                    link_id = row.id
+                    # Lookup user_id
+                    ur = (await _s.execute(_t(
+                        "SELECT id FROM users WHERE telegram_id = :tg"
+                    ), {"tg": tg_user.id})).first()
+                    user_id = ur[0] if ur else None
+                    
+                    # Idempotency: same link + same user within 24h → skip
+                    dup = (await _s.execute(_t(
+                        "SELECT 1 FROM marketing_invite_joins WHERE link_id = :lid AND telegram_id = :tg "
+                        "AND joined_at > now() - interval '24 hours' LIMIT 1"
+                    ), {"lid": link_id, "tg": tg_user.id})).first()
+                    
+                    if not dup:
+                        await _s.execute(_t(
+                            "INSERT INTO marketing_invite_joins "
+                            "(link_id, telegram_id, user_id, tg_username, tg_first_name, tg_last_name) "
+                            "VALUES (:lid, :tg, :uid, :un, :fn, :ln)"
+                        ), {
+                            "lid": link_id, "tg": tg_user.id, "uid": user_id,
+                            "un": tg_user.username, "fn": tg_user.first_name, "ln": tg_user.last_name,
+                        })
+                        await _s.commit()
+                        logger.info(
+                            "marketing bot-deeplink attribution: tg=%s marketer=%s platform=%s link_id=%s",
+                            tg_user.id, row.marketer, row.platform, link_id,
+                        )
+                        # Discord notification (fire-and-forget)
+                        try:
+                            from shared.discord_notify import notify_marketer_join
+                            import asyncio as _aio
+                            count_r = (await _s.execute(_t(
+                                "SELECT COUNT(*) FROM marketing_invite_joins WHERE link_id = :lid"
+                            ), {"lid": link_id})).scalar()
+                            _aio.create_task(notify_marketer_join(
+                                marketer=row.marketer, platform=row.platform,
+                                group_title="(via bot deep-link)",
+                                telegram_id=tg_user.id, tg_username=tg_user.username,
+                                tg_first_name=tg_user.first_name, link_id=link_id,
+                                total_joins_for_link=int(count_r or 1),
+                            ))
+                        except Exception as _nx:
+                            logger.warning("discord notify (bot deeplink) failed: %s", _nx)
+        except Exception as _exc:
+            logger.warning("mkt_ deeplink processing failed: %s", _exc)
+        
+        # Send NEW marketing-specific welcome (2 messages)
+        try:
+            import os
+            from telegram import InlineKeyboardButton as _IKB, InlineKeyboardMarkup as _IKM
+            # Msg 1: marketing welcome image + greeting + 2 pink free group buttons
+            cap1 = (
+                "🎉 สวัสดีค่ะ! ขอบคุณที่ทักหาเรานะคะ 💕\n\n"
+                "ลูกค้าใหม่ ลองดูคอนเทนต์ฟรีๆ ก่อนได้:"
+            )
+            kb1 = _IKM([
+                [_IKB("💖 รวมกลุ่มฟรีเจริญพร 💖", url="https://t.me/+hEx_Uio0vXEzNTVl")],
+                [_IKB("💖 แจ้งข่าวสาวเจริญพร 💖", url="https://t.me/+gUR2P81kttdjMTI1")],
+            ])
+            img_path = "/app/assets/campaigns/marketing_welcome.png"
+            if os.path.exists(img_path):
+                with open(img_path, "rb") as _img:
+                    await update.message.reply_photo(photo=_img, caption=cap1, parse_mode="HTML", reply_markup=kb1)
+            else:
+                await update.message.reply_text(cap1, parse_mode="HTML", reply_markup=kb1)
+            
+            # Msg 2: GIF banner + main menu (with 👑 ดูแพ็กเกจ on top)
+            cap2 = "หรือเลือกเมนูได้เลย ⬇️"
+            kb2 = _IKM([
+                [_IKB("👑 ดูแพ็กเกจ VIP ทั้งหมด 👑", callback_data="view_packages")],
+                [_IKB("🎰 VIPมีคนชัก ฿100 — ลุ้น GOD ทุกจันทร์!", callback_data="view_shaker")],
+                [_IKB("🎁 เติมสิทธิ์หมุนกาชาปอง", callback_data="view_gacha_buy")],
+                [_IKB("📊 ข้อมูลของฉัน", web_app=WebAppInfo(url="https://telebord.net/webapp/customer"))],
+                [_IKB("🎁 ชวนเพื่อน ได้ VIP ฟรี!", callback_data="referral_menu")],
+                [
+                    _IKB("📋 เช็คเครดิต/รีวิว", url="https://t.me/+hv7uXYj4bxFhODZl"),
+                    _IKB("👀 ดูตัวอย่างงาน", url="https://t.me/+Q0Qf-4t8TQo3YTBl"),
+                ],
+                [_IKB("🆓 ห้องฟรี (ทั้งหมด)", url="https://t.me/addlist/w0YSyuHC_aE2ZGVl")],
+                [_IKB("👩‍💼 ติดต่อแอดมิน", url="https://t.me/sperm6969")],
+            ])
+            gif_path = "/app/assets/campaigns/vip_banner_live.gif"
+            if os.path.exists(gif_path):
+                with open(gif_path, "rb") as _gif:
+                    await update.message.reply_animation(animation=_gif, caption=cap2, parse_mode="HTML", reply_markup=kb2)
+            else:
+                await update.message.reply_text(cap2, parse_mode="HTML", reply_markup=kb2)
+            return  # Don't show default menu — we already showed marketing welcome
+        except Exception as _mkx:
+            logger.warning("marketing welcome render failed (fallback to default): %s", _mkx)
+            # Fall through to default menu below
+    
     # Handle referral deep link: /start ref_{CODE}
     if source and source.startswith("ref_"):
         ref_code = source.replace("ref_", "", 1)
