@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, time
 
 import discord
 from discord.ext import commands, tasks
@@ -183,7 +183,11 @@ async def help_cmd(ctx: commands.Context) -> None:
 # AFK AUTO-MOVE (added 2026-06-22)
 # Moves user to AFK voice channel after 15 minutes of mute+deafen
 # ─────────────────────────────────────────────────────────────────────────
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
+from zoneinfo import ZoneInfo as _ZoneInfo
+BKK_TZ = _ZoneInfo("Asia/Bangkok")
+DAILY_REPORT_TIME = time(hour=8, minute=0, tzinfo=BKK_TZ)  # 08:00 BKK
+EXPIRING_MEMBERS_TIMES = [time(hour=8, minute=5, tzinfo=BKK_TZ), time(hour=20, minute=0, tzinfo=BKK_TZ)]  # 08:05 + 20:00 BKK
 
 AFK_CHANNEL_ID = int(os.environ.get("DISCORD_AFK_CHANNEL_ID", "0") or 0)
 AFK_TIMEOUT_MIN = 15  # minutes — boss spec
@@ -261,7 +265,7 @@ async def _afk_sweep_wait() -> None:
 
 
 
-@tasks.loop(hours=24)
+@tasks.loop(time=DAILY_REPORT_TIME)
 async def daily_report_task() -> None:
     """ส่งรายงานประจำวันไปที่ #daily-report เวลา 08:00 UTC+7 (01:00 UTC)."""
     # FIX 2026-06-22: ใช้ BKK timezone กำหนดขอบเขต "วันนี้" / "เดือนนี้"
@@ -366,7 +370,7 @@ async def daily_report_before() -> None:
     await bot.wait_until_ready()
 
 
-@tasks.loop(hours=12)
+@tasks.loop(time=EXPIRING_MEMBERS_TIMES)
 async def expiring_members_task() -> None:
     """ส่งรายชื่อสมาชิกใกล้หมดอายุไปที่ #member-expiring."""
     expiring = await get_expiring_users(days=3)
