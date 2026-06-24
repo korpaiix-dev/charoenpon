@@ -399,3 +399,123 @@ async def generate_daily_report(bot: Bot) -> str:
 
     logger.info("Daily report generated and sent to Discord")
     return report
+
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Marketing Daily Digest (post to #marketing-รวม at 09:00 BKK)
+# Added 2026-06-24
+# ─────────────────────────────────────────────────────────────────────────
+async def marketing_daily_digest() -> str:
+    """Generate yesterday's marketing stats summary + post to Discord #marketing-รวม.
+    
+    Returns the summary text (also logged).
+    """
+    import logging as _lg
+    _logger = _lg.getLogger(__name__)
+    
+    try:
+        from shared.database import get_session as _gs
+        from shared.discord_notify import notify_overview
+        from sqlalchemy import text as _t
+        
+        async with _gs() as s:
+            # Yesterday's join count + paid users per marketer/platform (BKK timezone)
+            rows = (await s.execute(_t("""
+                WITH y AS (
+                  SELECT
+                    l.marketer, l.platform,
+                    j.telegram_id, j.joined_at
+                  FROM marketing_invite_links l
+                  JOIN marketing_invite_joins j ON j.link_id = l.id
+                  WHERE (j.joined_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date
+                        = (now() AT TIME ZONE 'Asia/Bangkok')::date - 1
+                ),
+                paid AS (
+                  SELECT y.marketer, y.platform, y.telegram_id,
+                         (SELECT MIN(p.created_at) FROM payments p
+                          JOIN users u ON u.id = p.user_id
+                          WHERE u.telegram_id = y.telegram_id
+                            AND p.status = 'CONFIRMED'
+                            AND p.amount > 0
+                            AND p.created_at >= y.joined_at
+                            AND (p.created_at - y.joined_at) <= interval '30 days'
+                         ) AS pay_at,
+                         (SELECT COALESCE(SUM(p.amount),0) FROM payments p
+                          JOIN users u ON u.id = p.user_id
+                          WHERE u.telegram_id = y.telegram_id
+                            AND p.status = 'CONFIRMED'
+                            AND p.amount > 0
+                            AND p.created_at >= y.joined_at
+                            AND (p.created_at - y.joined_at) <= interval '30 days'
+                         ) AS paid_amt
+                  FROM y
+                )
+                SELECT marketer, platform,
+                       COUNT(*)::int AS joins,
+                       COUNT(*) FILTER (WHERE pay_at IS NOT NULL)::int AS paid_count,
+                       COALESCE(SUM(paid_amt), 0)::int AS revenue
+                FROM paid
+                GROUP BY marketer, platform
+                ORDER BY revenue DESC, joins DESC
+            """))).fetchall()
+            
+            # Also conversion from joins in past 30d that paid yesterday (catches delayed conversions)
+            delayed_rows = (await s.execute(_t("""
+                SELECT
+                  l.marketer, l.platform,
+                  COUNT(DISTINCT p.id)::int AS conv_count,
+                  COALESCE(SUM(p.amount), 0)::int AS conv_revenue
+                FROM payments p
+                JOIN users u ON u.id = p.user_id
+                JOIN marketing_invite_joins j ON j.telegram_id = u.telegram_id
+                JOIN marketing_invite_links l ON l.id = j.link_id
+                WHERE p.status = 'CONFIRMED'
+                  AND p.amount > 0
+                  AND u.telegram_id < 9000000000
+                  AND (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date
+                      = (now() AT TIME ZONE 'Asia/Bangkok')::date - 1
+                  AND p.created_at >= j.joined_at
+                  AND (p.created_at - j.joined_at) <= interval '30 days'
+                GROUP BY l.marketer, l.platform
+                ORDER BY conv_revenue DESC
+            """))).fetchall()
+
+        # Format
+        from datetime import datetime, timezone, timedelta
+        bkk = timezone(timedelta(hours=7))
+        yesterday = (datetime.now(bkk) - timedelta(days=1)).strftime("%-d %b %Y")
+        
+        lines = [f"📊 **สรุปเมื่อวาน ({yesterday})**", "─" * 30, ""]
+        
+        if rows:
+            total_j = sum(int(r.joins) for r in rows)
+            total_p = sum(int(r.paid_count) for r in rows)
+            total_r = sum(int(r.revenue) for r in rows)
+            lines.append(f"👥 **คนเข้ามาใหม่:** {total_j} คน")
+            lines.append(f"💰 **จ่ายเงินใน 30 วัน:** {total_p} คน (฿{total_r:,})")
+            lines.append("")
+            lines.append("**แยกตามทีม/ช่อง:**")
+            for r in rows[:10]:
+                lines.append(f"• {r.marketer}/{r.platform}: {r.joins} joins → {r.paid_count} paid (฿{r.revenue:,})")
+        else:
+            lines.append("👥 เมื่อวานไม่มีคนเข้าผ่านลิ้ง marketing เลย")
+            lines.append("")
+
+        # Delayed conversions
+        if delayed_rows:
+            d_total_c = sum(int(r.conv_count) for r in delayed_rows)
+            d_total_r = sum(int(r.conv_revenue) for r in delayed_rows)
+            if d_total_c > 0:
+                lines.append("")
+                lines.append(f"🔥 **Conversions เมื่อวาน:** {d_total_c} คน (฿{d_total_r:,})")
+                for r in delayed_rows[:5]:
+                    lines.append(f"  • {r.marketer}/{r.platform}: {r.conv_count} conv → ฿{r.conv_revenue:,}")
+
+        summary = "\n".join(lines)
+        await notify_overview(summary)
+        _logger.info("marketing_daily_digest posted: %d marketers reported", len(rows))
+        return summary
+    except Exception as exc:
+        _logger.exception("marketing_daily_digest failed: %s", exc)
+        return f"ERROR: {exc}"

@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from shared.discord_notify import notify_marketer_join as _discord_notify_join
+
 from sqlalchemy import text
 
 from shared.database import get_session
@@ -96,5 +98,28 @@ async def track_marketing_join(
                 "✅ marketing join tracked: link_id=%s marketer=%s platform=%s tg=%s",
                 link_id, marketer, platform, telegram_id,
             )
+
+            # Get group title + total joins for this link (for Discord notification)
+            try:
+                meta = (await session.execute(text(
+                    """
+                    SELECT
+                      (SELECT title FROM group_registry WHERE slug = l.group_slug) AS group_title,
+                      (SELECT COUNT(*) FROM marketing_invite_joins WHERE link_id = l.id) AS join_count
+                    FROM marketing_invite_links l WHERE l.id = :lid
+                    """
+                ), {"lid": link_id})).first()
+                if meta:
+                    # Fire-and-forget Discord notification (don't await — must not block)
+                    import asyncio as _asyncio
+                    _asyncio.create_task(_discord_notify_join(
+                        marketer=marketer, platform=platform,
+                        group_title=meta.group_title or "",
+                        telegram_id=telegram_id, tg_username=tg_username,
+                        tg_first_name=tg_first_name, link_id=link_id,
+                        total_joins_for_link=int(meta.join_count or 1),
+                    ))
+            except Exception as _nx:
+                logger.warning("discord notify failed (non-fatal): %s", _nx)
     except Exception as exc:
         logger.exception("marketing_tracker error: %s", exc)

@@ -363,14 +363,51 @@ async def team_reply(
     """
     sys_extra = ""
     if marketer_context:
-        sys_extra = (
-            f"\n\n**Context พิเศษ:** ข้อความนี้มาจากห้อง #{channel_context or marketer_context.lower()} "
-            f"ซึ่งเป็นห้องของคุณ {marketer_context} (ทีมการตลาด).\n"
-            f"ถ้าเค้าขอลิ้ง/ดู stat ของตัวเอง — ให้ใช้ marketer='{marketer_context}' โดยอัตโนมัติ ไม่ต้องถามชื่อ"
-        )
+        m = marketer_context
+        sys_extra = f"""
+
+**Context พิเศษ (ห้อง marketing #{channel_context or m.lower()}):**
+- ห้องนี้คือของ **{m}** (ทีมการตลาด) → marketer='{m}' เสมอ ห้ามถามชื่อ
+- ระบบมีกลุ่มแค่ 2 อัน: 'รวมกลุ่ม' (PROMO_HUB) + 'แจ้งข่าวสาร' (PROMO_NEWS) — ห้ามคิดชื่อกลุ่มอื่นเอง
+
+**กฎ Decisive — ห้ามถามถ้าเดาได้:**
+
+1. ถ้าเห็น **platform** (facebook/tiktok/youtube/twitter/x/ig/threads/line) → เรียก create_marketing_link **ทันที** ไม่ต้องถามอะไรเพิ่ม
+   - ไม่ระบุกลุ่ม → ใช้ 'รวมกลุ่ม' default
+   - ระบุ 'กลุ่มข่าว'/'แจ้งข่าว'/'news' → 'แจ้งข่าวสาร'
+   - ระบุ 'รวมกลุ่ม'/'กลุ่มรวม'/'hub' → 'รวมกลุ่ม'
+
+2. ถ้ามีคำว่า 'stat'/'สถิติ'/'รายได้'/'conversion' → เรียก marketing_stats(marketer={m}, window=30d)
+
+3. ถ้ามีคำว่า 'ลิ้งที่มี'/'ลิ้งของฉัน'/'ลิงก์เก่า' → เรียก marketing_links_list(marketer={m})
+
+4. ถ้า user พิมพ์สั้นเกินจะเดาไม่ออก (เช่น 'ของPai') → ถามครั้งเดียวสั้นๆ ว่า 'อยากขอลิ้ง / ดูสถิติ / ดูลิ้งเก่าคะ?'
+
+**ตัวอย่างที่ถูก (สำคัญมาก — ทำตามนี้):**
+
+- ลูกพิมพ์: 'ขอลิ้ง facebook'
+  → call create_marketing_link(marketer='{m}', platform='facebook', group='รวมกลุ่ม') → ส่งลิ้งกลับ
+
+- ลูกพิมพ์: 'ขอลิ้ง tiktok กลุ่มข่าว'
+  → call create_marketing_link(marketer='{m}', platform='tiktok', group='แจ้งข่าวสาร') → ส่งลิ้งกลับ
+
+- ลูกพิมพ์: 'ขอลิ้ง youtube'
+  → call create_marketing_link(marketer='{m}', platform='youtube', group='รวมกลุ่ม') → ส่งลิ้งกลับ
+
+- ลูกพิมพ์: 'stat ของฉัน'
+  → call marketing_stats(marketer='{m}', window='30d') → แสดงตัวเลข
+
+- ลูกพิมพ์: 'ลิ้งที่มี'
+  → call marketing_links_list(marketer='{m}') → list links
+"""
+    # Message prefix — be explicit about marketer vs typist to avoid LLM confusion
+    if marketer_context:
+        user_msg = f"[คนพิมพ์: {user_name} | marketer ของห้องนี้: {marketer_context}] {user_text}"
+    else:
+        user_msg = f"[ทีม {user_name}] {user_text}"
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT + sys_extra},
-        {"role": "user", "content": f"[ทีม {user_name}] {user_text}"},
+        {"role": "user", "content": user_msg},
     ]
 
     # Up to 3 tool iterations

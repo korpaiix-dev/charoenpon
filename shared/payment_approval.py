@@ -815,6 +815,73 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
     except Exception as exc:
         logger.warning("[approval] loyalty trigger failed: %s", exc)
 
+    # STEP 21.5: Marketing conversion attribution
+    # ถ้าลูกค้านี้เข้ามาผ่านลิ้ง marketing → ส่งแจ้งเตือนใน feed ของ marketer
+    try:
+        from shared.discord_notify import notify_marketer_conversion as _mk_notify
+        async with get_session() as _ms:
+            # หา marketing_invite_join ที่ user_id หรือ telegram_id ตรงกัน + ภายใน 30 วันก่อน join
+            row = (await _ms.execute(sql_text("""
+                SELECT l.id AS link_id, l.marketer, l.platform,
+                       u.telegram_id, u.username, u.first_name,
+                       EXTRACT(DAY FROM (now() - j.joined_at))::int AS days_since_join,
+                       j.joined_at
+                FROM marketing_invite_joins j
+                JOIN marketing_invite_links l ON l.id = j.link_id
+                JOIN users u ON u.id = :uid
+                WHERE (j.user_id = :uid OR j.telegram_id = u.telegram_id)
+                  AND j.joined_at >= now() - interval '30 days'
+                ORDER BY j.joined_at DESC
+                LIMIT 1
+            """), {"uid": db_user_id})).first()
+
+            if row:
+                # Idempotency: ห้ามแจ้งซ้ำสำหรับ payment เดียวกัน
+                marker_key = f"marketing_conv_notified:{payment_id_final}"
+                existing = (await _ms.execute(sql_text(
+                    "SELECT 1 FROM admin_logs WHERE action = :a LIMIT 1"
+                ), {"a": marker_key})).first()
+                if not existing:
+                    # Marker first (prevents duplicate even if Discord call fails)
+                    await _ms.execute(sql_text(
+                        "INSERT INTO admin_logs (admin_id, action, details, created_at) "
+                        "VALUES (0, :a, :d, now())"
+                    ), {"a": marker_key, "d": f"link={row.link_id} marketer={row.marketer}"})
+                    await _ms.commit()
+
+                    # Compute marketer's month totals
+                    month_row = (await _ms.execute(sql_text("""
+                        SELECT COUNT(DISTINCT p.id) AS cnt,
+                               COALESCE(SUM(p.amount), 0) AS rev
+                        FROM marketing_invite_joins j2
+                        JOIN marketing_invite_links l2 ON l2.id = j2.link_id
+                        JOIN users u2 ON u2.telegram_id = j2.telegram_id
+                        JOIN payments p ON p.user_id = u2.id
+                        WHERE l2.marketer = :m
+                          AND p.status = 'CONFIRMED' AND p.amount > 0
+                          AND (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok') >= date_trunc('month', now() AT TIME ZONE 'Asia/Bangkok')
+                          AND u2.telegram_id < 9000000000
+                    """), {"m": row.marketer})).first()
+                    m_cnt = int(month_row.cnt or 0) if month_row else 0
+                    m_rev = float(month_row.rev or 0) if month_row else 0
+
+                    # Fire Discord notification (don't block)
+                    import asyncio as _aio
+                    _aio.create_task(_mk_notify(
+                        marketer=row.marketer, platform=row.platform,
+                        telegram_id=row.telegram_id, tg_username=row.username,
+                        tg_first_name=row.first_name, amount=float(inp.amount_paid or 0),
+                        tier=str(target_tier_str or "?"),
+                        days_since_join=int(row.days_since_join or 0),
+                        link_id=int(row.link_id),
+                        marketer_month_count=m_cnt,
+                        marketer_month_revenue=m_rev,
+                    ))
+                    logger.info("[approval] marketing conversion: user=%s marketer=%s ฿%s",
+                                db_user_id, row.marketer, inp.amount_paid)
+    except Exception as _mkx:
+        logger.warning("[approval] marketing conversion check failed: %s", _mkx)
+
     # STEP 22: Admin alert if customer didn't get DM OR no links
     if (not customer_dm_sent and not inp.skip_dm) or (not invite_links_list and not is_gacha):
         try:

@@ -438,6 +438,19 @@ def create_application() -> Application:
         name="slip2go_retry_2m",
     )
 
+    # Marketing daily digest — 09:00 BKK every day → post to #marketing-รวม
+    async def _job_marketing_digest(context):
+        from bots.guardian_bot.scheduler import marketing_daily_digest
+        try:
+            await marketing_daily_digest()
+        except Exception as exc:
+            logger.error("marketing_daily_digest failed: %s", exc, exc_info=True)
+    job_queue.run_daily(
+        _job_marketing_digest,
+        time=dt_time(hour=9, minute=0, tzinfo=TH_TZ),
+        name="marketing_digest_0900",
+    )
+
     # DISABLED 2026-06-22 — superseded by event-driven delivery in gacha_api
     # Old worker scanned every 30s for clip_pack delivery.
     # Event-driven path (gacha_api/gacha_deliver.py) now handles all prize types
