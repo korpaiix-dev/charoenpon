@@ -157,7 +157,7 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "marketer": {"type": "string", "enum": ["Ivy", "Wasu", "Pai"]},
-                    "platform": {"type": "string", "description": "facebook / tiktok / youtube / etc."},
+                    "platform": {"type": "string", "description": "free-form label — facebook / tiktok / youtube / twitter / x / ig / instagram / threads / line / telegram / tg / discord / etc. ใส่ตรงตามที่ marketer พูดมา"},
                     "group": {"type": "string", "description": "ชื่อกลุ่ม: รวมกลุ่ม หรือ แจ้งข่าวสาร"},
                 },
                 "required": ["marketer", "platform", "group"],
@@ -177,7 +177,7 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "marketer": {"type": "string", "description": "Ivy / Wasu / Pai (ไม่ใส่ = ดูทุกคน)"},
-                    "platform": {"type": "string", "description": "facebook / tiktok / ... (ไม่ใส่ = ดูทุก platform)"},
+                    "platform": {"type": "string", "description": "free-form filter (facebook / tiktok / telegram / etc.) — ไม่ใส่ = ดูทุก platform"},
                     "window": {"type": "string", "enum": ["7d", "30d", "lifetime"], "default": "30d"},
                 },
             },
@@ -209,7 +209,7 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "marketer": {"type": "string", "description": "Ivy/Wasu/Pai (ไม่ใส่ = ทุกคน)"},
-                    "platform": {"type": "string", "description": "facebook/tiktok/... (ไม่ใส่ = ทุก platform)"},
+                    "platform": {"type": "string", "description": "free-form (facebook/tiktok/telegram/etc.) — ไม่ใส่ = ทุก platform"},
                     "window_days": {"type": "integer", "default": 30, "description": "ดูย้อนหลังกี่วัน"},
                 },
             },
@@ -504,7 +504,8 @@ async def team_reply(
 
 **กฎ Decisive — ห้ามถามถ้าเดาได้:**
 
-1. ถ้าเห็น **platform** (facebook/tiktok/youtube/twitter/x/ig/threads/line) → เรียก create_marketing_link **ทันที** ไม่ต้องถามอะไรเพิ่ม
+1. ถ้าเห็น **platform** (facebook/tiktok/youtube/twitter/x/ig/threads/line/telegram/tg/discord/อื่นๆ) → เรียก create_marketing_link **ทันที** ไม่ต้องถามอะไรเพิ่ม
+   - 'telegram'/'tg'/'เทเลแกรม' → platform='telegram' (post ในกลุ่ม Telegram อื่น/ส่วนตัว)
    - ไม่ระบุกลุ่ม → ใช้ 'รวมกลุ่ม' default
    - ระบุ 'กลุ่มข่าว'/'แจ้งข่าว'/'news' → 'แจ้งข่าวสาร'
    - ระบุ 'รวมกลุ่ม'/'กลุ่มรวม'/'hub' → 'รวมกลุ่ม'
@@ -525,6 +526,10 @@ async def team_reply(
 
 - ลูกพิมพ์: 'ขอลิ้ง youtube'
   → call create_marketing_link(marketer='{m}', platform='youtube', group='รวมกลุ่ม') → ส่งลิ้งกลับ
+
+- ลูกพิมพ์: 'ขอลิ้ง telegram' / 'ขอลิ้ง tg' / 'ขอลิ้งเทเลแกรม'
+  → call create_marketing_link(marketer='{m}', platform='telegram', group='รวมกลุ่ม') → ส่งลิ้งกลับ
+  (marketer จะเอาไป post ในกลุ่ม Telegram อื่นๆ หรือส่งให้คนรู้จัก — track เป็น cross-promotion)
 
 - ลูกพิมพ์: 'stat ของฉัน'
   → call marketing_stats(marketer='{m}', window='30d') → แสดงตัวเลข
