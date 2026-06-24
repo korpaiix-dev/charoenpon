@@ -256,6 +256,26 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "set_marketing_link_cost",
+            "description": (
+                "บันทึกค่าโฆษณาที่ marketer ลงทุนไปสำหรับลิ้ง marketing (เช่น ค่า Facebook Ads / TikTok Ads). "
+                "ใช้เมื่อพิมพ์ '''cost <link_id> <amount>''', '''ลิ้ง 5 ใช้ 500''', '''ค่าโฆษณา 5 = 500'''. "
+                "ระบบจะคำนวณ ROI ให้อัตโนมัติจาก revenue ที่ได้กลับมา"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "link_id": {"type": "integer", "description": "ID ของลิ้ง (เช่น 5)"},
+                    "cost": {"type": "number", "description": "ค่าโฆษณา (THB)"},
+                    "note": {"type": "string", "description": "หมายเหตุ optional"},
+                },
+                "required": ["link_id", "cost"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "find_customer_attribution",
             "description": (
                 "ค้นหาว่าลูกค้าคนหนึ่งเข้ามาจากลิ้ง marketing ไหน + จ่ายเงินไปเท่าไหร่ — "
@@ -416,6 +436,7 @@ from shared.marketing_tools import (
     get_marketing_goal as _tool_get_marketing_goal,
     revoke_marketing_link as _tool_revoke_marketing_link,
     find_customer_attribution as _tool_find_customer_attribution,
+    set_marketing_link_cost as _tool_set_marketing_link_cost,
 )
 
 TOOL_HANDLERS = {
@@ -432,6 +453,7 @@ TOOL_HANDLERS = {
     "get_marketing_goal": _tool_get_marketing_goal,
     "revoke_marketing_link": _tool_revoke_marketing_link,
     "find_customer_attribution": _tool_find_customer_attribution,
+    "set_marketing_link_cost": _tool_set_marketing_link_cost,
 }
 
 

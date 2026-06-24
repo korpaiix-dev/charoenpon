@@ -2203,11 +2203,13 @@ async function testDM(type) {
 async function renderMarketing() {
     const content = document.getElementById('page-content');
     try {
-        const [kpi, funnel, weekly, insights] = await Promise.all([
+        const [kpi, funnel, weekly, insights, roi, links] = await Promise.all([
             api('/marketing/kpi?days=30'),
             api('/marketing/funnel?days=30'),
             api('/marketing/weekly-comparison'),
             api('/marketing/ai-insights'),
+            api('/marketing/roi?days=30').catch(() => null),
+            api('/marketing/links').catch(() => []),
         ]);
         
         const funnelMax = funnel.free_members || 1;
@@ -2248,6 +2250,123 @@ async function renderMarketing() {
                     <span class="funnel-pct">${((funnel.vip_purchases/funnelMax)*100).toFixed(1)}%</span>
                 </div>
             </div>
+
+
+            ${roi ? `
+            <div class="section-title" style="margin-top:1.5rem;">🎯 ROI ทีมการตลาด (30 วัน)</div>
+            
+            <div class="mini-cards">
+                <div class="mini-card"><div class="mini-card-label">ค่าโฆษณารวม</div><div class="mini-card-value" style="color:var(--warning);">${fmtBaht(roi.totals.cost)}</div></div>
+                <div class="mini-card"><div class="mini-card-label">รายได้</div><div class="mini-card-value" style="color:var(--primary);">${fmtBaht(roi.totals.revenue)}</div></div>
+                <div class="mini-card"><div class="mini-card-label">กำไรสุทธิ</div><div class="mini-card-value" style="color:${roi.totals.profit >= 0 ? 'var(--success)' : 'var(--error)'};">${fmtBaht(roi.totals.profit)}</div></div>
+                <div class="mini-card"><div class="mini-card-label">ROI</div><div class="mini-card-value" style="color:${(roi.totals.roi_pct || 0) >= 0 ? 'var(--success)' : 'var(--error)'};">${roi.totals.roi_pct != null ? roi.totals.roi_pct + '%' : '-'}</div></div>
+            </div>
+
+            ${roi.by_marketer.length > 0 ? `
+            <div class="card card-full" style="margin-top:1rem;">
+                <div class="card-label">👥 แยกตาม Marketer</div>
+                <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;color:var(--text);font-size:0.9rem;">
+                    <thead style="background:rgba(0,212,255,0.08);">
+                        <tr>
+                            <th style="padding:0.6rem;text-align:left;">Marketer</th>
+                            <th style="padding:0.6rem;text-align:right;">ค่าโฆษณา</th>
+                            <th style="padding:0.6rem;text-align:right;">Joins</th>
+                            <th style="padding:0.6rem;text-align:right;">Paid</th>
+                            <th style="padding:0.6rem;text-align:right;">รายได้</th>
+                            <th style="padding:0.6rem;text-align:right;">กำไร</th>
+                            <th style="padding:0.6rem;text-align:right;">ROI</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${roi.by_marketer.map(m => `
+                        <tr style="border-top:1px solid var(--border);">
+                            <td style="padding:0.6rem;font-weight:500;">${esc(m.marketer)}</td>
+                            <td style="padding:0.6rem;text-align:right;color:var(--warning);">${fmtBaht(m.cost)}</td>
+                            <td style="padding:0.6rem;text-align:right;">${fmt(m.joins)}</td>
+                            <td style="padding:0.6rem;text-align:right;color:var(--success);">${fmt(m.paid)}</td>
+                            <td style="padding:0.6rem;text-align:right;color:var(--primary);">${fmtBaht(m.revenue)}</td>
+                            <td style="padding:0.6rem;text-align:right;color:${m.profit >= 0 ? 'var(--success)' : 'var(--error)'};">${fmtBaht(m.profit)}</td>
+                            <td style="padding:0.6rem;text-align:right;font-weight:500;color:${(m.roi_pct||0) >= 100 ? 'var(--success)' : (m.roi_pct||0) >= 0 ? 'var(--warning)' : 'var(--error)'};">${m.roi_pct != null ? m.roi_pct + '%' : '-'}</td>
+                        </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                </div>
+            </div>
+            ` : ''}
+
+            ${roi.by_platform.length > 0 ? `
+            <div class="card card-full" style="margin-top:1rem;">
+                <div class="card-label">📱 แยกตาม Platform</div>
+                <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;color:var(--text);font-size:0.85rem;">
+                    <thead style="background:rgba(0,212,255,0.08);">
+                        <tr>
+                            <th style="padding:0.6rem;text-align:left;">Marketer/Platform</th>
+                            <th style="padding:0.6rem;text-align:right;">Cost</th>
+                            <th style="padding:0.6rem;text-align:right;">Joins</th>
+                            <th style="padding:0.6rem;text-align:right;">Paid</th>
+                            <th style="padding:0.6rem;text-align:right;">Revenue</th>
+                            <th style="padding:0.6rem;text-align:right;">ROI</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${roi.by_platform.map(p => `
+                        <tr style="border-top:1px solid var(--border);">
+                            <td style="padding:0.6rem;"><span style="opacity:0.8;">${esc(p.marketer)}</span> / <b>${esc(p.platform)}</b></td>
+                            <td style="padding:0.6rem;text-align:right;">${fmtBaht(p.cost)}</td>
+                            <td style="padding:0.6rem;text-align:right;">${fmt(p.joins)}</td>
+                            <td style="padding:0.6rem;text-align:right;color:var(--success);">${fmt(p.paid)}</td>
+                            <td style="padding:0.6rem;text-align:right;color:var(--primary);">${fmtBaht(p.revenue)}</td>
+                            <td style="padding:0.6rem;text-align:right;font-weight:500;color:${(p.roi_pct||0) >= 100 ? 'var(--success)' : (p.roi_pct||0) >= 0 ? 'var(--warning)' : 'var(--error)'};">${p.roi_pct != null ? p.roi_pct + '%' : '-'}</td>
+                        </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                </div>
+            </div>
+            ` : ''}
+
+            ${links.length > 0 ? `
+            <div class="card card-full" style="margin-top:1rem;">
+                <div class="card-label">🔗 ลิ้งทั้งหมด (${links.length})</div>
+                <div style="overflow-x:auto;max-height:400px;overflow-y:auto;">
+                <table style="width:100%;border-collapse:collapse;color:var(--text);font-size:0.8rem;">
+                    <thead style="background:rgba(0,212,255,0.08);position:sticky;top:0;">
+                        <tr>
+                            <th style="padding:0.5rem;text-align:left;">ID</th>
+                            <th style="padding:0.5rem;text-align:left;">Marketer</th>
+                            <th style="padding:0.5rem;text-align:left;">Platform</th>
+                            <th style="padding:0.5rem;text-align:right;">Cost</th>
+                            <th style="padding:0.5rem;text-align:right;">Joins</th>
+                            <th style="padding:0.5rem;text-align:right;">Revenue</th>
+                            <th style="padding:0.5rem;text-align:right;">Profit</th>
+                            <th style="padding:0.5rem;text-align:center;">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${links.map(l => `
+                        <tr style="border-top:1px solid var(--border);${l.is_revoked ? 'opacity:0.4;' : ''}">
+                            <td style="padding:0.5rem;font-family:var(--font-mono,monospace);">#${l.id}</td>
+                            <td style="padding:0.5rem;">${esc(l.marketer)}</td>
+                            <td style="padding:0.5rem;">${esc(l.platform)}</td>
+                            <td style="padding:0.5rem;text-align:right;">${l.cost > 0 ? fmtBaht(l.cost) : '<span style="color:var(--text-muted);">-</span>'}</td>
+                            <td style="padding:0.5rem;text-align:right;">${fmt(l.joins)}</td>
+                            <td style="padding:0.5rem;text-align:right;color:var(--primary);">${fmtBaht(l.revenue)}</td>
+                            <td style="padding:0.5rem;text-align:right;color:${l.profit >= 0 ? 'var(--success)' : 'var(--error)'};">${fmtBaht(l.profit)}</td>
+                            <td style="padding:0.5rem;text-align:center;">${l.is_revoked ? '🔴' : '🟢'}</td>
+                        </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                </div>
+                <div style="font-size:0.75rem;color:var(--text-muted);padding:0.5rem 0;margin-top:0.5rem;">
+                    💡 ใส่ค่าโฆษณาผ่าน Discord: พิมพ์ <code>cost &lt;id&gt; &lt;amount&gt;</code> ใน #ivy / #wasu / #pai
+                </div>
+            </div>
+            ` : ''}
+            ` : ''}
 
             <div class="card card-full" style="margin-top:1.5rem;">
                 <div class="card-label">🤖 AI Action Items</div>

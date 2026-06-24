@@ -682,3 +682,67 @@ async def find_customer_attribution(query: str) -> dict:
             "payments": payments,
             "attribution": attribution,  # None = ไม่ได้มาจาก marketing link
         }
+
+
+
+# =========================================================
+# TOOL 9: set_marketing_link_cost — บันทึกค่าโฆษณาของลิ้ง
+# =========================================================
+async def set_marketing_link_cost(
+    link_id: int,
+    cost: float,
+    note: Optional[str] = None,
+) -> dict:
+    """Set advertising cost for a marketing link (retrospective).
+    
+    Marketer enters ad spend after running campaign.
+    Returns: link details + computed ROI.
+    """
+    try:
+        cost = float(cost)
+        if cost < 0:
+            return {"error": "cost must be >= 0"}
+    except (TypeError, ValueError):
+        return {"error": f"invalid cost: {cost!r}"}
+    
+    try:
+        async with get_session() as s:
+            row = (await s.execute(sql_text(
+                "SELECT id, marketer, platform, group_slug::text AS group_slug, invite_link FROM marketing_invite_links WHERE id = :i"
+            ), {"i": int(link_id)})).first()
+            if not row:
+                return {"error": f"link_id {link_id} not found"}
+            
+            await s.execute(sql_text(
+                "UPDATE marketing_invite_links SET cost = :c, cost_notes = :n, cost_updated_at = now() WHERE id = :i"
+            ), {"c": cost, "n": note, "i": int(link_id)})
+            await s.commit()
+            
+            # Compute current revenue from this link (30d window)
+            rev_row = (await s.execute(sql_text("""
+                SELECT
+                  COUNT(DISTINCT j.id)::int AS joins,
+                  COALESCE(SUM(p.amount) FILTER (WHERE p.status='CONFIRMED' AND p.amount > 0), 0)::float AS revenue
+                FROM marketing_invite_joins j
+                LEFT JOIN users u ON u.telegram_id = j.telegram_id
+                LEFT JOIN payments p ON p.user_id = u.id
+                  AND p.created_at >= j.joined_at
+                  AND (p.created_at - j.joined_at) <= interval '30 days'
+                WHERE j.link_id = :lid
+            """), {"lid": int(link_id)})).first()
+            
+            joins = int(rev_row.joins or 0)
+            revenue = float(rev_row.revenue or 0)
+            profit = revenue - cost
+            roi_pct = ((revenue - cost) / cost * 100) if cost > 0 else None
+            
+        return {
+            "ok": True, "id": link_id,
+            "marketer": row.marketer, "platform": row.platform, "group_slug": row.group_slug,
+            "invite_link": row.invite_link,
+            "cost": cost, "note": note,
+            "joins": joins, "revenue": revenue, "profit": profit,
+            "roi_pct": round(roi_pct, 1) if roi_pct is not None else None,
+        }
+    except Exception as exc:
+        return {"error": f"save failed: {str(exc)[:200]}"}
