@@ -83,13 +83,16 @@ async def create_marketing_link(
     platform: str,
     group: str,
     created_by: str = "prae",
+    link_type: str = "bot_deeplink",
 ) -> dict:
-    """Create a new tracked invite link for a marketer + platform + group.
+    """Create a new tracked marketing link.
 
     Args:
-        marketer: 'Ivy' / 'Wasu' / 'Pai' (case-insensitive — will be normalized)
-        platform: 'facebook' / 'tiktok' / 'youtube' / etc. — free-form
-        group: 'รวมกลุ่ม' or 'แจ้งข่าวสาร' or 'PROMO_HUB' / 'PROMO_NEWS'
+        marketer: 'Ivy' / 'Wasu' / 'Pai' (case-insensitive)
+        platform: 'facebook' / 'tiktok' / 'youtube' / 'telegram' / etc. — free-form label
+        group: 'รวมกลุ่ม' or 'แจ้งข่าวสาร' (target free group)
+        link_type: 'bot_deeplink' (DEFAULT) — user → sales bot → tracked + sales funnel
+                   'group_invite' — user → joins group directly (no sales funnel)
     """
     # Normalize marketer
     m = (marketer or "").strip()
@@ -116,11 +119,21 @@ async def create_marketing_link(
     # Telegram caps name at 32 chars
     name_tag = name_tag[:32]
 
-    # Call Telegram
-    tg_resp = await _telegram_create_invite_link(chat_id, name_tag)
-    if "error" in tg_resp:
-        return {"error": f"Telegram: {tg_resp['error']}"}
-    invite_link = tg_resp["invite_link"]
+    # Branch: bot deep-link (default) vs group invite
+    link_type = (link_type or "bot_deeplink").lower().strip()
+    if link_type not in ("bot_deeplink", "group_invite"):
+        return {"error": f"link_type must be 'bot_deeplink' or 'group_invite' (got '{link_type}')"}
+
+    if link_type == "bot_deeplink":
+        # Build bot deep-link — funnels user through sales bot /start handler for attribution
+        bot_username = os.getenv("SALES_BOT_USERNAME", "NamwarnJarern_bot").lstrip("@")
+        invite_link = f"https://t.me/{bot_username}?start=mkt_{name_tag}"
+    else:
+        # group_invite: call Telegram API to create native invite link
+        tg_resp = await _telegram_create_invite_link(chat_id, name_tag)
+        if "error" in tg_resp:
+            return {"error": f"Telegram: {tg_resp['error']}"}
+        invite_link = tg_resp["invite_link"]
 
     # Save to DB
     try:
@@ -128,13 +141,13 @@ async def create_marketing_link(
             r = await s.execute(sql_text(
                 """
                 INSERT INTO marketing_invite_links
-                  (marketer, platform, group_slug, group_chat_id, invite_link, name_tag, created_by)
-                VALUES (:m, :p, CAST(:slug AS groupslug), :cid, :link, :tag, :by)
+                  (marketer, platform, group_slug, group_chat_id, invite_link, name_tag, created_by, link_type)
+                VALUES (:m, :p, CAST(:slug AS groupslug), :cid, :link, :tag, :by, :lt)
                 RETURNING id
                 """
             ), {
                 "m": marketer, "p": platform, "slug": slug, "cid": chat_id,
-                "link": invite_link, "tag": name_tag, "by": created_by,
+                "link": invite_link, "tag": name_tag, "by": created_by, "lt": link_type,
             })
             link_id = r.scalar_one()
             await s.commit()
@@ -145,7 +158,7 @@ async def create_marketing_link(
     return {
         "ok": True, "id": link_id, "marketer": marketer, "platform": platform,
         "group_slug": slug, "group_title": title,
-        "invite_link": invite_link, "name_tag": name_tag,
+        "invite_link": invite_link, "name_tag": name_tag, "link_type": link_type,
     }
 
 

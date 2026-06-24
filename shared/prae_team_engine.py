@@ -158,6 +158,7 @@ TOOLS = [
                 "properties": {
                     "marketer": {"type": "string", "enum": ["Ivy", "Wasu", "Pai"]},
                     "platform": {"type": "string", "description": "free-form label — facebook / tiktok / youtube / twitter / x / ig / instagram / threads / line / telegram / tg / discord / etc. ใส่ตรงตามที่ marketer พูดมา"},
+                    "link_type": {"type": "string", "description": "'bot_deeplink' (DEFAULT — user คลิก → sales bot → ติดตาม + ขาย VIP) หรือ 'group_invite' (ข้ามบอท เข้ากลุ่มเลย — ใช้ตอน marketer ขอชัดเจน เช่น 'ลิ้งกลุ่ม')"},
                     "group": {"type": "string", "description": "ชื่อกลุ่ม: รวมกลุ่ม หรือ แจ้งข่าวสาร"},
                 },
                 "required": ["marketer", "platform", "group"],
@@ -502,6 +503,10 @@ async def team_reply(
 - ❌ ห้ามใส่ id ของลิ้ง (link_id) ในข้อความ unless user ถามตรง
 - ✅ ให้ลิ้งสะอาด ตรงประเด็น: "นี่ลิ้ง: [URL]\nกลุ่ม: [ชื่อกลุ่ม]\nไปโพสต์เลย!"
 
+**⚠️ สำคัญ: link_type default = 'bot_deeplink'**
+- ทุกลิ้งจะ funnel ลูกค้าผ่าน sales bot → ติดตามแหล่งที่มา + ขาย VIP ได้
+- ใช้ 'group_invite' เฉพาะกรณี marketer ขอชัดเจน เช่น 'ลิ้งกลุ่ม'/'ลิ้ง invite กลุ่มตรงๆ'
+
 **⚠️ สำคัญ: platform เป็น free-form label — ห้าม reject ชื่อ platform ใดๆ!**
 - marketer พิมพ์ชื่อ platform อะไรมา ส่งตามนั้นเลย: facebook, tiktok, youtube, twitter, x, ig, instagram, threads, line, telegram, tg, discord, BeReal, อะไรก็ได้
 - คุณมีหน้าที่ track ว่า marketer ไปโพสต์ที่ไหน ไม่ใช่ตัดสินว่า platform ไหน "รองรับ"
@@ -523,18 +528,19 @@ async def team_reply(
 
 **ตัวอย่างที่ถูก (สำคัญมาก — ทำตามนี้):**
 
-- ลูกพิมพ์: 'ขอลิ้ง facebook'
-  → call create_marketing_link(marketer='{m}', platform='facebook', group='รวมกลุ่ม') → ส่งลิ้งกลับ
+- ลูกพิมพ์: 'ขอลิ้ง facebook' (หรือ platform ใดๆ — default = bot deep-link)
+  → call create_marketing_link(marketer='{m}', platform='facebook', group='รวมกลุ่ม') → ได้ลิ้ง https://t.me/NamwarnJarern_bot?start=mkt_xxx → ส่งกลับ
 
 - ลูกพิมพ์: 'ขอลิ้ง tiktok กลุ่มข่าว'
-  → call create_marketing_link(marketer='{m}', platform='tiktok', group='แจ้งข่าวสาร') → ส่งลิ้งกลับ
-
-- ลูกพิมพ์: 'ขอลิ้ง youtube'
-  → call create_marketing_link(marketer='{m}', platform='youtube', group='รวมกลุ่ม') → ส่งลิ้งกลับ
+  → call create_marketing_link(marketer='{m}', platform='tiktok', group='แจ้งข่าวสาร') → ส่งลิ้งกลับ (bot deep-link)
 
 - ลูกพิมพ์: 'ขอลิ้ง telegram' / 'ขอลิ้ง tg' / 'ขอลิ้งเทเลแกรม'
-  → call create_marketing_link(marketer='{m}', platform='telegram', group='รวมกลุ่ม') → ส่งลิ้งกลับ
-  (marketer จะเอาไป post ในกลุ่ม Telegram อื่นๆ หรือส่งให้คนรู้จัก — track เป็น cross-promotion)
+  → call create_marketing_link(marketer='{m}', platform='telegram', group='รวมกลุ่ม') → bot deep-link
+  (ใช้ bot deep-link เป็น default — funnel ลูกค้าผ่าน sales bot)
+
+- ลูกพิมพ์: 'ขอลิ้งกลุ่มฟรี facebook' / 'ขอลิ้งเข้ากลุ่มตรงๆ' / 'ลิ้ง invite ของกลุ่ม'
+  → call create_marketing_link(marketer='{m}', platform='facebook', group='รวมกลุ่ม', link_type='group_invite')
+  (เฉพาะกรณี marketer ขอชัดเจน — ปกติใช้ bot deep-link)
 
 - ลูกพิมพ์: 'stat ของฉัน'
   → call marketing_stats(marketer='{m}', window='30d') → แสดงตัวเลข
