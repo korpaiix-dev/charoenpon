@@ -202,7 +202,7 @@ function renderSidebar() {
             <span class="nav-icon">${item.icon}</span> ${item.label}
         </div>`).join('');
     
-    document.getElementById('sidebar-user-name').textContent = admin.display_name;
+    document.getElementById('sidebar-user-name').textContent = 'บอส';
     const roleLabels = { owner: '👑 Owner', super_admin: '⚡ Super Admin', admin: '🛡️ Admin', moderator: '📋 Moderator' };
     document.getElementById('sidebar-user-role').textContent = roleLabels[admin.role] || admin.role;
 }
