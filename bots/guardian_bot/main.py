@@ -483,6 +483,33 @@ def create_application() -> Application:
         name="marketing_stale_link_1000",
     )
 
+    # Team Morning Briefing — every day 09:00 BKK
+    async def _job_team_briefing(context):
+        from bots.guardian_bot.scheduler import team_morning_briefing
+        try: await team_morning_briefing()
+        except Exception as exc: logger.error("team_briefing fail: %s", exc, exc_info=True)
+    job_queue.run_daily(_job_team_briefing,
+        time=dt_time(hour=9, minute=0, tzinfo=TH_TZ),
+        name="team_morning_briefing_0900")
+
+    # Team Weekly MVP — Friday 18:00 BKK (cron checks day inside)
+    async def _job_team_mvp(context):
+        from bots.guardian_bot.scheduler import team_weekly_mvp
+        try: await team_weekly_mvp()
+        except Exception as exc: logger.error("team_mvp fail: %s", exc, exc_info=True)
+    job_queue.run_daily(_job_team_mvp,
+        time=dt_time(hour=18, minute=0, tzinfo=TH_TZ),
+        name="team_weekly_mvp_friday")
+
+    # Team Streak Ranking — Monday 09:30 BKK
+    async def _job_team_streak(context):
+        from bots.guardian_bot.scheduler import team_streak_ranking
+        try: await team_streak_ranking()
+        except Exception as exc: logger.error("team_streak fail: %s", exc, exc_info=True)
+    job_queue.run_daily(_job_team_streak,
+        time=dt_time(hour=9, minute=30, tzinfo=TH_TZ),
+        name="team_streak_monday")
+
     # DISABLED 2026-06-22 — superseded by event-driven delivery in gacha_api
     # Old worker scanned every 30s for clip_pack delivery.
     # Event-driven path (gacha_api/gacha_deliver.py) now handles all prize types

@@ -695,3 +695,76 @@ async def marketing_stale_link_check() -> str:
     except Exception as exc:
         _logger.exception("marketing_stale_link_check failed: %s", exc)
         return f"ERROR: {exc}"
+
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Team Discord daily/weekly posts — 2026-06-24
+# ─────────────────────────────────────────────────────────────────────────
+async def team_morning_briefing() -> str:
+    """09:00 BKK — post to #รายงานประจำวัน."""
+    import logging as _lg
+    import os as _os
+    _logger = _lg.getLogger(__name__)
+    try:
+        from shared.team_discord_features import morning_briefing
+        from shared.discord_notify import post_to_channel
+        text = await morning_briefing()
+        ch = _os.environ.get("DISCORD_TEAM_REPORT_CHANNEL_ID", "")
+        if ch:
+            await post_to_channel(ch, text)
+        _logger.info("morning_briefing posted")
+        return text
+    except Exception as exc:
+        _logger.exception("morning_briefing failed: %s", exc)
+        return f"ERROR: {exc}"
+
+
+async def team_weekly_mvp() -> str:
+    """Friday 18:00 BKK — post weekly wrap-up + MVP."""
+    import logging as _lg
+    import os as _os
+    import datetime as _dt
+    _logger = _lg.getLogger(__name__)
+    try:
+        # Guard: only Friday
+        bkk = _dt.timezone(_dt.timedelta(hours=7))
+        if _dt.datetime.now(bkk).weekday() != 4:  # Friday = 4
+            return "skipped (not friday)"
+        from shared.team_discord_features import weekly_mvp
+        from shared.discord_notify import post_to_channel
+        text = await weekly_mvp()
+        ch = _os.environ.get("DISCORD_TEAM_REPORT_CHANNEL_ID", "")
+        if ch:
+            await post_to_channel(ch, text)
+        _logger.info("weekly_mvp posted")
+        return text
+    except Exception as exc:
+        _logger.exception("weekly_mvp failed: %s", exc)
+        return f"ERROR: {exc}"
+
+
+async def team_streak_ranking() -> str:
+    """Monday 09:30 BKK — post weekly streak leaderboard."""
+    import logging as _lg
+    import os as _os
+    import datetime as _dt
+    _logger = _lg.getLogger(__name__)
+    try:
+        # Guard: only Monday
+        bkk = _dt.timezone(_dt.timedelta(hours=7))
+        if _dt.datetime.now(bkk).weekday() != 0:  # Monday = 0
+            return "skipped (not monday)"
+        from shared.team_discord_features import streak_ranking_text
+        from shared.discord_notify import post_to_channel
+        text = await streak_ranking_text()
+        if not text:
+            return "no data"
+        ch = _os.environ.get("DISCORD_TEAM_REPORT_CHANNEL_ID", "")
+        if ch:
+            await post_to_channel(ch, text)
+        _logger.info("streak_ranking posted")
+        return text
+    except Exception as exc:
+        _logger.exception("streak_ranking failed: %s", exc)
+        return f"ERROR: {exc}"

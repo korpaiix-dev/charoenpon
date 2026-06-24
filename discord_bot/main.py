@@ -579,7 +579,81 @@ def _generate_qr_for_invite(text: str) -> tuple[bytes, str] | None:
 
 @bot.event
 async def on_message(message: discord.Message) -> None:
-    """Listen to team chat in #คุย-กับ-แพร."""
+    """Listen to team chat — Prae LLM in marketing/prae channels + /task command + streak tracking."""
+    # Track login streak (any message in any channel by non-bot)
+    if not message.author.bot:
+        try:
+            from shared.team_discord_features import record_user_seen as _rss
+            await _rss(message.author.id, message.author.name)
+        except Exception:
+            pass
+    
+    # Quick /task command handling (works in marketing rooms + คุย-กับ-แพร)
+    # Format: /task <text>  | /tasks | /done <id> | /del <id>
+    content = (message.content or "").strip()
+    if not message.author.bot and (content.startswith("/task") or content.startswith("/tasks")
+                                    or content.startswith("/done") or content.startswith("/del")):
+        try:
+            from shared.team_discord_features import task_add, task_list, task_done, task_delete
+            uid = message.author.id
+            uname = message.author.name
+            ch_id = message.channel.id
+            
+            if content.startswith("/tasks"):
+                tasks = await task_list(uid)
+                if not tasks:
+                    await message.reply("📋 ไม่มี task ค้างค่ะ ทุกอย่างเรียบร้อย ✨", mention_author=False)
+                else:
+                    lines = [f"📋 **Task ของคุณ ({len(tasks)} อัน):**", ""]
+                    for t in tasks:
+                        check = "✅" if t["done"] else "▢"
+                        due_str = f" (📅 {t['due_at'][:10]})" if t["due_at"] else ""
+                        lines.append(f"{check} `#{t['id']}` {t['text']}{due_str}")
+                    await message.reply("\n".join(lines), mention_author=False)
+                return
+            
+            if content.startswith("/done"):
+                parts = content.split(maxsplit=1)
+                if len(parts) < 2 or not parts[1].strip().isdigit():
+                    await message.reply("ใช้: `/done <task_id>` เช่น `/done 5`", mention_author=False)
+                    return
+                r = await task_done(uid, int(parts[1].strip()))
+                if "error" in r:
+                    await message.reply(f"❌ {r["error"]}", mention_author=False)
+                else:
+                    await message.reply(f"✅ ทำเสร็จแล้ว! `#{r["id"]}` — {r["text"]} 🎉", mention_author=False)
+                return
+            
+            if content.startswith("/del"):
+                parts = content.split(maxsplit=1)
+                if len(parts) < 2 or not parts[1].strip().isdigit():
+                    await message.reply("ใช้: `/del <task_id>`", mention_author=False)
+                    return
+                r = await task_delete(uid, int(parts[1].strip()))
+                if "error" in r:
+                    await message.reply(f"❌ {r["error"]}", mention_author=False)
+                else:
+                    await message.reply(f"🗑️ ลบแล้ว task `#{r["id"]}`", mention_author=False)
+                return
+            
+            # /task <text>
+            if content.startswith("/task"):
+                body = content[5:].strip()
+                if not body:
+                    await message.reply("ใช้: `/task <ข้อความ>` เช่น `/task พรุ่งนี้โพสต์ FB ads`\n`/tasks` ดูทั้งหมด\n`/done <id>` ทำเสร็จ\n`/del <id>` ลบ", mention_author=False)
+                    return
+                r = await task_add(uid, uname, ch_id, body)
+                if "error" in r:
+                    await message.reply(f"❌ {r["error"]}", mention_author=False)
+                else:
+                    await message.reply(f"📝 จดให้แล้วค่ะ! `#{r["id"]}` — {r["text"]} ✨", mention_author=False)
+                return
+        except Exception as exc:
+            logger.exception("/task handling failed: %s", exc)
+            await message.reply("❌ ระบบ task มีปัญหา ลองใหม่นะ", mention_author=False)
+            return
+    
+    # ORIGINAL LISTENER LOGIC FOLLOWS BELOW
     # DEBUG: log every message
     try:
         logger.info(
