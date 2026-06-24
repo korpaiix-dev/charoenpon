@@ -6,6 +6,7 @@ discord.py v2
 from __future__ import annotations
 
 import logging
+import io
 import os
 import sys
 from datetime import datetime, timedelta, timezone, time
