@@ -5,15 +5,24 @@ function applyTheme(theme) {
     try { localStorage.setItem('theme', t); } catch {}
     const btn = document.getElementById('theme-toggle-btn');
     if (btn) btn.textContent = t === 'dark' ? '☀️' : '🌙';
-    // Refresh Chart.js defaults + re-render active page so charts adopt new theme
-    if (typeof setupChartTheme === 'function') setupChartTheme();
-    if (typeof navigate === 'function' && typeof currentPage !== 'undefined' && currentPage) {
-        try { navigate(currentPage); } catch (e) { console.warn('theme rerender:', e); }
-    }
+    // Refresh chart defaults if loaded (safe even pre-init)
+    try { if (typeof setupChartTheme === 'function') setupChartTheme(); } catch {}
 }
 function toggleTheme() {
     const current = document.documentElement.getAttribute('data-theme') || 'light';
     applyTheme(current === 'light' ? 'dark' : 'light');
+    // After toggle, re-render active page so charts adopt new theme
+    // Wrapped in setTimeout so we never hit TDZ on `let currentPage`
+    setTimeout(() => {
+        try {
+            if (typeof navigate === 'function' && typeof window.__currentPage !== 'undefined' && window.__currentPage) {
+                navigate(window.__currentPage);
+            } else if (typeof navigate === 'function') {
+                // Fallback: read from URL or default to dashboard
+                navigate('dashboard');
+            }
+        } catch (e) { console.warn('theme rerender:', e); }
+    }, 50);
 }
 // Init on page load
 (function() {
@@ -205,6 +214,7 @@ function toggleSidebar() {
 // ========== NAVIGATION ==========
 function navigate(page) {
     currentPage = page;
+    try { window.__currentPage = page; } catch {}
     renderSidebar();
     const titles = {
         dashboard: '📊 ภาพรวม', customers: '👥 ลูกค้า', finance: '💰 การเงิน',
