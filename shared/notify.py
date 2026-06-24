@@ -98,8 +98,6 @@ ROUTES: dict[str, list[str]] = {
     "manager_insight":         ["discord:manager"],                    # exec-only
 
     # ─ Sheets sync ─
-    "sheets_synced":           ["discord:sheets"],
-    "sheets_sync_fail":        ["discord:sheets", "telegram:report", "log:warning"],
 
     # ─ SOS / urgent ─
     "sos":                     ["discord:alerts", "telegram:admin", "log:error"],

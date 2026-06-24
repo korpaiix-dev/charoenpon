@@ -178,6 +178,7 @@ def calculate_cost(
 
 
 async def _log_to_sheets(row: dict[str, Any]) -> None:
+    return  # Sheets disabled 2026-06-24
     """Log cost to Google Sheets 'ค่าใช้จ่าย' sheet via Sheets API directly."""
     # Method 1: Direct Sheets API (preferred)
     if GOOGLE_SHEETS_ID:

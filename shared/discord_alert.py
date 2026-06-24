@@ -12,7 +12,6 @@ Channels:
     "content"   — content distributor + scheduler     → DISCORD_CH_CONTENT_LOG
     "members"   — expiring members + kicks            → DISCORD_CH_MEMBER_EXPIRING
     "report"    — daily/weekly/monthly reports        → DISCORD_CH_DAILY_REPORT
-    "sheets"    — Google Sheets sync events           → DISCORD_CH_SHEETS_UPDATES
     "manager"   — manager-agent oversight             → DISCORD_CH_MANAGER
 
 Usage:
@@ -42,7 +41,6 @@ _CHANNEL_ENV = {
     "content":   "DISCORD_CH_CONTENT_LOG",
     "members":   "DISCORD_CH_MEMBER_EXPIRING",
     "report":    "DISCORD_CH_DAILY_REPORT",
-    "sheets":    "DISCORD_CH_SHEETS_UPDATES",
     "manager":   "DISCORD_CH_MANAGER",
     # Generic fallback used by old code
     "default":   "DISCORD_WEBHOOK_URL",

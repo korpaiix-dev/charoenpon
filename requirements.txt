@@ -2,8 +2,6 @@ python-telegram-bot==21.*
 discord.py==2.*
 SQLAlchemy[asyncio]==2.*
 asyncpg
-gspread
-google-auth
 httpx
 APScheduler
 pytesseract
