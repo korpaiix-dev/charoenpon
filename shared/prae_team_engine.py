@@ -141,6 +141,59 @@ TOOLS = [
             "parameters": {"type": "object", "properties": {}},
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_marketing_link",
+            "description": (
+                "สร้างลิงก์เชิญกลุ่มฟรีใหม่สำหรับทีมการตลาด (Ivy/Wasu/Pai) "
+                "ลิงก์จะ track ว่าใครเข้ามาเพื่อใช้คำนวณ conversion. "
+                "ใช้เมื่อมีคนพิมพ์ 'ขอลิ้ง', 'สร้างลิ้ง', 'ขอลิ้งใหม่'"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "marketer": {"type": "string", "enum": ["Ivy", "Wasu", "Pai"]},
+                    "platform": {"type": "string", "description": "facebook / tiktok / youtube / etc."},
+                    "group": {"type": "string", "description": "ชื่อกลุ่ม: รวมกลุ่ม หรือ แจ้งข่าวสาร"},
+                },
+                "required": ["marketer", "platform", "group"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "marketing_stats",
+            "description": (
+                "ดู stats ของทีมการตลาด — joins, paid users, revenue, ARPU, conversion %, avg days to pay. "
+                "Default window = 30d (มาตรฐาน). "
+                "ใช้เมื่อมีคนถาม 'stat ของฉัน', 'รายได้จาก facebook', 'เปรียบเทียบ ivy vs wasu'"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "marketer": {"type": "string", "description": "Ivy / Wasu / Pai (ไม่ใส่ = ดูทุกคน)"},
+                    "platform": {"type": "string", "description": "facebook / tiktok / ... (ไม่ใส่ = ดูทุก platform)"},
+                    "window": {"type": "string", "enum": ["7d", "30d", "lifetime"], "default": "30d"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "marketing_links_list",
+            "description": "ดูรายการลิงก์ active ของทีมการตลาด (ลิงก์อะไรบ้าง คนเข้ามาเท่าไหร่)",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "marketer": {"type": "string", "description": "Ivy / Wasu / Pai (ไม่ใส่ = ดูทุกคน)"},
+                    "limit": {"type": "integer", "default": 20},
+                },
+            },
+        },
+    },
 ]
 
 
@@ -258,12 +311,22 @@ async def _tool_pending_slips() -> dict:
         ]}
 
 
+# Marketing tools — import lazily to avoid load order issues
+from shared.marketing_tools import (
+    create_marketing_link as _tool_create_marketing_link,
+    marketing_stats as _tool_marketing_stats,
+    marketing_links_list as _tool_marketing_links_list,
+)
+
 TOOL_HANDLERS = {
     "get_revenue_summary": _tool_get_revenue_summary,
     "find_customer": _tool_find_customer,
     "top_spenders": _tool_top_spenders,
     "expiring_soon": _tool_expiring_soon,
     "pending_slips": _tool_pending_slips,
+    "create_marketing_link": _tool_create_marketing_link,
+    "marketing_stats": _tool_marketing_stats,
+    "marketing_links_list": _tool_marketing_links_list,
 }
 
 
@@ -285,10 +348,28 @@ async def _llm_call(messages: list) -> dict:
         return r.json()
 
 
-async def team_reply(user_text: str, user_name: str = "ทีม") -> str:
-    """Main entry — team member asks question, returns answer."""
+async def team_reply(
+    user_text: str,
+    user_name: str = "ทีม",
+    marketer_context: str | None = None,
+    channel_context: str | None = None,
+) -> str:
+    """Main entry — team member asks question, returns answer.
+
+    Args:
+        marketer_context: if set ('Ivy'/'Wasu'/'Pai'), AI knows this is a
+            marketing person's personal channel — use that marketer by default.
+        channel_context: name of the Discord channel (for AI context).
+    """
+    sys_extra = ""
+    if marketer_context:
+        sys_extra = (
+            f"\n\n**Context พิเศษ:** ข้อความนี้มาจากห้อง #{channel_context or marketer_context.lower()} "
+            f"ซึ่งเป็นห้องของคุณ {marketer_context} (ทีมการตลาด).\n"
+            f"ถ้าเค้าขอลิ้ง/ดู stat ของตัวเอง — ให้ใช้ marketer='{marketer_context}' โดยอัตโนมัติ ไม่ต้องถามชื่อ"
+        )
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": SYSTEM_PROMPT + sys_extra},
         {"role": "user", "content": f"[ทีม {user_name}] {user_text}"},
     ]
 

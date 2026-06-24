@@ -489,6 +489,20 @@ async def send_sheets_update(sheet_name: str, action: str, details: str = "") ->
 # ─────────────────────────────────────────────────────────────────────────
 PRAE_CHANNEL_ID = int(os.environ.get("DISCORD_PRAE_CHANNEL_ID", "0") or 0)
 
+# Marketing channels — each routes Prae replies with that marketer's context
+MARKETING_IVY_CHANNEL_ID = int(os.environ.get("DISCORD_MARKETING_IVY_CHANNEL_ID", "0") or 0)
+MARKETING_WASU_CHANNEL_ID = int(os.environ.get("DISCORD_MARKETING_WASU_CHANNEL_ID", "0") or 0)
+MARKETING_PAI_CHANNEL_ID = int(os.environ.get("DISCORD_MARKETING_PAI_CHANNEL_ID", "0") or 0)
+MARKETING_OVERVIEW_CHANNEL_ID = int(os.environ.get("DISCORD_MARKETING_OVERVIEW_CHANNEL_ID", "0") or 0)
+
+# Channel → marketer mapping (None = no specific marketer context = overview room)
+_MARKETING_CHANNELS = {
+    MARKETING_IVY_CHANNEL_ID: ("Ivy", "ivy"),
+    MARKETING_WASU_CHANNEL_ID: ("Wasu", "wasu"),
+    MARKETING_PAI_CHANNEL_ID: ("Pai", "pai"),
+    MARKETING_OVERVIEW_CHANNEL_ID: (None, "marketing-รวม"),
+}
+
 # Use negative TG IDs to namespace team members (avoid collision with real customers)
 # Format: -1_<discord_user_id> — so prae_engine memory tables track team chat separately
 def _discord_to_tg(discord_uid: int) -> int:
@@ -555,8 +569,18 @@ async def on_message(message: discord.Message) -> None:
     # Skip bots + non-target channels
     if message.author.bot:
         return
-    if not PRAE_CHANNEL_ID or message.channel.id != PRAE_CHANNEL_ID:
-        # Still allow commands to work in other channels
+    # Determine routing: original Prae channel OR marketing channels
+    ch_id = message.channel.id
+    is_prae_ch = (PRAE_CHANNEL_ID and ch_id == PRAE_CHANNEL_ID)
+    marketer_ctx = None
+    channel_ctx = None
+    if ch_id in _MARKETING_CHANNELS and ch_id != 0:
+        marketer_ctx, channel_ctx = _MARKETING_CHANNELS[ch_id]
+        is_marketing = True
+    else:
+        is_marketing = False
+    
+    if not is_prae_ch and not is_marketing:
         await bot.process_commands(message)
         return
     
@@ -569,9 +593,13 @@ async def on_message(message: discord.Message) -> None:
     # Show typing indicator while waiting
     async with message.channel.typing():
         try:
-            # FIX 2026-06-23: use team-specific engine instead of customer-facing prae_engine
             from shared.prae_team_engine import team_reply
-            reply_text = await team_reply(text, user_name=message.author.name)
+            reply_text = await team_reply(
+                text,
+                user_name=message.author.name,
+                marketer_context=marketer_ctx,
+                channel_context=channel_ctx,
+            )
             result = {"cost_usd": 0.0}  # team engine doesnt track cost yet
             if not reply_text:
                 reply_text = "(ขออภัย แพรไม่ได้คำตอบจาก AI ลองพิมพ์ใหม่)"

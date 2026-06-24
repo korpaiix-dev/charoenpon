@@ -131,6 +131,24 @@ async def handle_chat_member_update(
     if not group:
         return  # Not a monitored group
 
+    # Marketing attribution (run BEFORE FREE skip so PROMO_HUB/PROMO_NEWS get tracked)
+    try:
+        _slug_for_marketing = group.slug.value if hasattr(group.slug, 'value') else str(group.slug)
+        _invite = getattr(member_update, 'invite_link', None)
+        _invite_name = getattr(_invite, 'name', None) if _invite else None
+        if _invite_name:
+            from bots.guardian_bot.marketing_tracker import track_marketing_join
+            await track_marketing_join(
+                group_slug=_slug_for_marketing,
+                invite_link_name=_invite_name,
+                telegram_id=user.id,
+                tg_username=user.username,
+                tg_first_name=user.first_name,
+                tg_last_name=user.last_name,
+            )
+    except Exception as _mt_exc:
+        logger.exception('marketing tracking failed (non-fatal): %s', _mt_exc)
+
     # 2026-06-18: skip FREE groups — anyone can join, no sub check, no log spam
     tier_str = group.min_tier.value if hasattr(group.min_tier, "value") else str(group.min_tier)
     if tier_str in ("FREE", "TIER_FREE"):

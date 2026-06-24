@@ -75,6 +75,8 @@ class GroupSlug(str, enum.Enum):
     FREE19 = "FREE19"
     STORAGE = "STORAGE"
     SHAKER = "SHAKER"
+    PROMO_HUB = "PROMO_HUB"
+    PROMO_NEWS = "PROMO_NEWS"
 
 
 class PaymentStatus(str, enum.Enum):
