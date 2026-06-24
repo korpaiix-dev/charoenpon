@@ -5,6 +5,11 @@ function applyTheme(theme) {
     try { localStorage.setItem('theme', t); } catch {}
     const btn = document.getElementById('theme-toggle-btn');
     if (btn) btn.textContent = t === 'dark' ? '☀️' : '🌙';
+    // Refresh Chart.js defaults + re-render active page so charts adopt new theme
+    if (typeof setupChartTheme === 'function') setupChartTheme();
+    if (typeof navigate === 'function' && typeof currentPage !== 'undefined' && currentPage) {
+        try { navigate(currentPage); } catch (e) { console.warn('theme rerender:', e); }
+    }
 }
 function toggleTheme() {
     const current = document.documentElement.getAttribute('data-theme') || 'light';
@@ -16,6 +21,55 @@ function toggleTheme() {
     try { saved = localStorage.getItem('theme'); } catch {}
     applyTheme(saved || 'light');
 })();
+
+// ===== Chart.js theme-aware defaults (Geist-inspired) =====
+function _cssVar(name) {
+  try { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); } catch { return ""; }
+}
+function chartColors() {
+  return {
+    text:    _cssVar("--text-muted") || "#525252",
+    textDim: _cssVar("--text-dim")   || "#8F8F8F",
+    grid:    _cssVar("--border")     || "#EAEAEA",
+    primary: _cssVar("--primary")    || "#F7B045",
+    accent:  _cssVar("--accent")     || "#0070F3",
+    success: _cssVar("--success")    || "#16A34A",
+    error:   _cssVar("--error")      || "#DC2626",
+    warning: _cssVar("--warning")    || "#D97706",
+    surface: _cssVar("--surface")    || "#FFFFFF",
+    textFull:_cssVar("--text")       || "#0A0A0A",
+  };
+}
+function chartAlpha(hex, a) {
+  const h = (hex || "").replace("#", "");
+  if (h.length !== 6) return hex;
+  const r = parseInt(h.slice(0,2), 16);
+  const g = parseInt(h.slice(2,4), 16);
+  const b = parseInt(h.slice(4,6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+function setupChartTheme() {
+  if (typeof Chart === "undefined") return;
+  const c = chartColors();
+  Chart.defaults.color = c.text;
+  Chart.defaults.borderColor = c.grid;
+  Chart.defaults.font.family = _cssVar("--font") || "Inter, sans-serif";
+  Chart.defaults.font.size = 11;
+  Chart.defaults.plugins.legend.labels.color = c.text;
+  Chart.defaults.plugins.legend.labels.font = { size: 12, weight: 500 };
+  Chart.defaults.plugins.legend.labels.boxWidth = 10;
+  Chart.defaults.plugins.legend.labels.boxHeight = 10;
+  Chart.defaults.plugins.tooltip.backgroundColor = c.surface;
+  Chart.defaults.plugins.tooltip.titleColor = c.textFull;
+  Chart.defaults.plugins.tooltip.bodyColor = c.text;
+  Chart.defaults.plugins.tooltip.borderColor = c.grid;
+  Chart.defaults.plugins.tooltip.borderWidth = 1;
+  Chart.defaults.plugins.tooltip.padding = 10;
+  Chart.defaults.plugins.tooltip.cornerRadius = 6;
+  Chart.defaults.plugins.tooltip.displayColors = true;
+  Chart.defaults.plugins.tooltip.boxPadding = 4;
+}
+window.addEventListener("DOMContentLoaded", setupChartTheme);
 
 /* ============================================
    เจริญพร Dashboard — SPA Application
@@ -648,8 +702,8 @@ async function renderDashboard() {
                             type: 'bar',
                             label: 'รายได้ (฿)',
                             data: analytics.chart.map(d => d.revenue),
-                            backgroundColor: 'rgba(247, 176, 69, 0.7)',
-                            borderColor: '#f7b045',
+                            backgroundColor: chartAlpha(chartColors().primary, 0.6),
+                            borderColor: chartColors().primary,
                             borderWidth: 1,
                             yAxisID: 'y',
                         },
@@ -657,8 +711,8 @@ async function renderDashboard() {
                             type: 'line',
                             label: 'ลูกค้าที่ซื้อ (คน)',
                             data: analytics.chart.map(d => d.buyers),
-                            borderColor: '#4fd1c5',
-                            backgroundColor: 'rgba(79, 209, 197, 0.18)',
+                            borderColor: chartColors().success,
+                            backgroundColor: chartAlpha(chartColors().success, 0.15),
                             tension: 0.35,
                             pointRadius: 3,
                             yAxisID: 'buyers',
@@ -668,11 +722,11 @@ async function renderDashboard() {
                 options: {
                     responsive: true, maintainAspectRatio: false,
                     scales: {
-                        x: { ticks: { color: '#a8b3cf' }, grid: { color: 'rgba(60,72,107,0.22)' } },
-                        y: { position: 'left', ticks: { color: '#a8b3cf', callback: v => '฿' + fmt(v) }, grid: { color: 'rgba(60,72,107,0.22)' } },
-                        buyers: { position: 'right', ticks: { color: '#a8b3cf', callback: v => fmt(v) }, grid: { drawOnChartArea: false } },
+                        x: { ticks: { color: chartColors().text }, grid: { color: chartColors().grid } },
+                        y: { position: 'left', ticks: { color: chartColors().text, callback: v => '฿' + fmt(v) }, grid: { color: chartColors().grid } },
+                        buyers: { position: 'right', ticks: { color: chartColors().text, callback: v => fmt(v) }, grid: { drawOnChartArea: false } },
                     },
-                    plugins: { legend: { labels: { color: '#f5f1e8' } } },
+                    plugins: { legend: { labels: { color: chartColors().text } } },
                 }
             });
         }
@@ -1294,20 +1348,20 @@ async function loadPayments(page) {
 async function loadFinanceCharts() {
     try {
         const [byPkg, byMethod] = await Promise.all([api('/payments/chart/by-package'), api('/payments/chart/by-method')]);
-        const colors = ['#00d4ff', '#00d2d3', '#feca57', '#ff6b6b', '#a29bfe', '#fd79a8'];
+        const colors = [chartColors().primary, '#00d2d3', '#feca57', '#ff6b6b', '#a29bfe', '#fd79a8'];
         
         if (byPkg.length) {
             charts.pkg = new Chart(document.getElementById('pkg-chart'), {
                 type: 'doughnut',
                 data: { labels: byPkg.map(r => r.name), datasets: [{ data: byPkg.map(r => parseFloat(r.total)), backgroundColor: colors }] },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#e0e6f0' } } } }
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: chartColors().text } } } }
             });
         }
         if (byMethod.length) {
             charts.method = new Chart(document.getElementById('method-chart'), {
                 type: 'doughnut',
                 data: { labels: byMethod.map(r => r.method), datasets: [{ data: byMethod.map(r => parseFloat(r.total)), backgroundColor: colors }] },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#e0e6f0' } } } }
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: chartColors().text } } } }
             });
         }
     } catch {}
@@ -2430,18 +2484,18 @@ async function renderMarketing() {
                     datasets: [{
                         label: 'รายได้ (฿)',
                         data: weekly.map(w => w.revenue),
-                        backgroundColor: 'rgba(0, 212, 255, 0.6)',
-                        borderColor: '#00d4ff',
+                        backgroundColor: chartAlpha(chartColors().primary, 0.6),
+                        borderColor: chartColors().primary,
                         borderWidth: 1,
                     }]
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false,
                     scales: {
-                        x: { ticks: { color: '#8892b0' }, grid: { color: 'rgba(35,53,84,0.3)' } },
-                        y: { ticks: { color: '#8892b0', callback: v => '฿' + fmt(v) }, grid: { color: 'rgba(35,53,84,0.3)' } },
+                        x: { ticks: { color: chartColors().text }, grid: { color: chartColors().grid } },
+                        y: { ticks: { color: chartColors().text, callback: v => '฿' + fmt(v) }, grid: { color: chartColors().grid } },
                     },
-                    plugins: { legend: { labels: { color: '#e0e6f0' } } },
+                    plugins: { legend: { labels: { color: chartColors().text } } },
                 }
             });
         } else {
