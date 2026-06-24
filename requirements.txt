@@ -11,3 +11,4 @@ Pillow
 psutil
 boto3
 tweepy
+qrcode[pil]==7.4.2

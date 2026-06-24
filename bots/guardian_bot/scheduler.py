@@ -519,3 +519,93 @@ async def marketing_daily_digest() -> str:
     except Exception as exc:
         _logger.exception("marketing_daily_digest failed: %s", exc)
         return f"ERROR: {exc}"
+
+
+
+async def marketing_monthly_leaderboard() -> str:
+    """Post LAST month's leaderboard to #marketing-รวม.
+    
+    Runs 1st of each month at 09:30 BKK (after daily digest at 09:00).
+    """
+    import logging as _lg
+    _logger = _lg.getLogger(__name__)
+    
+    try:
+        from shared.database import get_session as _gs
+        from shared.discord_notify import notify_overview
+        from sqlalchemy import text as _t
+        
+        async with _gs() as s:
+            # Last completed month — joins + conversions + revenue per marketer
+            rows = (await s.execute(_t("""
+                WITH last_month_joins AS (
+                  SELECT l.marketer, j.telegram_id, j.joined_at, j.link_id, l.platform
+                  FROM marketing_invite_links l
+                  JOIN marketing_invite_joins j ON j.link_id = l.id
+                  WHERE date_trunc('month', (j.joined_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok'))
+                        = date_trunc('month', (now() AT TIME ZONE 'Asia/Bangkok')) - interval '1 month'
+                ),
+                with_paid AS (
+                  SELECT mj.marketer, mj.telegram_id, mj.platform,
+                         (SELECT MIN(p.created_at) FROM payments p
+                          JOIN users u ON u.id = p.user_id
+                          WHERE u.telegram_id = mj.telegram_id
+                            AND p.status = 'CONFIRMED' AND p.amount > 0
+                            AND p.created_at >= mj.joined_at
+                            AND (p.created_at - mj.joined_at) <= interval '30 days'
+                         ) AS pay_at,
+                         (SELECT COALESCE(SUM(p.amount), 0) FROM payments p
+                          JOIN users u ON u.id = p.user_id
+                          WHERE u.telegram_id = mj.telegram_id
+                            AND p.status = 'CONFIRMED' AND p.amount > 0
+                            AND p.created_at >= mj.joined_at
+                            AND (p.created_at - mj.joined_at) <= interval '30 days'
+                         ) AS revenue
+                  FROM last_month_joins mj
+                )
+                SELECT marketer,
+                       COUNT(*)::int AS joins,
+                       COUNT(*) FILTER (WHERE pay_at IS NOT NULL)::int AS paid_count,
+                       COALESCE(SUM(revenue), 0)::int AS revenue
+                FROM with_paid
+                GROUP BY marketer
+                ORDER BY revenue DESC, paid_count DESC, joins DESC
+            """))).fetchall()
+        
+        if not rows:
+            await notify_overview("🏆 **Leaderboard เดือนที่แล้ว** — ไม่มีข้อมูล (ทีมยังไม่ได้สร้างลิ้งเลย)")
+            return "no data"
+        
+        from datetime import datetime, timezone, timedelta
+        bkk = timezone(timedelta(hours=7))
+        last_month_dt = datetime.now(bkk).replace(day=1) - timedelta(days=1)
+        month_label = last_month_dt.strftime("%B %Y")  # e.g. "May 2026"
+        
+        medals = ["🥇", "🥈", "🥉"]
+        lines = [
+            f"🏆 **LEADERBOARD เดือน {month_label}** 🏆",
+            "─" * 30,
+            "",
+        ]
+        for i, r in enumerate(rows):
+            medal = medals[i] if i < 3 else f"{i+1}."
+            cvr = (r.paid_count / r.joins * 100) if r.joins > 0 else 0
+            lines.append(f"{medal} **{r.marketer}** — ฿{r.revenue:,}")
+            lines.append(f"   ↳ {r.joins} joins → {r.paid_count} paid ({cvr:.1f}%)")
+            lines.append("")
+        
+        total_rev = sum(int(r.revenue) for r in rows)
+        total_joins = sum(int(r.joins) for r in rows)
+        total_paid = sum(int(r.paid_count) for r in rows)
+        lines.append("─" * 30)
+        lines.append(f"💰 **รวมทั้งทีม:** ฿{total_rev:,} ({total_paid}/{total_joins} = {(total_paid/total_joins*100 if total_joins else 0):.1f}%)")
+        if rows:
+            lines.append(f"\n🏆 ยินดีกับ **{rows[0].marketer}** ที่เป็นแชมป์เดือนนี้! 🎉")
+        
+        summary = "\n".join(lines)
+        await notify_overview(summary)
+        _logger.info("monthly leaderboard posted: %d marketers", len(rows))
+        return summary
+    except Exception as exc:
+        _logger.exception("monthly_leaderboard failed: %s", exc)
+        return f"ERROR: {exc}"

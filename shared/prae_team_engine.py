@@ -194,6 +194,24 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "marketing_heatmap",
+            "description": (
+                "ดู heatmap ของเวลาที่คนเข้ามาก/น้อย — เพื่อแนะนำเวลาโพสต์โปรโมท. "
+                "ใช้เมื่อมีคนถาม 'เวลาไหนคนเข้ามากสุด', 'peak time', 'ควรโพสต์เวลาไหน'"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "marketer": {"type": "string", "description": "Ivy/Wasu/Pai (ไม่ใส่ = ทุกคน)"},
+                    "platform": {"type": "string", "description": "facebook/tiktok/... (ไม่ใส่ = ทุก platform)"},
+                    "window_days": {"type": "integer", "default": 30, "description": "ดูย้อนหลังกี่วัน"},
+                },
+            },
+        },
+    },
 ]
 
 
@@ -316,6 +334,7 @@ from shared.marketing_tools import (
     create_marketing_link as _tool_create_marketing_link,
     marketing_stats as _tool_marketing_stats,
     marketing_links_list as _tool_marketing_links_list,
+    marketing_heatmap as _tool_marketing_heatmap,
 )
 
 TOOL_HANDLERS = {
@@ -327,6 +346,7 @@ TOOL_HANDLERS = {
     "create_marketing_link": _tool_create_marketing_link,
     "marketing_stats": _tool_marketing_stats,
     "marketing_links_list": _tool_marketing_links_list,
+    "marketing_heatmap": _tool_marketing_heatmap,
 }
 
 

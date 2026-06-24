@@ -451,6 +451,25 @@ def create_application() -> Application:
         name="marketing_digest_0900",
     )
 
+    # Marketing monthly leaderboard — 1st of each month at 09:30 BKK
+    # Uses CronTrigger via apscheduler (PTB job_queue doesn't support cron natively)
+    async def _job_monthly_leaderboard(context):
+        from bots.guardian_bot.scheduler import marketing_monthly_leaderboard
+        # Only run on the 1st of the month
+        from datetime import datetime, timezone, timedelta
+        bkk = timezone(timedelta(hours=7))
+        if datetime.now(bkk).day != 1:
+            return
+        try:
+            await marketing_monthly_leaderboard()
+        except Exception as exc:
+            logger.error("monthly_leaderboard failed: %s", exc, exc_info=True)
+    job_queue.run_daily(
+        _job_monthly_leaderboard,
+        time=dt_time(hour=9, minute=30, tzinfo=TH_TZ),
+        name="marketing_leaderboard_monthly",
+    )
+
     # DISABLED 2026-06-22 — superseded by event-driven delivery in gacha_api
     # Old worker scanned every 30s for clip_pack delivery.
     # Event-driven path (gacha_api/gacha_deliver.py) now handles all prize types

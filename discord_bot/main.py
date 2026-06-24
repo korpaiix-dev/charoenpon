@@ -551,6 +551,32 @@ def _html_to_discord_md(text: str) -> str:
 
 
 
+def _generate_qr_for_invite(text: str) -> tuple[bytes, str] | None:
+    """If text contains a Telegram invite link (https://t.me/+xxx), generate QR PNG.
+    
+    Returns (png_bytes, link_url) or None if no link found.
+    Errors silently → returns None.
+    """
+    try:
+        import re
+        import io
+        import qrcode
+        m = re.search(r"https?://t\.me/\+[A-Za-z0-9_-]+", text)
+        if not m:
+            return None
+        link = m.group(0)
+        qr = qrcode.QRCode(version=1, box_size=10, border=2)
+        qr.add_data(link)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return (buf.getvalue(), link)
+    except Exception as exc:
+        logger.warning("QR gen failed: %s", exc)
+        return None
+
+
 @bot.event
 async def on_message(message: discord.Message) -> None:
     """Listen to team chat in #คุย-กับ-แพร."""
@@ -608,7 +634,16 @@ async def on_message(message: discord.Message) -> None:
             # Truncate to Discord 2000-char limit
             if len(reply_text) > 1900:
                 reply_text = reply_text[:1900] + "…"
-            await message.reply(reply_text, mention_author=False)
+            
+            # Bonus: if Prae returned a Telegram invite link, attach QR code
+            qr_result = _generate_qr_for_invite(reply_text)
+            if qr_result:
+                qr_bytes, link_url = qr_result
+                import discord as _d
+                qr_file = _d.File(io.BytesIO(qr_bytes), filename="invite_qr.png")
+                await message.reply(reply_text, file=qr_file, mention_author=False)
+            else:
+                await message.reply(reply_text, mention_author=False)
             logger.info("Prae-Discord: user=%s text_len=%d cost=$%.4f",
                         message.author.name, len(text), result.get("cost_usd", 0))
         except Exception as exc:

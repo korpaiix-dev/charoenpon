@@ -322,3 +322,70 @@ async def marketing_links_list(
             for r in rows
         ],
     }
+
+
+
+# =========================================================
+# TOOL 4: marketing_heatmap — peak times analysis
+# =========================================================
+_DOW_TH = {0: "อา", 1: "จ", 2: "อ", 3: "พ", 4: "พฤ", 5: "ศ", 6: "ส"}
+
+
+async def marketing_heatmap(
+    marketer: Optional[str] = None,
+    platform: Optional[str] = None,
+    window_days: int = 30,
+) -> dict:
+    """Get join heatmap by day-of-week × hour (BKK timezone).
+    
+    Returns top peak times.
+    """
+    where_parts = []
+    params = {"days": int(window_days)}
+    if marketer:
+        m = marketer.strip().lower()
+        if m == "ivy": marketer = "Ivy"
+        elif m == "wasu": marketer = "Wasu"
+        elif m == "pai": marketer = "Pai"
+        where_parts.append("l.marketer = :marketer")
+        params["marketer"] = marketer
+    if platform:
+        where_parts.append("LOWER(l.platform) = LOWER(:platform)")
+        params["platform"] = platform
+    where_sql = " AND ".join(where_parts) if where_parts else "1=1"
+
+    async with get_session() as s:
+        rows = (await s.execute(sql_text(f"""
+            SELECT
+              EXTRACT(DOW FROM (j.joined_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok'))::int AS dow,
+              EXTRACT(HOUR FROM (j.joined_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok'))::int AS hour,
+              COUNT(*)::int AS joins
+            FROM marketing_invite_joins j
+            JOIN marketing_invite_links l ON l.id = j.link_id
+            WHERE j.joined_at >= now() - (:days * interval '1 day')
+              AND {where_sql}
+            GROUP BY 1, 2
+            ORDER BY joins DESC
+            LIMIT 10
+        """), params)).fetchall()
+
+    if not rows:
+        return {"window_days": window_days, "filter": {"marketer": marketer, "platform": platform},
+                "buckets": [], "message": "ไม่มีข้อมูล join ในช่วงนี้"}
+
+    buckets = []
+    for r in rows:
+        dow_str = _DOW_TH.get(r.dow, "?")
+        buckets.append({
+            "dow": r.dow,
+            "dow_th": dow_str,
+            "hour": r.hour,
+            "hour_label": f"{r.hour:02d}:00-{(r.hour+1)%24:02d}:00",
+            "joins": r.joins,
+        })
+
+    return {
+        "window_days": window_days,
+        "filter": {"marketer": marketer, "platform": platform},
+        "buckets": buckets,
+    }
