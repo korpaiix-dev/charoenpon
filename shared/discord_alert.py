@@ -49,18 +49,19 @@ _CHANNEL_ENV = {
 }
 
 
-def _resolve_webhook(channel: str) -> str | None:
+def _resolve_target(channel: str) -> tuple[str, str] | None:
+    """Resolve channel to (kind, value). kind = "webhook" or "channel_id"."""
     env_name = _CHANNEL_ENV.get(channel, _CHANNEL_ENV["default"])
-    url = os.environ.get(env_name, "").strip()
-    # Guard: env value must be a real webhook URL (not a channel ID)
-    if url and not url.startswith(("http://", "https://")):
-        url = ""
-    if not url:
-        # Last-resort generic fallback
-        url = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
-    if url and not url.startswith(("http://", "https://")):
-        return None
-    return url or None
+    val = os.environ.get(env_name, "").strip()
+    if val.startswith(("http://", "https://")):
+        return ("webhook", val)
+    if val.isdigit() and len(val) >= 17:  # Discord snowflake
+        return ("channel_id", val)
+    # Last resort: generic webhook
+    fallback = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
+    if fallback.startswith(("http://", "https://")):
+        return ("webhook", fallback)
+    return None
 
 
 async def notify_discord(
@@ -83,10 +84,11 @@ async def notify_discord(
 
     Returns True if sent, False if webhook missing or HTTP error.
     """
-    url = _resolve_webhook(channel)
-    if not url:
-        logger.debug("notify_discord: no webhook for channel=%s", channel)
+    target = _resolve_target(channel)
+    if not target:
+        logger.debug("notify_discord: no target for channel=%s", channel)
         return False
+    kind, val = target
 
     # Auto-pick color from leading emoji if not given
     if color is None:
@@ -106,7 +108,18 @@ async def notify_discord(
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.post(url, json={"embeds": [embed]})
+            if kind == "webhook":
+                r = await client.post(val, json={"embeds": [embed]})
+            else:  # channel_id — post via bot token
+                bot_token = os.environ.get("DISCORD_BOT_TOKEN", "")
+                if not bot_token:
+                    logger.warning("notify_discord(%s): DISCORD_BOT_TOKEN missing", channel)
+                    return False
+                r = await client.post(
+                    f"https://discord.com/api/v10/channels/{val}/messages",
+                    headers={"Authorization": f"Bot {bot_token}"},
+                    json={"embeds": [embed]},
+                )
             r.raise_for_status()
             return True
     except Exception as exc:
