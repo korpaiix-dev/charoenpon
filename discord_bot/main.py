@@ -619,9 +619,9 @@ async def on_message(message: discord.Message) -> None:
                     return
                 r = await task_done(uid, int(parts[1].strip()))
                 if "error" in r:
-                    await message.reply(f"❌ {r["error"]}", mention_author=False)
+                    await message.reply(f"❌ {r['error']}", mention_author=False)
                 else:
-                    await message.reply(f"✅ ทำเสร็จแล้ว! `#{r["id"]}` — {r["text"]} 🎉", mention_author=False)
+                    await message.reply(f"✅ ทำเสร็จแล้ว! `#{r['id']}` — {r['text']} 🎉", mention_author=False)
                 return
             
             if content.startswith("/del"):
@@ -631,9 +631,9 @@ async def on_message(message: discord.Message) -> None:
                     return
                 r = await task_delete(uid, int(parts[1].strip()))
                 if "error" in r:
-                    await message.reply(f"❌ {r["error"]}", mention_author=False)
+                    await message.reply(f"❌ {r['error']}", mention_author=False)
                 else:
-                    await message.reply(f"🗑️ ลบแล้ว task `#{r["id"]}`", mention_author=False)
+                    await message.reply(f"🗑️ ลบแล้ว task `#{r['id']}`", mention_author=False)
                 return
             
             # /task <text>
@@ -644,9 +644,9 @@ async def on_message(message: discord.Message) -> None:
                     return
                 r = await task_add(uid, uname, ch_id, body)
                 if "error" in r:
-                    await message.reply(f"❌ {r["error"]}", mention_author=False)
+                    await message.reply(f"❌ {r['error']}", mention_author=False)
                 else:
-                    await message.reply(f"📝 จดให้แล้วค่ะ! `#{r["id"]}` — {r["text"]} ✨", mention_author=False)
+                    await message.reply(f"📝 จดให้แล้วค่ะ! `#{r['id']}` — {r['text']} ✨", mention_author=False)
                 return
         except Exception as exc:
             logger.exception("/task handling failed: %s", exc)
