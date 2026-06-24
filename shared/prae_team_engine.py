@@ -455,6 +455,11 @@ async def team_reply(
 - ห้องนี้คือของ **{m}** (ทีมการตลาด) → marketer='{m}' เสมอ ห้ามถามชื่อ
 - ระบบมีกลุ่มแค่ 2 อัน: 'รวมกลุ่ม' (PROMO_HUB) + 'แจ้งข่าวสาร' (PROMO_NEWS) — ห้ามคิดชื่อกลุ่มอื่นเอง
 
+**Format กฎสำคัญ:**
+- ❌ ห้ามโชว์ name_tag (e.g. 'ivy_facebook_2026...') ให้ user เห็น — เป็นข้อมูล internal
+- ❌ ห้ามใส่ id ของลิ้ง (link_id) ในข้อความ unless user ถามตรง
+- ✅ ให้ลิ้งสะอาด ตรงประเด็น: "นี่ลิ้ง: [URL]\nกลุ่ม: [ชื่อกลุ่ม]\nไปโพสต์เลย!"
+
 **กฎ Decisive — ห้ามถามถ้าเดาได้:**
 
 1. ถ้าเห็น **platform** (facebook/tiktok/youtube/twitter/x/ig/threads/line) → เรียก create_marketing_link **ทันที** ไม่ต้องถามอะไรเพิ่ม

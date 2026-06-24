@@ -93,12 +93,25 @@ async def notify_marketer_conversion(
     ch = _FEED_CHANNELS.get(marketer)
     if not ch:
         return
+    # Friendly tier label
+    tier_str = str(tier).upper()
+    tier_map = {
+        "TIER_100": "VIP 100 (ห้องชัก)",
+        "TIER_300": "VIP 300 (ทั่วไป)",
+        "TIER_500": "VIP 500 (OnlyFans + หายาก)",
+        "TIER_1299": "VIP 1,299 (พรีเมียม)",
+        "TIER_2499": "VIP 2,499 (Storage + Summer)",
+        "TIER_FREE": "Free Trial",
+        "GACHA": "Gacha Pack",
+    }
+    tier_label = tier_map.get(tier_str, str(tier).replace("TIER_", "VIP "))
+    
     name = tg_first_name or tg_username or f"tg_{telegram_id}"
     handle = f"@{tg_username}" if tg_username else f"`{telegram_id}`"
     msg = (
         f"💰💰💰 **CONVERSION!** 💰💰💰\n"
         f"└ 👤 {name} ({handle})\n"
-        f"└ 💎 ซื้อ **{tier}** = **฿{amount:,.0f}**\n"
+        f"└ 💎 ซื้อ **{tier_label}** = **฿{amount:,.0f}**\n"
         f"└ 📥 มาจากลิ้ง #{link_id} ({platform}) — {days_since_join} วันก่อน\n"
         f"└ 🏆 {marketer} เดือนนี้: **{marketer_month_count}** conversions, **฿{marketer_month_revenue:,.0f}**\n"
         f"\n"
