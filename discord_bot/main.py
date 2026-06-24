@@ -3,6 +3,7 @@
 discord.py v2
 """
 
+import io
 from __future__ import annotations
 
 import logging
