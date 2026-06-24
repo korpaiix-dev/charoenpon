@@ -598,3 +598,68 @@ async def sos_resend_links(telegram_id: int, admin=Depends(get_current_admin)):
         "links_count": len(invite_links),
         "groups": list(invite_links.keys()),
     }
+
+
+
+@router.get("/revenue-summary")
+async def revenue_summary(admin=Depends(get_current_admin)):
+    """Revenue summary: today / this month / this year / all-time + comparison.
+    All in BKK timezone, only CONFIRMED payments with amount > 0 (excludes test users + free grants).
+    """
+    pay_bkk = "(p.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok'"
+    bkk_now = "(NOW() AT TIME ZONE 'Asia/Bangkok')"
+    
+    row = await pool.fetchrow(f"""
+        SELECT
+          -- Today
+          COALESCE(SUM(p.amount) FILTER (WHERE ({pay_bkk})::date = ({bkk_now})::date), 0)::float AS today,
+          -- Yesterday (for delta)
+          COALESCE(SUM(p.amount) FILTER (WHERE ({pay_bkk})::date = ({bkk_now})::date - 1), 0)::float AS yesterday,
+          -- This month
+          COALESCE(SUM(p.amount) FILTER (WHERE date_trunc('month', {pay_bkk}) = date_trunc('month', {bkk_now})), 0)::float AS this_month,
+          -- Last month (for delta)
+          COALESCE(SUM(p.amount) FILTER (WHERE date_trunc('month', {pay_bkk}) = date_trunc('month', {bkk_now}) - interval '1 month'), 0)::float AS last_month,
+          -- This year
+          COALESCE(SUM(p.amount) FILTER (WHERE date_trunc('year', {pay_bkk}) = date_trunc('year', {bkk_now})), 0)::float AS this_year,
+          -- Last year (for delta)
+          COALESCE(SUM(p.amount) FILTER (WHERE date_trunc('year', {pay_bkk}) = date_trunc('year', {bkk_now}) - interval '1 year'), 0)::float AS last_year,
+          -- All time
+          COALESCE(SUM(p.amount), 0)::float AS all_time,
+          -- Order counts
+          COUNT(*) FILTER (WHERE ({pay_bkk})::date = ({bkk_now})::date)::int AS today_count,
+          COUNT(*) FILTER (WHERE date_trunc('month', {pay_bkk}) = date_trunc('month', {bkk_now}))::int AS month_count,
+          COUNT(*) FILTER (WHERE date_trunc('year', {pay_bkk}) = date_trunc('year', {bkk_now}))::int AS year_count,
+          COUNT(*)::int AS all_time_count
+        FROM payments p
+        JOIN users u ON u.id = p.user_id
+        WHERE p.status = 'CONFIRMED'
+          AND p.amount > 0
+          AND u.telegram_id < 9000000000
+    """)
+    
+    def calc_delta(curr, prev):
+        if prev == 0:
+            return None
+        return round((curr - prev) / prev * 100, 1)
+    
+    return {
+        "today": {
+            "amount": row["today"],
+            "count": row["today_count"],
+            "vs_yesterday_pct": calc_delta(row["today"], row["yesterday"]),
+        },
+        "this_month": {
+            "amount": row["this_month"],
+            "count": row["month_count"],
+            "vs_last_month_pct": calc_delta(row["this_month"], row["last_month"]),
+        },
+        "this_year": {
+            "amount": row["this_year"],
+            "count": row["year_count"],
+            "vs_last_year_pct": calc_delta(row["this_year"], row["last_year"]),
+        },
+        "all_time": {
+            "amount": row["all_time"],
+            "count": row["all_time_count"],
+        },
+    }

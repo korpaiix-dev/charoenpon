@@ -562,3 +562,63 @@ tr:nth-child(even):hover td { background: rgba(0, 212, 255, 0.05); }
     .filter-inline { flex-direction: column; }
     .chart-tall { height: 240px; max-height: 240px; }
 }
+
+/* ============ Total Revenue Summary Cards (added 2026-06-25) ============ */
+.rev-summary-row { 
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.rev-card {
+  background: linear-gradient(135deg, rgba(0,212,255,0.05) 0%, rgba(0,212,255,0.02) 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.2rem;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.15s, border-color 0.15s;
+}
+.rev-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--primary);
+}
+.rev-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 3px;
+  background: var(--primary);
+  opacity: 0.6;
+}
+.rev-card.today::before { background: #FFB020; }
+.rev-card.month::before { background: #00d4ff; }
+.rev-card.year::before { background: #4FE1A5; }
+.rev-card.alltime::before { background: #C480FF; }
+
+.rev-label {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+  letter-spacing: 0.02em;
+}
+.rev-value {
+  font-size: 1.65rem;
+  font-weight: 700;
+  color: var(--text);
+  font-family: 'Inter', 'Noto Sans Thai', sans-serif;
+  line-height: 1.1;
+  margin-bottom: 0.35rem;
+}
+.rev-card.alltime .rev-value { color: #C480FF; }
+.rev-card.year .rev-value { color: #4FE1A5; }
+.rev-card.month .rev-value { color: #00d4ff; }
+.rev-card.today .rev-value { color: #FFB020; }
+
+.rev-sub {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  letter-spacing: 0.01em;
+}

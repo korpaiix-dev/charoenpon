@@ -468,12 +468,13 @@ async function renderDashboard() {
                 ? `period=day&date_from=${encodeURIComponent(dashboardDateFrom)}`
                 : `period=custom&date_from=${encodeURIComponent(dashboardDateFrom)}&date_to=${encodeURIComponent(dashboardDateTo)}`;
 
-        const [summary, members, flashSale, alerts, analytics] = await Promise.all([
+        const [summary, members, flashSale, alerts, analytics, revSummary] = await Promise.all([
             api('/dashboard/summary'),
             api('/dashboard/members-stats'),
             api('/dashboard/flash-sale-status'),
             api('/dashboard/alerts'),
             api(`/dashboard/sales-analytics?${analyticsParams}`),
+            api('/dashboard/revenue-summary').catch(() => null),
         ]);
         dashboardDateFrom = analytics.date_from;
         dashboardDateTo = analytics.date_to;
@@ -523,7 +524,33 @@ async function renderDashboard() {
             ? analytics.months.map(m => `<tr><td>${esc(m.month)}</td><td>${fmtBaht(m.revenue)}</td><td>${fmt(m.buyers)}</td><td>${fmt(m.orders)}</td></tr>`).join('')
             : `<tr><td colspan="4" style="color:var(--text-muted);text-align:center;">ยังไม่มีข้อมูลรายเดือน</td></tr>`;
 
+        // Total Revenue Summary card row
+        const revHtml = revSummary ? `
+            <div class="rev-summary-row" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:0.75rem;margin-bottom:1.5rem;">
+                <div class="rev-card today">
+                    <div class="rev-label">📅 วันนี้</div>
+                    <div class="rev-value">${fmtBaht(revSummary.today.amount)}</div>
+                    <div class="rev-sub">${fmt(revSummary.today.count)} order${revSummary.today.vs_yesterday_pct != null ? ` · ${revSummary.today.vs_yesterday_pct >= 0 ? '▲' : '▼'} ${Math.abs(revSummary.today.vs_yesterday_pct)}%` : ''}</div>
+                </div>
+                <div class="rev-card month">
+                    <div class="rev-label">📆 เดือนนี้</div>
+                    <div class="rev-value">${fmtBaht(revSummary.this_month.amount)}</div>
+                    <div class="rev-sub">${fmt(revSummary.this_month.count)} order${revSummary.this_month.vs_last_month_pct != null ? ` · ${revSummary.this_month.vs_last_month_pct >= 0 ? '▲' : '▼'} ${Math.abs(revSummary.this_month.vs_last_month_pct)}%` : ''}</div>
+                </div>
+                <div class="rev-card year">
+                    <div class="rev-label">📊 ปีนี้</div>
+                    <div class="rev-value">${fmtBaht(revSummary.this_year.amount)}</div>
+                    <div class="rev-sub">${fmt(revSummary.this_year.count)} order${revSummary.this_year.vs_last_year_pct != null ? ` · ${revSummary.this_year.vs_last_year_pct >= 0 ? '▲' : '▼'} ${Math.abs(revSummary.this_year.vs_last_year_pct)}%` : ''}</div>
+                </div>
+                <div class="rev-card alltime">
+                    <div class="rev-label">💎 รวมทั้งหมด</div>
+                    <div class="rev-value">${fmtBaht(revSummary.all_time.amount)}</div>
+                    <div class="rev-sub">${fmt(revSummary.all_time.count)} order ตลอดอายุระบบ</div>
+                </div>
+            </div>` : '';
+
         content.innerHTML = `
+            ${revHtml}
             <div class="dashboard-hero">
                 <div>
                     <div class="hero-kicker">ภาพรวมยอดขายย้อนหลัง</div>
