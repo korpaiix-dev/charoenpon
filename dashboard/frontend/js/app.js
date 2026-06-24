@@ -1,3 +1,22 @@
+// ===== Theme toggle (light/dark) =====
+function applyTheme(theme) {
+    const t = theme === 'dark' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', t);
+    try { localStorage.setItem('theme', t); } catch {}
+    const btn = document.getElementById('theme-toggle-btn');
+    if (btn) btn.textContent = t === 'dark' ? '☀️' : '🌙';
+}
+function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme') || 'light';
+    applyTheme(current === 'light' ? 'dark' : 'light');
+}
+// Init on page load
+(function() {
+    let saved = null;
+    try { saved = localStorage.getItem('theme'); } catch {}
+    applyTheme(saved || 'light');
+})();
+
 /* ============================================
    เจริญพร Dashboard — SPA Application
    ============================================ */

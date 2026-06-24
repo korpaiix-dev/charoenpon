@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+Thai:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <link rel="stylesheet" href="/css/style.css?v=5">
+    <link rel="stylesheet" href="/css/style.css?v=6">
 </head>
 <body>
     <!-- Login Page -->
@@ -54,7 +54,10 @@
                         <div id="sidebar-user-role" class="sidebar-user-role"></div>
                     </div>
                 </div>
-                <button class="btn btn-sm btn-outline" onclick="logout()">🚪 ออก</button>
+                <div style="display:flex;gap:6px;align-items:center;">
+                    <button id="theme-toggle-btn" class="btn btn-sm btn-outline" onclick="toggleTheme()" style="min-width:auto;padding:0.4rem 0.6rem;">🌙</button>
+                    <button class="btn btn-sm btn-outline" onclick="logout()" style="flex:1;">🚪 ออก</button>
+                </div>
             </div>
         </aside>
 
@@ -90,7 +93,7 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=14"></script>
+    <script src="/js/app.js?v=15"></script>
     <script src="/js/bots-page.js?v=2"></script>
 
 </body>

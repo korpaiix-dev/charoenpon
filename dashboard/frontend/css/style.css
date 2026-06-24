@@ -1,29 +1,56 @@
 /* ============================================
-   เจริญพร Dashboard — Dark Theme
+   เจริญพร Dashboard — Light + Dark Theme
+   Default: Modern Light (Linear/Stripe style)
+   Toggle: data-theme="dark" → Premium Dark (Vercel style)
    ============================================ */
 
 :root {
-    --bg: #0f1117;
-    --surface: #171923;
-    --surface-2: #202332;
-    --surface-3: #292d3f;
+    /* Backgrounds */
+    --bg: #f7f7f8;
+    --surface: #ffffff;
+    --surface-2: #f0f0f2;
+    --surface-3: #e7e7eb;
+    /* Brand & semantic */
     --primary: #f7b045;
-    --primary-hover: #ffca6a;
-    --success: #4fd1c5;
-    --warning: #ffd166;
-    --error: #ff6b6b;
-    --text: #f5f1e8;
-    --text-muted: #a8b3cf;
-    --text-dim: #69718d;
-    --border: #343a52;
+    --primary-hover: #e89a2c;
+    --success: #16a34a;
+    --warning: #d97706;
+    --error: #dc2626;
+    /* Text */
+    --text: #1a1a1f;
+    --text-muted: #6e6e80;
+    --text-dim: #9a9aa8;
+    /* Border */
+    --border: #e5e5e7;
+    /* Layout */
     --sidebar-w: 260px;
-    --font: 'Noto Sans Thai', 'Inter', sans-serif;
-    --font-mono: 'JetBrains Mono', monospace;
-    --font-heading: 'Orbitron', sans-serif;
+    --font: 'Inter', 'Noto Sans Thai', sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+    --font-heading: 'Inter', 'Noto Sans Thai', sans-serif;
     --radius: 12px;
     --radius-sm: 8px;
-    --shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
 }
+
+[data-theme="dark"] {
+    --bg: #0a0a0a;
+    --surface: #111111;
+    --surface-2: #1a1a1a;
+    --surface-3: #232323;
+    --primary: #f7b045;
+    --primary-hover: #ffca6a;
+    --success: #4ade80;
+    --warning: #fbbf24;
+    --error: #f87171;
+    --text: #fafafa;
+    --text-muted: #a3a3a3;
+    --text-dim: #737373;
+    --border: #2a2a2a;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.2);
+    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -47,7 +74,7 @@ body {
 .login-page {
     display: flex; align-items: center; justify-content: center;
     min-height: 100vh;
-    background: linear-gradient(135deg, #0a0e1a 0%, #111832 50%, #0a0e1a 100%);
+    background: linear-gradient(135deg, var(--surface-2) 0%, var(--bg) 50%, var(--surface-2) 100%);
 }
 .login-card {
     background: var(--surface);
@@ -55,7 +82,7 @@ body {
     border-radius: var(--radius);
     padding: 3rem 2.5rem;
     width: 100%; max-width: 420px;
-    box-shadow: var(--shadow), 0 0 60px rgba(0, 212, 255, 0.05);
+    box-shadow: var(--shadow-lg);
     text-align: center;
 }
 .login-logo { font-size: 3rem; margin-bottom: 0.5rem; }
