@@ -256,6 +256,24 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "find_customer_attribution",
+            "description": (
+                "ค้นหาว่าลูกค้าคนหนึ่งเข้ามาจากลิ้ง marketing ไหน + จ่ายเงินไปเท่าไหร่ — "
+                "ตอบคำถาม \"ลูกค้า X มาจากใคร\", \"คน tg=123 มาจากลิ้งไหน\", "
+                "\"ใครจ่ายเงินมาจาก marketing\""
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "telegram_id (number), username, or first_name"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "revoke_marketing_link",
             "description": (
                 "ลบ/ยกเลิกลิ้งเชิญที่ระบบสร้าง (revoke ทั้งใน Telegram + DB). "
@@ -397,6 +415,7 @@ from shared.marketing_tools import (
     set_marketing_goal as _tool_set_marketing_goal,
     get_marketing_goal as _tool_get_marketing_goal,
     revoke_marketing_link as _tool_revoke_marketing_link,
+    find_customer_attribution as _tool_find_customer_attribution,
 )
 
 TOOL_HANDLERS = {
@@ -412,6 +431,7 @@ TOOL_HANDLERS = {
     "set_marketing_goal": _tool_set_marketing_goal,
     "get_marketing_goal": _tool_get_marketing_goal,
     "revoke_marketing_link": _tool_revoke_marketing_link,
+    "find_customer_attribution": _tool_find_customer_attribution,
 }
 
 

@@ -564,3 +564,121 @@ async def revoke_marketing_link(
         return {"ok": True, "link_id": link_id, "tg_revoked": tg_ok, "reason": reason}
     except Exception as exc:
         return {"error": f"revoke failed: {str(exc)[:200]}"}
+
+
+
+# =========================================================
+# TOOL 8: find_customer_attribution
+# =========================================================
+async def find_customer_attribution(query: str) -> dict:
+    """หาว่าลูกค้าคนนี้เข้ามาจากลิ้ง marketing ไหน + จ่ายไปเท่าไหร่.
+    
+    Args:
+        query: telegram_id (number), username, or first_name to match
+    
+    Returns dict with:
+        - customer: {tg_id, name, username, total_spent, rank}
+        - marketing_journey: [{link_id, marketer, platform, group, joined_at}]
+        - paid_within_30d: bool — ถ้า paid ภายใน 30d ของ join
+        - payments: [...]
+    """
+    q = (query or "").strip()
+    if not q:
+        return {"error": "query required"}
+
+    async with get_session() as s:
+        # Find user
+        if q.isdigit():
+            r = await s.execute(sql_text(
+                "SELECT id, telegram_id, first_name, last_name, username, total_spent, loyalty_rank "
+                "FROM users WHERE telegram_id = :tg LIMIT 1"
+            ), {"tg": int(q)})
+        else:
+            r = await s.execute(sql_text(
+                "SELECT id, telegram_id, first_name, last_name, username, total_spent, loyalty_rank "
+                "FROM users WHERE first_name ILIKE :q OR last_name ILIKE :q OR username ILIKE :q "
+                "ORDER BY total_spent DESC LIMIT 1"
+            ), {"q": f"%{q}%"})
+        urow = r.first()
+        if not urow:
+            return {"found": False, "query": q}
+
+        user_info = {
+            "user_id": urow.id, "tg_id": urow.telegram_id,
+            "name": f"{urow.first_name or ''} {urow.last_name or ''}".strip(),
+            "username": urow.username,
+            "total_spent": float(urow.total_spent or 0),
+            "rank": urow.loyalty_rank,
+        }
+
+        # All marketing joins for this user
+        jr = await s.execute(sql_text("""
+            SELECT
+              j.id AS join_id, j.joined_at,
+              l.id AS link_id, l.marketer, l.platform, l.group_slug::text AS group_slug,
+              (SELECT title FROM group_registry WHERE slug = l.group_slug) AS group_title,
+              l.invite_link
+            FROM marketing_invite_joins j
+            JOIN marketing_invite_links l ON l.id = j.link_id
+            WHERE j.telegram_id = :tg
+            ORDER BY j.joined_at DESC
+        """), {"tg": urow.telegram_id})
+        joins = []
+        for jrow in jr.fetchall():
+            joins.append({
+                "join_id": jrow.join_id,
+                "joined_at": jrow.joined_at.isoformat() if jrow.joined_at else None,
+                "link_id": jrow.link_id,
+                "marketer": jrow.marketer,
+                "platform": jrow.platform,
+                "group_slug": jrow.group_slug,
+                "group_title": jrow.group_title,
+                "invite_link": jrow.invite_link,
+            })
+
+        # Confirmed payments
+        pr = await s.execute(sql_text("""
+            SELECT p.id, p.amount, p.status, pk.tier::text AS tier, p.created_at
+            FROM payments p
+            LEFT JOIN packages pk ON pk.id = p.package_id
+            WHERE p.user_id = :uid AND p.status = 'CONFIRMED' AND p.amount > 0
+            ORDER BY p.created_at DESC
+            LIMIT 20
+        """), {"uid": urow.id})
+        payments = [
+            {"id": pr2.id, "amount": float(pr2.amount), "tier": pr2.tier,
+             "created_at": pr2.created_at.isoformat() if pr2.created_at else None}
+            for pr2 in pr.fetchall()
+        ]
+
+        # Attribution: first paid within 30d of any join
+        attribution = None
+        if joins and payments:
+            for j in joins:
+                j_at = j["joined_at"]
+                for p in payments:
+                    if not p["created_at"] or not j_at: continue
+                    import datetime as _dt
+                    j_dt = _dt.datetime.fromisoformat(j_at.replace("Z",""))
+                    p_dt = _dt.datetime.fromisoformat(p["created_at"].replace("Z",""))
+                    if p_dt >= j_dt and (p_dt - j_dt).days <= 30:
+                        attribution = {
+                            "link_id": j["link_id"],
+                            "marketer": j["marketer"],
+                            "platform": j["platform"],
+                            "group_title": j["group_title"],
+                            "first_paid_at": p["created_at"],
+                            "days_to_pay": (p_dt - j_dt).days,
+                            "amount": p["amount"],
+                            "tier": p["tier"],
+                        }
+                        break
+                if attribution: break
+
+        return {
+            "found": True,
+            "customer": user_info,
+            "marketing_joins": joins,
+            "payments": payments,
+            "attribution": attribution,  # None = ไม่ได้มาจาก marketing link
+        }
