@@ -22,6 +22,7 @@ from .routers.webapp import router as webapp_router
 from .routers.panda_monitor import router as panda_monitor_router
 from .routers.panda_errors import router as panda_errors_router
 from .routers.redirect import router as redirect_router
+from .routers.receivers import router as receivers_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -60,6 +61,7 @@ app.include_router(webapp_router)
 app.include_router(panda_monitor_router)
 app.include_router(panda_errors_router)
 app.include_router(redirect_router)
+app.include_router(receivers_router, prefix="/api")
 
 # Serve frontend static files
 frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")

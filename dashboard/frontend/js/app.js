@@ -113,6 +113,7 @@ const NAV_ITEMS = [
     { id: 'inbox', icon: '📥', label: 'กล่องรอจัดการ', minRole: 'moderator' },
     { id: 'customers', icon: '👥', label: 'ลูกค้า', minRole: 'moderator' },
     { id: 'finance', icon: '💰', label: 'การเงิน', minRole: 'moderator' },
+    { id: 'receivers', icon: '💳', label: 'บัญชีรับเงิน', minRole: 'admin' },
     { id: 'promotions', icon: '📢', label: 'โปรโมชั่น', minRole: 'admin' },
     { id: 'content', icon: '📸', label: 'Content', minRole: 'moderator' },
     { id: 'groups', icon: '📱', label: 'กลุ่ม', minRole: 'admin' },
@@ -218,7 +219,7 @@ function navigate(page) {
     try { window.__currentPage = page; } catch {}
     renderSidebar();
     const titles = {
-        dashboard: '📊 ภาพรวม', inbox: '📥 กล่องรอจัดการ', customers: '👥 ลูกค้า', finance: '💰 การเงิน',
+        dashboard: '📊 ภาพรวม', inbox: '📥 กล่องรอจัดการ', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน',
         promotions: '📢 โปรโมชั่น', content: '📸 Content', groups: '📱 กลุ่ม',
         team: '👨‍💼 ทีมงาน', settings: '⚙️ ตั้งค่า', marketing: '📊 Marketing',
         activity: '📋 Activity Log',
@@ -234,7 +235,7 @@ function navigate(page) {
     content.innerHTML = '<div class="loading"><div class="spinner"></div> กำลังโหลด...</div>';
     
     const pages = {
-        dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance,
+        dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance, receivers: renderReceivers,
         promotions: renderPromotions, content: renderContent, groups: renderGroups,
         team: renderTeam, settings: renderSettings, marketing: renderMarketing,
         activity: renderActivityLog,
@@ -545,6 +546,171 @@ function paginationHtml(page, pages, fn) {
 
 
 
+
+
+
+// ========== PAGE: RECEIVERS (bank accounts) ==========
+async function renderReceivers() {
+    const content = document.getElementById('page-content');
+    try {
+        const data = await api('/receivers');
+        const items = data.items || [];
+
+        const enabledCount = items.filter(r => r.enabled).length;
+        const totalCumulative = items.reduce((acc, r) => acc + parseFloat(r.cumulative_received || 0), 0);
+
+        function rowHtml(r) {
+            const isWarning = parseFloat(r.cumulative_received || 0) >= parseFloat(r.alert_threshold || 0);
+            return `
+                <div style="background:var(--surface); border:1px solid var(--border); border-left:3px solid ${r.enabled ? 'var(--success)' : 'var(--text-dim)'}; border-radius:10px; padding:1.125rem 1.25rem; margin-bottom:0.875rem;">
+                    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; flex-wrap:wrap; margin-bottom:0.875rem;">
+                        <div style="min-width:0; flex:1;">
+                            <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.3rem; flex-wrap:wrap;">
+                                <h3 style="margin:0; font-size:1rem; font-weight:600; color:var(--text);">${esc(r.owner_name)}</h3>
+                                ${r.enabled
+                                    ? '<span class="status-badge status-active">✅ เปิด</span>'
+                                    : '<span class="status-badge status-pending">⛔ ปิด</span>'}
+                                ${isWarning ? '<span class="status-badge status-pending">⚠️ เกิน threshold</span>' : ''}
+                            </div>
+                            <div style="font-size:0.8125rem; color:var(--text-muted);">
+                                ${esc(r.bank_name_th)} · ${esc(r.account_no)}
+                                ${r.bank_last5 ? `· last5: <span style="font-family:var(--font-mono);">${esc(r.bank_last5)}</span>` : ''}
+                            </div>
+                            ${r.promptpay_number ? `<div style="font-size:0.75rem; color:var(--text-dim); margin-top:0.2rem;">PromptPay: ${esc(r.promptpay_number)}</div>` : ''}
+                        </div>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.75rem; margin-bottom:0.875rem;">
+                        <div style="background:var(--surface-2); border-radius:8px; padding:0.625rem 0.75rem;">
+                            <div style="font-size:0.6875rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.04em;">ยอดสะสม</div>
+                            <div style="font-size:1.125rem; font-weight:600; color:${isWarning ? 'var(--error)' : 'var(--text)'}; font-variant-numeric:tabular-nums;">${fmtBaht(r.cumulative_received)}</div>
+                        </div>
+                        <div style="background:var(--surface-2); border-radius:8px; padding:0.625rem 0.75rem;">
+                            <div style="font-size:0.6875rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.04em;">Threshold</div>
+                            <div style="font-size:1.125rem; font-weight:600; color:var(--text); font-variant-numeric:tabular-nums;">${fmtBaht(r.alert_threshold)}</div>
+                        </div>
+                        <div style="background:var(--surface-2); border-radius:8px; padding:0.625rem 0.75rem;">
+                            <div style="font-size:0.6875rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.04em;">Weight</div>
+                            <div style="font-size:1.125rem; font-weight:600; color:var(--text); font-variant-numeric:tabular-nums;">${r.weight}</div>
+                        </div>
+                    </div>
+
+                    <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+                        <button class="btn btn-outline btn-sm" onclick="receiverReset(${r.id}, '${esc(r.owner_name).replace(/'/g, "\\'")}', ${parseFloat(r.cumulative_received || 0)})">🔄 Reset ยอดสะสม</button>
+                        <button class="btn btn-outline btn-sm" onclick="receiverToggle(${r.id}, ${!r.enabled})">${r.enabled ? '⛔ ปิดบัญชี' : '✅ เปิดบัญชี'}</button>
+                        <button class="btn btn-outline btn-sm" onclick="receiverEdit(${r.id}, ${r.weight}, ${parseFloat(r.alert_threshold || 0)})">⚙️ ตั้งค่า</button>
+                        <button class="btn btn-outline btn-sm" onclick="receiverHistory(${r.id}, '${esc(r.owner_name).replace(/'/g, "\\'")}')">📜 ประวัติ</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        content.innerHTML = `
+            <div style="max-width:880px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1.25rem; flex-wrap:wrap; gap:1rem;">
+                    <div>
+                        <h2 style="margin:0; font-size:1.25rem; font-weight:600; color:var(--text); letter-spacing:-0.02em;">💳 บัญชีรับเงิน</h2>
+                        <p style="margin:0.25rem 0 0; color:var(--text-muted); font-size:0.875rem;">
+                            ${enabledCount}/${items.length} บัญชีเปิดอยู่ · ยอดสะสมรวม ${fmtBaht(totalCumulative)}
+                        </p>
+                    </div>
+                    <button class="btn btn-outline btn-sm" onclick="renderReceivers()">🔄 รีโหลด</button>
+                </div>
+
+                <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:0.75rem 1rem; margin-bottom:1.25rem; font-size:0.8125rem; color:var(--text-muted);">
+                    💡 <b>Reset ยอดสะสม</b> หลังถอนเงินออกจากบัญชี — ระบบจะส่ง alert ใหม่เมื่อถึง threshold
+                </div>
+
+                ${items.map(rowHtml).join('') || '<div class="empty-state"><div class="icon">💳</div><p>ยังไม่มีบัญชีรับเงิน</p></div>'}
+            </div>
+        `;
+    } catch (err) {
+        content.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${esc(err.message)}</p></div>`;
+    }
+}
+
+async function receiverReset(rid, owner, currentBaht) {
+    if (!confirm(`Reset ยอดสะสมของ "${owner}"?\n\nยอดปัจจุบัน: ${fmtBaht(currentBaht)}\nจะกลับเป็น ฿0\n\nใช้หลังถอนเงินออกจากบัญชีแล้วเท่านั้น`)) return;
+    try {
+        await api(`/receivers/${rid}/reset`, { method: 'POST' });
+        toast(`✅ Reset ${owner} เรียบร้อย`, 'success');
+        renderReceivers();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
+
+async function receiverToggle(rid, newEnabled) {
+    const action = newEnabled ? 'เปิด' : 'ปิด';
+    if (!confirm(`${action}บัญชีนี้?`)) return;
+    try {
+        await api(`/receivers/${rid}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ enabled: newEnabled }),
+        });
+        toast(`✅ ${action}เรียบร้อย`, 'success');
+        renderReceivers();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
+
+async function receiverEdit(rid, currentWeight, currentThreshold) {
+    openModal('⚙️ ตั้งค่าบัญชี #' + rid, `
+        <div class="form-group">
+            <label>Weight (น้ำหนัก rotation 0-100)</label>
+            <input type="number" id="rcv-weight" min="0" max="100" value="${currentWeight}">
+            <div style="font-size:0.75rem; color:var(--text-dim); margin-top:0.25rem;">บัญชีที่ weight สูง = รับเงินบ่อยกว่า</div>
+        </div>
+        <div class="form-group">
+            <label>Alert threshold (บาท)</label>
+            <input type="number" id="rcv-threshold" min="0" step="100" value="${currentThreshold}">
+            <div style="font-size:0.75rem; color:var(--text-dim); margin-top:0.25rem;">เมื่อยอดสะสมถึง threshold ระบบส่ง alert ให้ถอน</div>
+        </div>
+        <button class="btn btn-primary btn-full" onclick="doReceiverEdit(${rid})">บันทึก</button>
+    `);
+}
+
+async function doReceiverEdit(rid) {
+    try {
+        const weight = parseInt(document.getElementById('rcv-weight').value) || 0;
+        const threshold = parseFloat(document.getElementById('rcv-threshold').value) || 0;
+        await api(`/receivers/${rid}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ weight, alert_threshold: threshold }),
+        });
+        toast('✅ บันทึกเรียบร้อย', 'success');
+        closeModal();
+        renderReceivers();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
+
+async function receiverHistory(rid, owner) {
+    try {
+        const data = await api(`/receivers/${rid}/sender-history?limit=20`);
+        const items = data.items || [];
+        let rows = items.map(p => `
+            <tr>
+                <td>${fmtDateTime(p.created_at)}</td>
+                <td style="font-variant-numeric:tabular-nums;">${fmtBaht(p.amount)}</td>
+                <td>${esc(p.sender_name || '-')}</td>
+                <td><span style="font-family:var(--font-mono); font-size:0.75rem;">${esc(p.sender_bank_account || '-')}</span></td>
+            </tr>
+        `).join('') || '<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">ยังไม่มี payment ที่โอนเข้าบัญชีนี้</td></tr>';
+        openModal(`📜 ประวัติเข้าบัญชี — ${owner}`, `
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>วันที่</th><th>จำนวน</th><th>ผู้โอน</th><th>เลขบัญชี</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        `);
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
 
 // ========== PAGE: CUSTOMER 360 (timeline view) ==========
 const C360_TYPE_COLORS = {
