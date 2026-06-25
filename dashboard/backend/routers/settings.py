@@ -108,3 +108,127 @@ async def backup_now(request: Request, admin=Depends(require_role("owner"))):
     ip = request.client.host if request.client else None
     await _log(admin["id"], "backup_now", "backup", None, None, ip)
     return {"ok": True, "message": "Backup initiated"}
+
+
+# ====== Sprint 2.4: Banned lists viewer ======
+from fastapi import HTTPException as _HE
+
+@router.get("/banned/summary")
+async def banned_summary(admin=Depends(require_role("admin"))):
+    """Quick counts across all banned lists."""
+    slip_n = await pool.fetchval("SELECT COUNT(*) FROM banned_slips")
+    sender_n = await pool.fetchval("SELECT COUNT(*) FROM banned_senders")
+    banned_n = await pool.fetchval("SELECT COUNT(*) FROM users WHERE is_banned = TRUE")
+    blocked_n = await pool.fetchval("SELECT COUNT(*) FROM users WHERE is_blocked_bot = TRUE")
+    return {
+        "slips": int(slip_n or 0),
+        "senders": int(sender_n or 0),
+        "banned_users": int(banned_n or 0),
+        "blocked_bots": int(blocked_n or 0),
+    }
+
+
+@router.get("/banned/slips")
+async def banned_slips_list(limit: int = 50, offset: int = 0,
+                            admin=Depends(require_role("admin"))):
+    limit = max(1, min(limit, 200))
+    rows = await pool.fetch("""
+        SELECT bs.id, bs.slip_trans_ref, bs.slip_hash, bs.source_telegram_id,
+               bs.reason, bs.banned_by, bs.created_at,
+               u.first_name AS source_first_name
+        FROM banned_slips bs
+        LEFT JOIN users u ON u.telegram_id = bs.source_telegram_id
+        ORDER BY bs.created_at DESC
+        LIMIT $1 OFFSET $2
+    """, limit, offset)
+    total = await pool.fetchval("SELECT COUNT(*) FROM banned_slips")
+    return {"items": [dict(r) for r in rows], "total": int(total or 0)}
+
+
+@router.get("/banned/senders")
+async def banned_senders_list(limit: int = 50, offset: int = 0,
+                              admin=Depends(require_role("admin"))):
+    limit = max(1, min(limit, 200))
+    rows = await pool.fetch("""
+        SELECT bs.id, bs.sender_name, bs.source_telegram_id, bs.reason,
+               bs.banned_by, bs.created_at,
+               u.first_name AS source_first_name
+        FROM banned_senders bs
+        LEFT JOIN users u ON u.telegram_id = bs.source_telegram_id
+        ORDER BY bs.created_at DESC
+        LIMIT $1 OFFSET $2
+    """, limit, offset)
+    total = await pool.fetchval("SELECT COUNT(*) FROM banned_senders")
+    return {"items": [dict(r) for r in rows], "total": int(total or 0)}
+
+
+@router.get("/banned/users")
+async def banned_users_list(limit: int = 50, offset: int = 0,
+                            admin=Depends(require_role("admin"))):
+    limit = max(1, min(limit, 200))
+    rows = await pool.fetch("""
+        SELECT id, telegram_id, username, first_name, last_name, banned_reason,
+               banned_at, banned_by, total_spent
+        FROM users
+        WHERE is_banned = TRUE
+        ORDER BY banned_at DESC NULLS LAST
+        LIMIT $1 OFFSET $2
+    """, limit, offset)
+    total = await pool.fetchval("SELECT COUNT(*) FROM users WHERE is_banned = TRUE")
+    return {"items": [dict(r) for r in rows], "total": int(total or 0)}
+
+
+@router.get("/banned/blocked-bots")
+async def blocked_bots_list(limit: int = 50, offset: int = 0,
+                            admin=Depends(require_role("admin"))):
+    limit = max(1, min(limit, 200))
+    rows = await pool.fetch("""
+        SELECT id, telegram_id, username, first_name, last_name,
+               blocked_bot_at, total_spent
+        FROM users
+        WHERE is_blocked_bot = TRUE
+        ORDER BY blocked_bot_at DESC NULLS LAST
+        LIMIT $1 OFFSET $2
+    """, limit, offset)
+    total = await pool.fetchval("SELECT COUNT(*) FROM users WHERE is_blocked_bot = TRUE")
+    return {"items": [dict(r) for r in rows], "total": int(total or 0)}
+
+
+@router.delete("/banned/slips/{bid}")
+async def unban_slip(bid: int, admin=Depends(require_role("admin"))):
+    row = await pool.fetchrow(
+        "DELETE FROM banned_slips WHERE id = $1 RETURNING slip_trans_ref, slip_hash",
+        bid,
+    )
+    if not row:
+        raise _HE(404, "banned slip not found")
+    try:
+        await pool.execute(
+            "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details) "
+            "VALUES ($1, 'banned_slip_remove', 'banned_slip', $2, $3)",
+            admin["telegram_id"], bid,
+            f"trans_ref={row['slip_trans_ref']} hash={row['slip_hash']}",
+        )
+    except Exception:
+        pass
+    return {"ok": True, "id": bid}
+
+
+@router.delete("/banned/senders/{bid}")
+async def unban_sender(bid: int, admin=Depends(require_role("admin"))):
+    row = await pool.fetchrow(
+        "DELETE FROM banned_senders WHERE id = $1 RETURNING sender_name",
+        bid,
+    )
+    if not row:
+        raise _HE(404, "banned sender not found")
+    try:
+        await pool.execute(
+            "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details) "
+            "VALUES ($1, 'banned_sender_remove', 'banned_sender', $2, $3)",
+            admin["telegram_id"], bid, f"sender_name={row['sender_name']}",
+        )
+    except Exception:
+        pass
+    return {"ok": True, "id": bid}
+

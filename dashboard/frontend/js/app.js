@@ -944,6 +944,175 @@ async function receiverHistory(rid, owner) {
 
 
 
+
+
+// ===== Settings tab: รายการแบน =====
+let bannedSubTab = 'slips';
+async function loadBannedSettings() {
+    const area = document.getElementById('settings-area');
+    if (!area) return;
+    area.innerHTML = '<div class="loading"><div class="spinner"></div> กำลังโหลด...</div>';
+    try {
+        const summary = await api('/settings/banned/summary');
+        area.innerHTML = `
+            <div class="mini-cards" style="margin-bottom:1rem;">
+                <div class="mini-card" onclick="bannedSubTab='slips';renderBannedTable()" style="cursor:pointer;">
+                    <div class="mini-card-label">📄 สลิปแบน</div>
+                    <div class="mini-card-value" style="color:var(--error);">${fmt(summary.slips)}</div>
+                </div>
+                <div class="mini-card" onclick="bannedSubTab='senders';renderBannedTable()" style="cursor:pointer;">
+                    <div class="mini-card-label">👤 ชื่อผู้โอนแบน</div>
+                    <div class="mini-card-value" style="color:var(--error);">${fmt(summary.senders)}</div>
+                </div>
+                <div class="mini-card" onclick="bannedSubTab='users';renderBannedTable()" style="cursor:pointer;">
+                    <div class="mini-card-label">🚫 ลูกค้าถูกแบน</div>
+                    <div class="mini-card-value" style="color:var(--error);">${fmt(summary.banned_users)}</div>
+                </div>
+                <div class="mini-card" onclick="bannedSubTab='blocked_bots';renderBannedTable()" style="cursor:pointer;">
+                    <div class="mini-card-label">🤖 บล็อกบอท</div>
+                    <div class="mini-card-value" style="color:var(--text-muted);">${fmt(summary.blocked_bots)}</div>
+                </div>
+            </div>
+
+            <div class="filters" style="margin-bottom:1rem;">
+                <button class="filter-btn ${bannedSubTab==='slips'?'active':''}" onclick="bannedSubTab='slips';renderBannedTable()">📄 สลิป (${summary.slips})</button>
+                <button class="filter-btn ${bannedSubTab==='senders'?'active':''}" onclick="bannedSubTab='senders';renderBannedTable()">👤 ผู้โอน (${summary.senders})</button>
+                <button class="filter-btn ${bannedSubTab==='users'?'active':''}" onclick="bannedSubTab='users';renderBannedTable()">🚫 ลูกค้า (${summary.banned_users})</button>
+                <button class="filter-btn ${bannedSubTab==='blocked_bots'?'active':''}" onclick="bannedSubTab='blocked_bots';renderBannedTable()">🤖 บล็อกบอท (${summary.blocked_bots})</button>
+            </div>
+
+            <div id="banned-table-area"></div>
+        `;
+        renderBannedTable();
+    } catch (err) {
+        area.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${esc(err.message)}</p></div>`;
+    }
+}
+
+async function renderBannedTable() {
+    const wrap = document.getElementById('banned-table-area');
+    if (!wrap) return;
+    wrap.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+    try {
+        const limit = 50;
+        const endpoint = bannedSubTab === 'slips' ? '/settings/banned/slips'
+                       : bannedSubTab === 'senders' ? '/settings/banned/senders'
+                       : bannedSubTab === 'users' ? '/settings/banned/users'
+                       : '/settings/banned/blocked-bots';
+        const data = await api(`${endpoint}?limit=${limit}`);
+        const items = data.items || [];
+        const total = data.total || 0;
+
+        if (items.length === 0) {
+            wrap.innerHTML = '<div class="empty-state"><div class="icon">✨</div><p>ไม่มีรายการในหมวดนี้</p></div>';
+            return;
+        }
+
+        let table = '';
+        if (bannedSubTab === 'slips') {
+            const rows = items.map(r => `
+                <tr>
+                    <td>${r.id}</td>
+                    <td><code style="font-size:0.7rem;">${esc(r.slip_trans_ref || '-')}</code></td>
+                    <td><code style="font-size:0.7rem;">${esc((r.slip_hash || '').slice(0,16))}${r.slip_hash && r.slip_hash.length > 16 ? '…' : ''}</code></td>
+                    <td>${esc(r.source_first_name || '?')} <small style="color:var(--text-dim);">(tg:${r.source_telegram_id || '?'})</small></td>
+                    <td>${esc(r.reason || '-')}</td>
+                    <td>${fmtDateTime(r.created_at)}</td>
+                    <td><button class="btn btn-sm btn-outline" onclick="unbanSlip(${r.id})">🔓 ปลดแบน</button></td>
+                </tr>
+            `).join('');
+            table = `
+                <div class="table-wrap"><table>
+                    <thead><tr><th>ID</th><th>Trans ref</th><th>Slip hash</th><th>ผู้ส่ง</th><th>เหตุผล</th><th>เมื่อ</th><th></th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table></div>`;
+        } else if (bannedSubTab === 'senders') {
+            const rows = items.map(r => `
+                <tr>
+                    <td>${r.id}</td>
+                    <td><b>${esc(r.sender_name)}</b></td>
+                    <td>${esc(r.source_first_name || '?')} <small style="color:var(--text-dim);">(tg:${r.source_telegram_id || '?'})</small></td>
+                    <td>${esc(r.reason || '-')}</td>
+                    <td>${fmtDateTime(r.created_at)}</td>
+                    <td><button class="btn btn-sm btn-outline" onclick="unbanSender(${r.id})">🔓 ปลดแบน</button></td>
+                </tr>
+            `).join('');
+            table = `
+                <div class="table-wrap"><table>
+                    <thead><tr><th>ID</th><th>ชื่อผู้โอน</th><th>ผู้ส่งสลิป</th><th>เหตุผล</th><th>เมื่อ</th><th></th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table></div>`;
+        } else if (bannedSubTab === 'users') {
+            const rows = items.map(r => `
+                <tr>
+                    <td>${r.id}</td>
+                    <td>${esc(r.first_name || '?')} ${esc(r.last_name || '')}</td>
+                    <td><code>${r.telegram_id}</code></td>
+                    <td>${esc(r.username || '-')}</td>
+                    <td style="font-variant-numeric:tabular-nums;">${fmtBaht(r.total_spent)}</td>
+                    <td>${esc(r.banned_reason || '-')}</td>
+                    <td>${fmtDateTime(r.banned_at)}</td>
+                    <td><button class="btn btn-sm btn-outline" onclick="showCustomer360(${r.id})">👤 เปิดดู</button></td>
+                </tr>
+            `).join('');
+            table = `
+                <div class="table-wrap"><table>
+                    <thead><tr><th>ID</th><th>ชื่อ</th><th>Telegram ID</th><th>Username</th><th>ยอดจ่าย</th><th>เหตุผล</th><th>เมื่อ</th><th></th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table></div>`;
+        } else {
+            // blocked_bots
+            const rows = items.map(r => `
+                <tr>
+                    <td>${r.id}</td>
+                    <td>${esc(r.first_name || '?')} ${esc(r.last_name || '')}</td>
+                    <td><code>${r.telegram_id}</code></td>
+                    <td>${esc(r.username || '-')}</td>
+                    <td style="font-variant-numeric:tabular-nums;">${fmtBaht(r.total_spent)}</td>
+                    <td>${fmtDateTime(r.blocked_bot_at)}</td>
+                    <td><button class="btn btn-sm btn-outline" onclick="showCustomer360(${r.id})">👤 เปิดดู</button></td>
+                </tr>
+            `).join('');
+            table = `
+                <div style="background:var(--surface-2);padding:0.75rem;border-radius:8px;margin-bottom:0.75rem;font-size:0.875rem;color:var(--text-muted);">
+                    💡 ลูกค้าเหล่านี้ block sales bot — ระบบจะไม่ส่ง DM ใหม่ให้ ถ้าลูกค้า unblock บอท ระบบจะรีเซ็ตอัตโนมัติเมื่อทักครั้งต่อไป
+                </div>
+                <div class="table-wrap"><table>
+                    <thead><tr><th>ID</th><th>ชื่อ</th><th>Telegram ID</th><th>Username</th><th>ยอดจ่าย</th><th>บล็อกเมื่อ</th><th></th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table></div>`;
+        }
+        wrap.innerHTML = `
+            <div style="margin-bottom:0.5rem;font-size:0.8125rem;color:var(--text-muted);">แสดง ${items.length} จากทั้งหมด ${total}</div>
+            ${table}
+        `;
+    } catch (err) {
+        wrap.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${esc(err.message)}</p></div>`;
+    }
+}
+
+async function unbanSlip(id) {
+    if (!confirm('ปลดแบนสลิปนี้? ลูกค้าจะส่งสลิปนี้ได้อีกครั้ง')) return;
+    try {
+        await api(`/settings/banned/slips/${id}`, { method: 'DELETE' });
+        toast('✅ ปลดแบนเรียบร้อย', 'success');
+        loadBannedSettings();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
+
+async function unbanSender(id) {
+    if (!confirm('ปลดแบนชื่อผู้โอนนี้?')) return;
+    try {
+        await api(`/settings/banned/senders/${id}`, { method: 'DELETE' });
+        toast('✅ ปลดแบนเรียบร้อย', 'success');
+        loadBannedSettings();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
+
 // ===== Marketing link CRUD helpers =====
 async function marketingLinkEditCost(linkId, currentCost, currentNotes) {
     openModal('💰 แก้ค่าโฆษณา — Link #' + linkId, `
@@ -3227,12 +3396,14 @@ async function renderSettings() {
             ${hasRole('owner') ? `<div class="tab ${settingsTab==='bots'?'active':''}" onclick="settingsTab='bots';renderSettings()">🤖 Bots</div>` : ''}
             ${hasRole('super_admin') && !hasRole('owner') ? `<div class="tab ${settingsTab==='bots'?'active':''}" onclick="settingsTab='bots';renderSettings()">🤖 Bots (ดูอย่างเดียว)</div>` : ''}
             <div class="tab ${settingsTab==='dm'?'active':''}" onclick="settingsTab='dm';renderSettings()">📩 DM</div>
+            <div class="tab ${settingsTab==='banned'?'active':''}" onclick="settingsTab='banned';renderSettings()">🚫 รายการแบน</div>
         </div>
         <div id="settings-area"><div class="loading"><div class="spinner"></div></div></div>
     `;
     if (settingsTab === 'packages') loadPackages();
     else if (settingsTab === 'bots') loadBotSettings();
     else if (settingsTab === 'dm') loadDMSettings();
+    else if (settingsTab === 'banned') loadBannedSettings();
 }
 
 async function loadPackages() {
