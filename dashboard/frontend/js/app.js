@@ -992,6 +992,12 @@ async function loadBannedSettings() {
 async function renderBannedTable() {
     const wrap = document.getElementById('banned-table-area');
     if (!wrap) return;
+    // Update chip active classes to match current bannedSubTab
+    document.querySelectorAll('#settings-area .filter-btn').forEach(btn => {
+        const onclickStr = btn.getAttribute('onclick') || '';
+        const isActive = onclickStr.includes("bannedSubTab='" + bannedSubTab + "'");
+        btn.classList.toggle('active', isActive);
+    });
     wrap.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
     try {
         const limit = 50;
