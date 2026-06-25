@@ -1997,12 +1997,13 @@ async function renderDashboard() {
             </div>
             <div class="section-title" style="margin-top:1.5rem;">🚨 Alerts</div>
             <div class="alert-box">${alertItems}</div>
-            <div id="dashboard-pending-slips"></div>
-            <div id="sos-section"></div>
-        `;
-
-        loadDashboardPendingSlips();
-        loadSOSAlerts();
+            <div class="detail-panel" style="margin-top:1rem;cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="navigate('inbox')">
+                <div>
+                    <div style="font-weight:600;color:var(--text);">📥 งานที่รออยู่ใน Inbox</div>
+                    <small style="color:var(--text-muted);">สลิปรอตรวจ / SOS / Broadcasts</small>
+                </div>
+                <button class="btn btn-sm btn-primary">เปิด Inbox →</button>
+            </div>`;
         
         const ctx = document.getElementById('sales-analytics-chart');
         if (ctx) {
