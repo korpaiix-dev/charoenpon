@@ -561,6 +561,9 @@ async function renderReceivers() {
 
         function rowHtml(r) {
             const isWarning = parseFloat(r.cumulative_received || 0) >= parseFloat(r.alert_threshold || 0);
+            const qrHtml = r.qr_url
+                ? `<img src="${esc(r.qr_url)}" style="width:90px;height:90px;object-fit:contain;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:pointer;" onclick="window.open('${esc(r.qr_url)}','_blank')" alt="QR">`
+                : `<div style="width:90px;height:90px;border:1.5px dashed var(--border-strong);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:0.7rem;text-align:center;line-height:1.2;">ไม่มี<br>QR</div>`;
             return `
                 <div style="background:var(--surface); border:1px solid var(--border); border-left:3px solid ${r.enabled ? 'var(--success)' : 'var(--text-dim)'}; border-radius:10px; padding:1.125rem 1.25rem; margin-bottom:0.875rem;">
                     <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; flex-wrap:wrap; margin-bottom:0.875rem;">
@@ -578,6 +581,7 @@ async function renderReceivers() {
                             </div>
                             ${r.promptpay_number ? `<div style="font-size:0.75rem; color:var(--text-dim); margin-top:0.2rem;">PromptPay: ${esc(r.promptpay_number)}</div>` : ''}
                         </div>
+                        <div style="flex-shrink:0;">${qrHtml}</div>
                     </div>
 
                     <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.75rem; margin-bottom:0.875rem;">
@@ -614,7 +618,10 @@ async function renderReceivers() {
                             ${enabledCount}/${items.length} บัญชีเปิดอยู่ · ยอดสะสมรวม ${fmtBaht(totalCumulative)}
                         </p>
                     </div>
-                    <button class="btn btn-outline btn-sm" onclick="renderReceivers()">🔄 รีโหลด</button>
+                    <div style="display:flex; gap:0.5rem;">
+                        <button class="btn btn-outline btn-sm" onclick="renderReceivers()">🔄 รีโหลด</button>
+                        <button class="btn btn-primary btn-sm" onclick="receiverNew()">➕ เพิ่มบัญชี</button>
+                    </div>
                 </div>
 
                 <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:8px; padding:0.75rem 1rem; margin-bottom:1.25rem; font-size:0.8125rem; color:var(--text-muted);">
@@ -680,6 +687,226 @@ async function doReceiverEdit(rid) {
             body: JSON.stringify({ weight, alert_threshold: threshold }),
         });
         toast('✅ บันทึกเรียบร้อย', 'success');
+        closeModal();
+        renderReceivers();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
+
+// ===== Receivers: set cumulative manually + edit QR + create new =====
+async function receiverSetCumulative(rid, owner, currentBaht) {
+    openModal('✏️ แก้ตัวเลขสะสม', `
+        <p style="font-size:0.875rem;color:var(--text-muted);margin-bottom:1rem;">
+            แก้ตัวเลขยอดสะสมของ "${esc(owner)}" ให้ตรงกับยอดเงินในบัญชีจริง
+        </p>
+        <div class="form-group">
+            <label>ยอดสะสมปัจจุบัน</label>
+            <input type="text" value="${fmtBaht(currentBaht)}" disabled>
+        </div>
+        <div class="form-group">
+            <label>ยอดสะสมใหม่ (บาท)</label>
+            <input type="number" id="rcv-new-cumulative" min="0" step="1" placeholder="เช่น 4835">
+        </div>
+        <button class="btn btn-primary btn-full" onclick="doReceiverSetCumulative(${rid})">บันทึก</button>
+    `);
+}
+
+async function doReceiverSetCumulative(rid) {
+    try {
+        const val = parseFloat(document.getElementById('rcv-new-cumulative').value);
+        if (isNaN(val) || val < 0) { toast('กรอกตัวเลข ≥ 0', 'error'); return; }
+        await api(`/receivers/${rid}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ cumulative_received: val }),
+        });
+        toast('✅ ปรับยอดเรียบร้อย', 'success');
+        closeModal();
+        renderReceivers();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
+
+async function receiverEditQr(rid, owner, currentUrl) {
+    const preview = currentUrl
+        ? `<img src="${esc(currentUrl)}" style="max-width:200px;max-height:200px;border:1px solid var(--border);border-radius:8px;background:#fff;display:block;margin:0 auto 0.875rem;">`
+        : '<div style="text-align:center;color:var(--text-dim);font-size:0.875rem;margin-bottom:0.875rem;">ยังไม่มี QR</div>';
+    openModal('📱 QR Code — ' + esc(owner), `
+        ${preview}
+        <div class="form-group">
+            <label>อัปโหลดรูป QR ใหม่</label>
+            <input type="file" id="rcv-qr-file" accept="image/png,image/jpeg,image/webp">
+            <div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.25rem;">รองรับ PNG / JPG / WEBP สูงสุด 4MB</div>
+        </div>
+        <div style="display:flex;gap:0.5rem;">
+            <button class="btn btn-primary" style="flex:1;" onclick="doReceiverUploadQr(${rid})">📤 อัปโหลด</button>
+            ${currentUrl ? `<button class="btn btn-outline" onclick="doReceiverRemoveQr(${rid})">🗑 ลบ QR</button>` : ''}
+        </div>
+    `);
+}
+
+async function doReceiverUploadQr(rid) {
+    try {
+        const file = document.getElementById('rcv-qr-file')?.files?.[0];
+        if (!file) { toast('เลือกไฟล์ก่อน', 'error'); return; }
+        if (file.size > 4 * 1024 * 1024) { toast('ไฟล์ใหญ่เกิน 4MB', 'error'); return; }
+
+        const fd = new FormData();
+        fd.append('file', file);
+
+        const resp = await fetch('/api/receivers/upload-qr', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + token },
+            body: fd,
+        });
+        if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.detail || 'upload failed'); }
+        const data = await resp.json();
+        const url = data.url;
+
+        await api(`/receivers/${rid}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ qr_url: url }),
+        });
+        toast('✅ อัปโหลด QR สำเร็จ', 'success');
+        closeModal();
+        renderReceivers();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
+
+async function doReceiverRemoveQr(rid) {
+    if (!confirm('ลบรูป QR ออกจากบัญชีนี้?')) return;
+    try {
+        await api(`/receivers/${rid}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ qr_url: '' }),
+        });
+        toast('✅ ลบ QR เรียบร้อย', 'success');
+        closeModal();
+        renderReceivers();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
+
+async function receiverNew() {
+    openModal('➕ เพิ่มบัญชีรับเงิน', `
+        <div class="form-row">
+            <div class="form-group">
+                <label>ชื่อเจ้าของบัญชี *</label>
+                <input id="rn-owner" placeholder="เช่น นายชาคริต กิ่งวงษา">
+            </div>
+            <div class="form-group">
+                <label>คำสำคัญสำหรับ slip OCR *</label>
+                <input id="rn-keyword" placeholder="เช่น ชาคริต">
+                <div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.2rem;">substring ของชื่อ จะใช้ match สลิป</div>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>ธนาคาร (ชื่อไทย) *</label>
+                <select id="rn-bank-name">
+                    <option value="ธนาคารไทยพาณิชย์">ไทยพาณิชย์ (SCB)</option>
+                    <option value="ธนาคารกสิกรไทย">กสิกรไทย (KBANK)</option>
+                    <option value="ธนาคารกรุงเทพ">กรุงเทพ (BBL)</option>
+                    <option value="ธนาคารกรุงไทย">กรุงไทย (KTB)</option>
+                    <option value="ธนาคารกรุงศรีอยุธยา">กรุงศรี (BAY)</option>
+                    <option value="ธนาคารทหารไทยธนชาต">ทหารไทยธนชาต (TTB)</option>
+                    <option value="ธนาคารออมสิน">ออมสิน (GSB)</option>
+                    <option value="ธนาคารธนชาต">ธนชาต (TBANK)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>รหัสธนาคาร *</label>
+                <select id="rn-bank-code">
+                    <option value="SCB">SCB</option>
+                    <option value="KBANK">KBANK</option>
+                    <option value="BBL">BBL</option>
+                    <option value="KTB">KTB</option>
+                    <option value="BAY">BAY</option>
+                    <option value="TTB">TTB</option>
+                    <option value="GSB">GSB</option>
+                    <option value="TBANK">TBANK</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>เลขบัญชี *</label>
+                <input id="rn-account" placeholder="เช่น 4142039642">
+            </div>
+            <div class="form-group">
+                <label>PromptPay (optional)</label>
+                <input id="rn-promptpay" placeholder="เบอร์ หรือ เลขประจำตัว">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Weight (0-100)</label>
+                <input type="number" id="rn-weight" min="0" max="100" value="1">
+            </div>
+            <div class="form-group">
+                <label>Alert threshold (บาท)</label>
+                <input type="number" id="rn-threshold" min="0" step="100" value="5000">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>QR code (optional — อัปโหลดทีหลังก็ได้)</label>
+            <input type="file" id="rn-qr-file" accept="image/png,image/jpeg,image/webp">
+        </div>
+        <button class="btn btn-primary btn-full" onclick="doReceiverNew()">✅ สร้างบัญชี</button>
+    `);
+}
+
+async function doReceiverNew() {
+    try {
+        const owner = document.getElementById('rn-owner').value.trim();
+        const keyword = document.getElementById('rn-keyword').value.trim();
+        const bankName = document.getElementById('rn-bank-name').value;
+        const bankCode = document.getElementById('rn-bank-code').value;
+        const account = document.getElementById('rn-account').value.trim();
+        const promptpay = document.getElementById('rn-promptpay').value.trim();
+        const weight = parseInt(document.getElementById('rn-weight').value) || 1;
+        const threshold = parseFloat(document.getElementById('rn-threshold').value) || 0;
+        const qrFile = document.getElementById('rn-qr-file')?.files?.[0];
+
+        if (!owner || !keyword || !bankCode || !account) {
+            toast('กรอกฟิลด์ที่มี * ให้ครบ', 'error');
+            return;
+        }
+
+        // Upload QR first if present
+        let qr_url = null;
+        if (qrFile) {
+            if (qrFile.size > 4 * 1024 * 1024) { toast('QR ใหญ่เกิน 4MB', 'error'); return; }
+            const fd = new FormData();
+            fd.append('file', qrFile);
+            const resp = await fetch('/api/receivers/upload-qr', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + token },
+                body: fd,
+            });
+            if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.detail || 'qr upload failed'); }
+            const data = await resp.json();
+            qr_url = data.url;
+        }
+
+        await api('/receivers', {
+            method: 'POST',
+            body: JSON.stringify({
+                owner_name: owner,
+                bank_code: bankCode,
+                bank_name_th: bankName,
+                account_no: account,
+                name_keyword: keyword,
+                promptpay_number: promptpay || null,
+                qr_url: qr_url,
+                weight, alert_threshold: threshold,
+            }),
+        });
+        toast('✅ สร้างบัญชีเรียบร้อย', 'success');
         closeModal();
         renderReceivers();
     } catch (err) {
