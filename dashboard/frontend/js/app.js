@@ -1723,7 +1723,7 @@ async function renderInbox() {
                 let actions = '';
                 if (it.type === 'payment') {
                     actions = `
-                        <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.75rem;color:var(--text-muted);cursor:pointer;"><input type="checkbox" ${window._inboxSelected?.has(${it.id}) ? 'checked' : ''} onclick="event.stopPropagation();inboxToggle(${it.id})" style="width:auto;"> เลือก</label>
+                        <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.75rem;color:var(--text-muted);cursor:pointer;"><input type="checkbox" ${window._inboxSelected?.has(it.id) ? 'checked' : ''} onclick="event.stopPropagation();inboxToggle(${it.id})" style="width:auto;"> เลือก</label>
                         <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); window.open('/api/payments/${it.id}/slip-image', '_blank');">👁 ดูสลิป</button>
                         <button class="btn btn-sm btn-success" onclick="event.stopPropagation(); inboxAction('approve_payment', ${it.id});">✅ Approve</button>
                         <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); inboxAction('reject_payment', ${it.id});">❌ Reject</button>`;
