@@ -174,9 +174,9 @@ async def relay_sync_status(admin=Depends(require_role("admin"))):
         WHERE min_tier = 'FREE' AND is_active = TRUE
         ORDER BY slug
     """)
-    db_chat_ids = sorted(int(r["chat_id"]) for r in rows)
-    db_slugs = {int(r["chat_id"]): r["slug"] for r in rows}
-    db_titles = {int(r["chat_id"]): r["title"] for r in rows}
+    db_chat_ids = sorted(int(r["chat_id"] or 0) for r in rows)
+    db_slugs = {int(r["chat_id"] or 0): r["slug"] for r in rows}
+    db_titles = {int(r["chat_id"] or 0): r["title"] for r in rows}
 
     # 2. Get current env value
     env = _read_env_groups_sync()

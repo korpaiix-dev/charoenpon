@@ -20,7 +20,7 @@ async def kpi(days: int = 30, admin=Depends(require_role("admin"))):
     
     active = row["active_members"] or 1
     return {
-        "revenue": float(row["revenue"]),
+        "revenue": float(row["revenue"] or 0),
         "new_members": row["new_members"],
         "churned": row["churned"],
         "active_members": active,
@@ -38,7 +38,7 @@ async def weekly_comparison(admin=Depends(require_role("admin"))):
         WHERE p.status = 'CONFIRMED' AND p.created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - 56
         GROUP BY week_start ORDER BY week_start
     """)
-    return [{"week": str(r["week_start"]), "revenue": float(r["revenue"]), "transactions": r["transactions"]} for r in rows]
+    return [{"week": str(r["week_start"]), "revenue": float(r["revenue"] or 0), "transactions": r["transactions"]} for r in rows]
 
 @router.get("/funnel")
 async def funnel(days: int = 30, admin=Depends(require_role("admin"))):
@@ -105,7 +105,7 @@ async def marketing_roi(days: int = 30, admin=Depends(require_role("admin"))):
                    j.telegram_id, j.joined_at
             FROM marketing_invite_links l
             LEFT JOIN marketing_invite_joins j ON j.link_id = l.id
-                 AND j.joined_at >= now() - ($1 || ' days')::interval
+                 AND j.joined_at >= now() - ($1::int * INTERVAL '1 day')
             WHERE l.is_revoked = false OR j.id IS NOT NULL
         ),
         paid AS (
@@ -277,8 +277,8 @@ async def update_marketing_link(link_id: int, req: _LinkCostUpdate,
             admin["telegram_id"], link_id,
             f"marketer={row['marketer']} platform={row['platform']} cost={req.cost}",
         )
-    except Exception:
-        pass
+    except Exception as _re_exc:
+        logger.warning("marketing revoke: %s", _re_exc)
     return {"ok": True, "id": link_id}
 
 
@@ -321,7 +321,7 @@ async def revoke_marketing_link(link_id: int, admin=Depends(require_role("admin"
             admin["telegram_id"], link_id,
             f"marketer={row['marketer']} platform={row['platform']} tg_api={tg_revoke_result}",
         )
-    except Exception:
-        pass
+    except Exception as _re_exc:
+        logger.warning("marketing revoke: %s", _re_exc)
     return {"ok": True, "id": link_id, "tg_revoked": tg_revoke_result}
 

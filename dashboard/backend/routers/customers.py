@@ -199,7 +199,7 @@ async def broadcast_message(
 
     # Resolve target user IDs (set) — re-use existing helper
     user_rows = await _get_broadcast_users(target)
-    user_ids = [int(r["telegram_id"]) for r in user_rows if r["telegram_id"] is not None]
+    user_ids = [int(r["telegram_id"] or 0) for r in user_rows if r["telegram_id"] is not None]
     if not user_ids:
         raise HTTPException(400, "ไม่มีผู้รับ — ยกเลิก broadcast")
 
@@ -466,7 +466,7 @@ async def get_customer_timeline(user_id: int, admin=Depends(require_role("modera
                 "icon": "💰",
                 "color": "success",
                 "at": r["verified_at"].isoformat() if r["verified_at"] else r["created_at"].isoformat(),
-                "title": f"จ่ายเงิน ฿{float(r['amount']):,.0f}",
+                "title": f"จ่ายเงิน ฿{float(r['amount'] or 0):,.0f}",
                 "subtitle": f"{r['package_name'] or '?'} · {r['method']}{' (auto)' if r['auto_approved'] else ' (manual)'}",
                 "ref_id": r["id"],
                 "ref_type": "payment",
@@ -477,7 +477,7 @@ async def get_customer_timeline(user_id: int, admin=Depends(require_role("modera
                 "icon": "❌",
                 "color": "error",
                 "at": r["created_at"].isoformat(),
-                "title": f"Payment ถูก reject ฿{float(r['amount']):,.0f}",
+                "title": f"Payment ถูก reject ฿{float(r['amount'] or 0):,.0f}",
                 "subtitle": (r["reject_reason"] or "no reason")[:120],
                 "ref_id": r["id"],
                 "ref_type": "payment",
@@ -488,7 +488,7 @@ async def get_customer_timeline(user_id: int, admin=Depends(require_role("modera
                 "icon": "⏳",
                 "color": "warning",
                 "at": r["created_at"].isoformat(),
-                "title": f"ส่งสลิป ฿{float(r['amount']):,.0f} รออนุมัติ",
+                "title": f"ส่งสลิป ฿{float(r['amount'] or 0):,.0f} รออนุมัติ",
                 "subtitle": r["package_name"] or "?",
                 "ref_id": r["id"],
                 "ref_type": "payment",

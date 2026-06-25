@@ -92,11 +92,11 @@ async def summary(request: Request, admin=Depends(get_current_admin)):
         return round(((curr - prev) / prev) * 100, 1)
     
     return {
-        "today": float(row["today"]),
+        "today": float(row["today"] or 0),
         "today_change": pct(row["today"], row["yesterday"]),
-        "week": float(row["week"]),
+        "week": float(row["week"] or 0),
         "week_change": pct(row["week"], row["last_week"]),
-        "month": float(row["month"]),
+        "month": float(row["month"] or 0),
         "month_change": pct(row["month"], row["last_month"]),
     }
 
@@ -108,7 +108,7 @@ async def revenue_chart(days: int = 30, admin=Depends(get_current_admin)):
         WHERE p.status = 'CONFIRMED' AND p.created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day'
         GROUP BY p.created_at::date ORDER BY date
     """, days)
-    return [{"date": str(r["date"]), "revenue": float(r["revenue"])} for r in rows]
+    return [{"date": str(r["date"]), "revenue": float(r["revenue"] or 0)} for r in rows]
 
 @router.get("/sales-analytics")
 async def sales_analytics(
@@ -251,9 +251,9 @@ async def sales_analytics(
             "orders": int(previous["orders"] or 0),
             "buyers": int(previous["buyers"] or 0),
         },
-        "chart": [{"date": str(r["day"]), "revenue": float(r["revenue"]), "orders": int(r["orders"]), "buyers": int(r["buyers"])} for r in chart_rows],
-        "packages": [{"package_name": r["package_name"], "revenue": float(r["revenue"]), "orders": int(r["orders"]), "buyers": int(r["buyers"])} for r in package_rows],
-        "months": [{"month": str(r["month"])[:7], "revenue": float(r["revenue"]), "orders": int(r["orders"]), "buyers": int(r["buyers"])} for r in month_rows],
+        "chart": [{"date": str(r["day"]), "revenue": float(r["revenue"] or 0), "orders": int(r["orders"] or 0), "buyers": int(r["buyers"] or 0)} for r in chart_rows],
+        "packages": [{"package_name": r["package_name"], "revenue": float(r["revenue"] or 0), "orders": int(r["orders"] or 0), "buyers": int(r["buyers"] or 0)} for r in package_rows],
+        "months": [{"month": str(r["month"])[:7], "revenue": float(r["revenue"] or 0), "orders": int(r["orders"] or 0), "buyers": int(r["buyers"] or 0)} for r in month_rows],
     }
 
 @router.get("/members-stats")
@@ -283,7 +283,7 @@ async def flash_sale_status(admin=Depends(get_current_admin)):
         "sold_slots": row["sold_slots"],
         "total_slots": row["total_slots"],
         "ends_at": str(row["ends_at"]),
-        "flash_price": float(row["flash_price"]),
+        "flash_price": float(row["flash_price"] or 0),
     }
 
 @router.get("/dm-stats")
@@ -734,7 +734,7 @@ async def get_inbox(admin=Depends(require_role("admin"))):
             "type": "payment",
             "id": r["id"],
             "severity": _sev_payment(r["age_sec"]),
-            "title": f"Payment #{r['id']} — ฿{float(r['amount']):,.0f}",
+            "title": f"Payment #{r['id']} — ฿{float(r['amount'] or 0):,.0f}",
             "subtitle": f"{r['first_name'] or 'Unknown'} · {r['package_name'] or '?'}",
             "telegram_id": r["telegram_id"],
             "username": r["username"],

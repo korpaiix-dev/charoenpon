@@ -118,8 +118,8 @@ async def list_promotion_campaigns(admin=Depends(require_role("admin"))):
     return [
         {
             **dict(r),
-            "normal_price": float(r["normal_price"]),
-            "promo_price": float(r["promo_price"]),
+            "normal_price": float(r["normal_price"]) if r["normal_price"] is not None else None,
+            "promo_price": float(r["promo_price"]) if r["promo_price"] is not None else None,
             "orders": int(r["orders"] or 0),
             "buyers": int(r["buyers"] or 0),
             "revenue": float(r["revenue"] or 0),
@@ -206,9 +206,9 @@ async def promo_stats(admin=Depends(require_role("admin"))):
     """)
     return {
         "codes_used": row["codes_used"],
-        "total_discount": float(row["total_discount"]),
+        "total_discount": float(row["total_discount"] or 0),
         "flash_sold": row["flash_sold"],
-        "flash_revenue": float(row["flash_revenue"]),
+        "flash_revenue": float(row["flash_revenue"] or 0),
     }
 
 
@@ -261,7 +261,7 @@ async def promo_performance(admin=Depends(require_role("admin"))):
         "flash_sales": [
             {
                 "id": r["id"], "name": r["name"], "package_name": r["package_name"],
-                "flash_price": float(r["flash_price"]), "original_price": float(r["original_price"]),
+                "flash_price": float(r["flash_price"] or 0), "original_price": float(r["original_price"] or 0),
                 "sold_slots": int(r["sold_slots"] or 0), "total_slots": int(r["total_slots"] or 0),
                 "revenue": float(r["revenue"] or 0), "discount_saved": float(r["discount_saved"] or 0),
                 "starts_at": str(r["starts_at"]), "ends_at": str(r["ends_at"]), "is_active": r["is_active"],
