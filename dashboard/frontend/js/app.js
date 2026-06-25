@@ -4191,3 +4191,70 @@ async function openPraeConvo(telegramId) {
     }
 }
 
+// ===== Sprint 1.3: Unified Daily Report (single source of truth) =====
+async function openDailyReportModal() {
+    try {
+        const d = await api('/daily-report/today');
+        const diffIcon = d.diff_revenue >= 0 ? '📈' : '📉';
+        const diffColor = d.diff_revenue >= 0 ? 'var(--success)' : 'var(--error)';
+        const diffSign = d.diff_revenue >= 0 ? '+' : '';
+
+        const pkgs = (d.top_packages || []).map(p => `
+            <tr style="border-top:1px solid var(--border);">
+                <td style="padding:0.4rem;">${esc(p.name)}</td>
+                <td style="padding:0.4rem;text-align:right;font-variant-numeric:tabular-nums;">${fmt(p.sold)}</td>
+                <td style="padding:0.4rem;text-align:right;font-variant-numeric:tabular-nums;color:var(--primary);">${fmtBaht(p.revenue)}</td>
+            </tr>
+        `).join('');
+
+        openModal(`📋 รายงานวันนี้ — ${d.date_bkk}`, `
+            <div style="background:linear-gradient(135deg,var(--accent-light),transparent);padding:1rem;border-radius:12px;margin-bottom:1rem;">
+                <div style="font-size:0.75rem;color:var(--text-muted);">รายได้วันนี้</div>
+                <div style="font-size:2rem;font-weight:700;color:var(--primary);">${fmtBaht(d.today.revenue)}</div>
+                <div style="font-size:0.875rem;color:${diffColor};margin-top:0.25rem;">
+                    ${diffIcon} ${diffSign}${fmtBaht(d.diff_revenue)} (${diffSign}${d.diff_pct.toFixed(1)}%) vs เมื่อวาน
+                </div>
+            </div>
+
+            <div class="mini-cards" style="margin-bottom:1rem;">
+                <div class="mini-card"><div class="mini-card-label">ออเดอร์</div><div class="mini-card-value">${fmt(d.today.orders)}</div></div>
+                <div class="mini-card"><div class="mini-card-label">ลูกค้าใหม่</div><div class="mini-card-value">${fmt(d.new_users)}</div></div>
+                <div class="mini-card"><div class="mini-card-label">รออนุมัติ</div><div class="mini-card-value" style="color:var(--warning);">${fmt(d.today.pending)}</div></div>
+                <div class="mini-card"><div class="mini-card-label">SOS เปิด</div><div class="mini-card-value" style="color:${d.sos_open > 0 ? 'var(--error)' : 'var(--text-muted)'};">${fmt(d.sos_open)}</div></div>
+            </div>
+
+            <div class="card" style="margin-bottom:1rem;">
+                <div class="card-label">📋 Subscriptions</div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.5rem;font-size:0.875rem;">
+                    <div><div style="color:var(--text-muted);">Active</div><div style="font-size:1.25rem;font-weight:600;">${fmt(d.subscriptions.active)}</div></div>
+                    <div><div style="color:var(--text-muted);">หมดใน 7 วัน</div><div style="font-size:1.25rem;font-weight:600;color:var(--warning);">${fmt(d.subscriptions.expiring_7d)}</div></div>
+                    <div><div style="color:var(--text-muted);">หมดใน 24 ชม.</div><div style="font-size:1.25rem;font-weight:600;color:var(--error);">${fmt(d.subscriptions.expiring_24h)}</div></div>
+                </div>
+            </div>
+
+            ${pkgs ? `
+            <div class="card">
+                <div class="card-label">🏆 แพ็กเกจขายดีวันนี้</div>
+                <table style="width:100%;font-size:0.875rem;">
+                    <thead style="background:var(--surface-2);">
+                        <tr>
+                            <th style="padding:0.4rem;text-align:left;">แพ็กเกจ</th>
+                            <th style="padding:0.4rem;text-align:right;">ขายได้</th>
+                            <th style="padding:0.4rem;text-align:right;">รายได้</th>
+                        </tr>
+                    </thead>
+                    <tbody>${pkgs}</tbody>
+                </table>
+            </div>
+            ` : ''}
+
+            <div style="margin-top:1rem;padding:0.625rem;background:var(--surface-2);border-radius:8px;font-size:0.75rem;color:var(--text-muted);">
+                💡 รายงานนี้ใช้ข้อมูลเดียวกันกับ Discord report (08:00) + Telegram daily summary (23:59).<br>
+                หมายเหตุ: filter <code>amount > 0</code> + <code>telegram_id < 9000000000</code> เพื่อตัด test users
+            </div>
+        `);
+    } catch (err) {
+        toast('❌ ' + (err.message || 'load failed'), 'error');
+    }
+}
+
