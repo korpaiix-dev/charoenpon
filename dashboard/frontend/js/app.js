@@ -548,7 +548,52 @@ function paginationHtml(page, pages, fn) {
 async function renderInbox() {
     const content = document.getElementById('page-content');
     try {
-        const data = await api('/dashboard/inbox');
+        // Mock mode (preview only — no real data fetched)
+        let data;
+        if (window.__inboxMock === true) {
+            data = {
+                total: 5,
+                counts: { payment: 2, sos: 2, broadcast: 1 },
+                items: [
+                    {
+                        type: 'sos', id: 9001, severity: 'critical',
+                        title: 'SOS — โน้ต',
+                        subtitle: 'พี่ขอความช่วยเหลือหน่อยครับ จ่ายเงินแล้วแต่ยังไม่ได้ลิ้งห้อง',
+                        telegram_id: 7630848719, username: 'notepad_th',
+                        age_sec: 2100, status: 'PENDING'
+                    },
+                    {
+                        type: 'payment', id: 871, severity: 'high',
+                        title: 'Payment #871 — ฿890',
+                        subtitle: 'Joffrey · GOD MODE 90 วัน',
+                        telegram_id: 8502597269, username: 'joffrey_p',
+                        amount: 890, age_sec: 1900, status: 'PENDING'
+                    },
+                    {
+                        type: 'sos', id: 9002, severity: 'high',
+                        title: 'SOS — Pim',
+                        subtitle: 'เข้ากลุ่ม VIP ไม่ได้ค่ะ ลิ้งหมดอายุ',
+                        telegram_id: 1234567890, username: 'pim_sjs',
+                        age_sec: 1100, status: 'PENDING'
+                    },
+                    {
+                        type: 'payment', id: 873, severity: 'medium',
+                        title: 'Payment #873 — ฿500',
+                        subtitle: 'Win · OnlyFans + VIP 30 วัน',
+                        telegram_id: 5678901234, username: 'win_2024',
+                        amount: 500, age_sec: 720, status: 'PENDING'
+                    },
+                    {
+                        type: 'broadcast', id: 142, severity: 'low',
+                        title: 'Broadcast — filter=active',
+                        subtitle: 'พี่ๆ มีโปรแสงๆ จันทร์นี้นะคะ แพ็ก 300 ลด 25% แค่วันเดียว',
+                        sent_by: 'boss', age_sec: 3700
+                    },
+                ]
+            };
+        } else {
+            data = await api('/dashboard/inbox');
+        }
         const total = data.total || 0;
         const c = data.counts || {payment:0, sos:0, broadcast:0};
         const items = data.items || [];
@@ -642,16 +687,28 @@ async function renderInbox() {
         }
 
         function fullRender() {
+            const isMock = window.__inboxMock === true;
+            const mockBadge = isMock
+                ? `<span style="background:rgba(247,176,69,0.15);color:#b8770b;padding:0.15rem 0.5rem;border-radius:4px;font-size:0.7rem;font-weight:600;margin-left:0.5rem;">🎨 PREVIEW</span>`
+                : '';
+            const mockButton = (total === 0 && !isMock)
+                ? `<button class="btn btn-outline btn-sm" onclick="window.__inboxMock=true; renderInbox();" style="margin-left:0.5rem;">🎨 ดูตัวอย่าง</button>`
+                : (isMock
+                    ? `<button class="btn btn-outline btn-sm" onclick="window.__inboxMock=false; renderInbox();" style="margin-left:0.5rem;">← กลับข้อมูลจริง</button>`
+                    : '');
             content.innerHTML = `
                 <div style="max-width:760px;">
                     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1.25rem;">
                         <div>
-                            <h2 style="margin:0; font-size:1.25rem; font-weight:600; color:var(--text); letter-spacing:-0.02em;">📥 กล่องรอจัดการ</h2>
+                            <h2 style="margin:0; font-size:1.25rem; font-weight:600; color:var(--text); letter-spacing:-0.02em;">📥 กล่องรอจัดการ${mockBadge}</h2>
                             <p style="margin:0.25rem 0 0; color:var(--text-muted); font-size:0.875rem;">
                                 ${total === 0 ? 'ไม่มีงานค้างค่ะ' : 'มี ' + total + ' งานรอจัดการ'}
                             </p>
                         </div>
-                        <button class="btn btn-outline btn-sm" onclick="renderInbox()">🔄 รีโหลด</button>
+                        <div>
+                            <button class="btn btn-outline btn-sm" onclick="renderInbox()">🔄 รีโหลด</button>
+                            ${mockButton}
+                        </div>
                     </div>
                     <div class="filters" style="margin-bottom:1rem;">${renderChips()}</div>
                     <div id="inbox-list">${renderList()}</div>
