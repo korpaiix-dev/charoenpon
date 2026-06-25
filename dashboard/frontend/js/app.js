@@ -3360,7 +3360,7 @@ async function renderTeam() {
         const data = await api('/team');
         let html = '';
         if (hasRole('owner') || hasRole('super_admin')) html += `<button class="btn btn-primary" onclick="showAddTeamForm()" style="margin-bottom:1rem;">+ เพิ่มทีมงาน</button>`;
-        
+
         // Role hierarchy info
         html += `<div class="alert-box" style="margin-bottom:1rem;font-size:0.8rem;">
             <div class="alert-box-item">👑 <b>Owner (100)</b> — ทำได้ทุกอย่าง</div>
@@ -3368,27 +3368,106 @@ async function renderTeam() {
             <div class="alert-box-item">🛡️ <b>Admin (50)</b> — อนุมัติ + จัดการลูกค้า + โปรโมชั่น</div>
             <div class="alert-box-item">📋 <b>Moderator (10)</b> — ดู + อนุมัติสลิป</div>
         </div>`;
-        
-        html += '<div class="table-wrap"><table><thead><tr><th>ชื่อ</th><th>Telegram ID</th><th>ยศ</th><th>สถานะ</th><th>Login ล่าสุด</th><th></th></tr></thead><tbody>';
+
+        html += '<div class="table-wrap"><table><thead><tr><th>ชื่อ</th><th>Telegram ID</th><th>ยศ</th><th>สถานะ</th><th>Login ล่าสุด</th><th style="text-align:right;">จัดการ</th></tr></thead><tbody>';
         data.forEach(m => {
             const roleIcons = { owner: '👑', super_admin: '⚡', admin: '🛡️', moderator: '📋' };
             const roleIcon = roleIcons[m.role] || '📋';
             const myLevel = ROLE_LEVELS[admin.role] || 0;
             const theirLevel = ROLE_LEVELS[m.role] || 0;
+            // canEdit: I outrank them AND they're not owner
             const canEdit = myLevel > theirLevel && m.role !== 'owner';
+            const canDelete = hasRole('owner') && m.role !== 'owner' && m.id !== admin.id;
+            const canReset = hasRole('owner') && m.id !== admin.id;
+            const isMe = m.id === admin.id;
+
+            const nameEsc = esc(m.display_name).replace(/'/g, '&#39;');
+            const roleEsc = esc(m.role).replace(/'/g, '&#39;');
+
+            let actions = `<button class="btn btn-sm btn-outline" onclick="showTeamActivity(${m.id})" title="ดูประวัติ">📋</button>`;
+            if (canEdit) {
+                actions = `<button class="btn btn-sm btn-outline" onclick="showEditTeam(${m.id},'${nameEsc}','${roleEsc}',${m.is_active})" title="แก้ไข">✏️</button>` + actions;
+            }
+            if (canReset) {
+                actions += `<button class="btn btn-sm btn-outline" onclick="resetTeamPassword(${m.id},'${nameEsc}')" title="รีเซ็ตรหัสผ่าน">🔑</button>`;
+            }
+            if (canDelete) {
+                actions += `<button class="btn btn-sm btn-danger" onclick="deleteTeamMember(${m.id},'${nameEsc}')" title="ลบทีมงาน">🗑</button>`;
+            }
+            if (isMe) {
+                actions += ' <span style="font-size:0.7rem;color:var(--text-muted);margin-left:0.25rem;">(คุณ)</span>';
+            }
+
             html += `<tr>
                 <td>${esc(m.display_name)}</td>
                 <td style="font-family:var(--font-mono);">${m.telegram_id}</td>
                 <td>${roleIcon} ${esc(m.role)}</td>
-                <td>${m.is_active ? '<span style="color:var(--success)">🟢</span>' : '<span style="color:var(--error)">🔴</span>'}</td>
+                <td>${m.is_active ? '<span style="color:var(--success)">🟢 Active</span>' : '<span style="color:var(--error)">🔴 Disabled</span>'}</td>
                 <td>${fmtDateTime(m.last_login_at)}</td>
-                <td>${canEdit ? `<div class="btn-group"><button class="btn btn-sm btn-outline" onclick="showEditTeam(${m.id},'${esc(m.display_name).replace(/'/g,'\\&#39;')}','${esc(m.role).replace(/'/g,'\\&#39;')}',${m.is_active})">✏️</button><button class="btn btn-sm btn-outline" onclick="showTeamActivity(${m.id})">📋</button></div>` : (m.role !== 'owner' ? `<button class="btn btn-sm btn-outline" onclick="showTeamActivity(${m.id})">📋</button>` : '')}</td>
+                <td style="text-align:right;"><div class="btn-group" style="justify-content:flex-end;">${actions}</div></td>
             </tr>`;
         });
         html += '</tbody></table></div>';
         content.innerHTML = html;
     } catch (e) { content.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`; }
 }
+
+async function deleteTeamMember(id, name) {
+    if (!confirm(`ลบทีมงาน "${name}"?
+
+• Account จะ disabled (soft delete)
+• Session ทั้งหมดถูก revoke (logout ทันที)
+• Activity history ยังคงอยู่ในระบบ
+
+กลับคืนได้โดยให้ owner รีเปิด is_active`)) return;
+    try {
+        await api(`/team/${id}`, { method: 'DELETE' });
+        toast(`✅ ลบ ${name} เรียบร้อย`, 'success');
+        renderTeam();
+    } catch (e) {
+        toast('❌ ' + (e.message || 'ลบไม่สำเร็จ'), 'error');
+    }
+}
+
+async function resetTeamPassword(id, name) {
+    const pw = prompt(`ตั้งรหัสผ่านใหม่ให้ "${name}" (อย่างน้อย 10 ตัวอักษร):`);
+    if (!pw) return;
+    if (pw.length < 10) { toast('รหัสผ่านต้อง ≥ 10 ตัวอักษร', 'error'); return; }
+    try {
+        await api(`/team/${id}/password-reset`, {
+            method: 'POST',
+            body: JSON.stringify({ new_password: pw }),
+        });
+        toast(`✅ Reset password ${name} เรียบร้อย (session ถูก revoke)`, 'success');
+    } catch (e) {
+        toast('❌ ' + (e.message || 'reset ไม่สำเร็จ'), 'error');
+    }
+}
+
+async function showTeamActivity(id) {
+    try {
+        const r = await api(`/team/${id}/activity?limit=50`);
+        const items = r.items || [];
+        const body = items.length === 0
+            ? '<div style="text-align:center;padding:1rem;color:var(--text-muted);">ยังไม่มี activity</div>'
+            : items.map(it => `
+                <div style="padding:0.5rem 0;border-top:1px solid var(--border);font-size:0.8rem;">
+                    <div style="display:flex;justify-content:space-between;">
+                        <span><b>${esc(it.action)}</b> ${it.entity_type ? `· ${esc(it.entity_type)} #${it.entity_id || '?'}` : ''}</span>
+                        <span style="color:var(--text-muted);">${fmtDateTime(it.created_at)}</span>
+                    </div>
+                    ${it.details ? `<div style="color:var(--text-muted);font-size:0.72rem;margin-top:0.2rem;">${esc(JSON.stringify(it.details))}</div>` : ''}
+                </div>
+            `).join('');
+        openModal(`📋 Activity — ${esc(r.member?.display_name || '')}`, `
+            <div style="max-height:60vh;overflow:auto;">${body}</div>
+            <div style="margin-top:0.75rem;font-size:0.75rem;color:var(--text-muted);text-align:center;">แสดง ${items.length} รายการล่าสุด</div>
+        `);
+    } catch (e) {
+        toast('❌ ' + (e.message || 'load failed'), 'error');
+    }
+}
+
 
 function showAddTeamForm() {
     const roleOptions = hasRole('owner') 
@@ -3459,18 +3538,6 @@ async function deleteTeam(id) {
     } catch (e) { toast(e.message, 'error'); }
 }
 
-async function showTeamActivity(id) {
-    try {
-        const data = await api(`/team/${id}/activity`);
-        let html = '<div class="table-wrap"><table><thead><tr><th>เวลา</th><th>Action</th><th>Type</th><th>Details</th></tr></thead><tbody>';
-        data.items.forEach(a => {
-            const details = a.details ? JSON.stringify(a.details).slice(0,80) : '-';
-            html += `<tr><td>${fmtDateTime(a.created_at)}</td><td>${esc(a.action)}</td><td>${esc(a.entity_type || '-')}</td><td style="font-size:0.8rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;">${esc(details)}</td></tr>`;
-        });
-        html += '</tbody></table></div>';
-        openModal('📋 Activity Log', html);
-    } catch (e) { toast(e.message, 'error'); }
-}
 
 // ========== PAGE: SETTINGS ==========
 let settingsTab = 'packages';
