@@ -116,6 +116,7 @@ const NAV_ITEMS = [
     { id: 'receivers', icon: '💳', label: 'บัญชีรับเงิน', minRole: 'admin' },
     { id: 'promotions', icon: '📢', label: 'โปรโมชั่น', minRole: 'admin' },
     { id: 'content', icon: '📸', label: 'Content', minRole: 'moderator' },
+    { id: 'gacha', icon: '🎰', label: 'กาชา', minRole: 'admin' },
     { id: 'groups', icon: '📱', label: 'กลุ่ม', minRole: 'admin' },
     { id: 'team', icon: '👨‍💼', label: 'ทีมงาน', minRole: 'admin' },
     { id: 'settings', icon: '⚙️', label: 'ตั้งค่า', minRole: 'admin' },
@@ -219,7 +220,7 @@ function navigate(page) {
     try { window.__currentPage = page; } catch {}
     renderSidebar();
     const titles = {
-        dashboard: '📊 ภาพรวม', inbox: '📥 กล่องรอจัดการ', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน',
+        dashboard: '📊 ภาพรวม', inbox: '📥 กล่องรอจัดการ', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน', gacha: '🎰 กาชา',
         promotions: '📢 โปรโมชั่น', content: '📸 Content', groups: '📱 กลุ่ม',
         team: '👨‍💼 ทีมงาน', settings: '⚙️ ตั้งค่า', marketing: '📊 Marketing',
         activity: '📋 Activity Log',
@@ -235,7 +236,7 @@ function navigate(page) {
     content.innerHTML = '<div class="loading"><div class="spinner"></div> กำลังโหลด...</div>';
     
     const pages = {
-        dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance, receivers: renderReceivers,
+        dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance, receivers: renderReceivers, gacha: renderGacha,
         promotions: renderPromotions, content: renderContent, groups: renderGroups,
         team: renderTeam, settings: renderSettings, marketing: renderMarketing,
         activity: renderActivityLog,
@@ -934,6 +935,215 @@ async function receiverHistory(rid, owner) {
                 </table>
             </div>
         `);
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
+
+
+
+// ========== PAGE: GACHA ADMIN ==========
+let _gachaTab = 'overview';
+
+async function renderGacha() {
+    const content = document.getElementById('page-content');
+    content.innerHTML = '<div class="loading"><div class="spinner"></div> กำลังโหลด...</div>';
+
+    try {
+        const [overview, prizes, winners, recent] = await Promise.all([
+            api('/gacha-admin/overview'),
+            api('/gacha-admin/prizes'),
+            api('/gacha-admin/top-winners?days=30&limit=10'),
+            api('/gacha-admin/recent-pulls?limit=20'),
+        ]);
+
+        const td = overview.today, w7 = overview.last_7d, m30 = overview.last_30d;
+
+        // Overview cards
+        function card(label, value, sub, color) {
+            return `
+                <div style="background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1.125rem 1.25rem; position:relative; overflow:hidden;">
+                    <div style="position:absolute; top:0; left:0; right:0; height:2px; background:${color || 'var(--text-dim)'}; opacity:0.8;"></div>
+                    <div style="font-size:0.6875rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:0.5rem;">${label}</div>
+                    <div style="font-size:1.5rem; font-weight:600; color:var(--text); font-variant-numeric:tabular-nums; line-height:1.1;">${value}</div>
+                    ${sub ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.35rem;">${sub}</div>` : ''}
+                </div>`;
+        }
+
+        const overviewCards = `
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:0.875rem; margin-bottom:1.5rem;">
+                ${card('🎰 หมุนวันนี้', `${td.pulls} ครั้ง`, `${td.users} คน · ฿${td.prize_value.toLocaleString()} prize`, 'var(--warning)')}
+                ${card('💰 ฟรี vs จ่าย วันนี้', `${td.free_pulls} / ${td.paid_pulls}`, `ฟรี ${Math.round(td.free_pulls/Math.max(td.pulls,1)*100)}%`, 'var(--accent)')}
+                ${card('📅 7 วัน', `${w7.pulls} pulls`, `${w7.users} unique · ฿${w7.prize_value.toLocaleString()} prize`, 'var(--success)')}
+                ${card('📊 RTP 30 วัน', `${m30.rtp_pct}%`, `รายได้ ฿${m30.revenue.toLocaleString()} · จ่ายคืน ฿${m30.prize_value.toLocaleString()}`, 'var(--primary)')}
+            </div>`;
+
+        // Prize tables
+        function legacyRow(p) {
+            const pct = (parseFloat(p.probability) * 100).toFixed(2);
+            return `
+                <tr>
+                    <td><b>${esc(p.label)}</b><br><small style="color:var(--text-dim); font-family:var(--font-mono);">${esc(p.code)}</small></td>
+                    <td><span class="status-badge status-active">${esc(p.type)}</span></td>
+                    <td style="font-variant-numeric:tabular-nums;">฿${parseFloat(p.value_thb || 0).toLocaleString()}</td>
+                    <td style="font-variant-numeric:tabular-nums; font-weight:600;">${pct}%</td>
+                    <td>${p.is_active ? '<span class="status-badge status-active">✅ เปิด</span>' : '<span class="status-badge status-rejected">⛔ ปิด</span>'}</td>
+                    <td><button class="btn btn-sm btn-outline" onclick="gachaToggleLegacy('${esc(p.code)}', ${!p.is_active})">${p.is_active ? '⛔ ปิด' : '✅ เปิด'}</button></td>
+                </tr>`;
+        }
+        function poolRow(p) {
+            return `
+                <tr>
+                    <td><b>${esc(p.name)}</b><br><small style="color:var(--text-dim); font-family:var(--font-mono);">${esc(p.code)}</small></td>
+                    <td><span class="status-badge status-pending">${esc(p.tier)}</span></td>
+                    <td>${esc(p.prize_type)}</td>
+                    <td style="font-variant-numeric:tabular-nums;">฿${parseFloat(p.value_thb || 0).toLocaleString()}</td>
+                    <td style="font-variant-numeric:tabular-nums; font-weight:600;">${parseFloat(p.probability_pct).toFixed(5)}%</td>
+                    <td>${p.enabled ? '<span class="status-badge status-active">✅</span>' : '<span class="status-badge status-rejected">⛔</span>'}</td>
+                    <td><button class="btn btn-sm btn-outline" onclick="gachaTogglePool(${p.id}, ${!p.enabled})">${p.enabled ? '⛔ ปิด' : '✅ เปิด'}</button></td>
+                </tr>`;
+        }
+
+        // Winners
+        const winnersHtml = (winners.items || []).map(w => {
+            const userLabel = w.username ? '@' + w.username : (w.first_name || 'Unknown');
+            return `
+                <tr>
+                    <td>${fmtDateTime(w.pulled_at)}</td>
+                    <td>${esc(userLabel)} <small style="color:var(--text-dim);">(${w.telegram_id})</small></td>
+                    <td><b>${esc(w.prize_label)}</b></td>
+                    <td style="font-variant-numeric:tabular-nums; font-weight:600; color:var(--success);">฿${parseFloat(w.prize_value_thb).toLocaleString()}</td>
+                    <td>${w.payment_id ? '<span class="status-badge status-active">จ่าย</span>' : '<span class="status-badge status-pending">ฟรี</span>'}</td>
+                </tr>`;
+        }).join('') || '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">ยังไม่มี winner ใน 30 วัน</td></tr>';
+
+        // Recent pulls
+        const recentHtml = (recent.items || []).map(r => {
+            const userLabel = r.username ? '@' + r.username : (r.first_name || 'User');
+            return `
+                <tr>
+                    <td>${fmtDateTime(r.pulled_at)}</td>
+                    <td>${esc(userLabel)}</td>
+                    <td>${esc(r.prize_label || r.prize_code || '?')}</td>
+                    <td style="font-variant-numeric:tabular-nums;">${r.prize_value_thb ? '฿' + parseFloat(r.prize_value_thb).toLocaleString() : '-'}</td>
+                    <td>${r.payment_id ? '💰 จ่าย' : '🎁 ฟรี'}</td>
+                </tr>`;
+        }).join('') || '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">ยังไม่มีกิจกรรม</td></tr>';
+
+        // Tab content
+        function tabContent() {
+            if (_gachaTab === 'overview') {
+                return `
+                    ${overviewCards}
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.25rem;">
+                        <div>
+                            <h3 style="margin:0 0 0.875rem; font-size:0.9375rem; font-weight:600;">🏆 Top Winners 30 วัน</h3>
+                            <div class="table-wrap" style="max-height:520px; overflow:auto;">
+                                <table>
+                                    <thead><tr><th>เวลา</th><th>ผู้เล่น</th><th>รางวัล</th><th>ค่า</th><th>type</th></tr></thead>
+                                    <tbody>${winnersHtml}</tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div>
+                            <h3 style="margin:0 0 0.875rem; font-size:0.9375rem; font-weight:600;">📜 Recent Pulls (20 ล่าสุด)</h3>
+                            <div class="table-wrap" style="max-height:520px; overflow:auto;">
+                                <table>
+                                    <thead><tr><th>เวลา</th><th>ผู้เล่น</th><th>รางวัล</th><th>ค่า</th><th>type</th></tr></thead>
+                                    <tbody>${recentHtml}</tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>`;
+            } else if (_gachaTab === 'prizes_legacy') {
+                const legacy = prizes.legacy_prizes || [];
+                const totalPct = legacy.reduce((acc, p) => acc + parseFloat(p.probability) * 100, 0);
+                return `
+                    <div style="margin-bottom:1rem; padding:0.75rem 1rem; background:var(--surface-2); border-radius:8px; font-size:0.875rem; color:var(--text);">
+                        💡 รวม probability: <b style="color:var(--primary);">${totalPct.toFixed(2)}%</b>
+                        ${Math.abs(totalPct - 100) < 0.01 ? '✅' : '⚠️ ไม่เท่า 100% — ระบบจะ normalize เอง'}
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>รางวัล</th><th>Type</th><th>มูลค่า</th><th>โอกาส %</th><th>สถานะ</th><th></th></tr></thead>
+                            <tbody>${legacy.map(legacyRow).join('')}</tbody>
+                        </table>
+                    </div>`;
+            } else if (_gachaTab === 'prizes_pool') {
+                const poolArr = prizes.prize_pool || [];
+                const totalPct = poolArr.reduce((acc, p) => acc + parseFloat(p.probability_pct), 0);
+                return `
+                    <div style="margin-bottom:1rem; padding:0.75rem 1rem; background:var(--surface-2); border-radius:8px; font-size:0.875rem; color:var(--text);">
+                        💡 รวม probability: <b style="color:var(--primary);">${totalPct.toFixed(5)}%</b>
+                        ${Math.abs(totalPct - 100) < 0.01 ? '✅' : '⚠️ ไม่เท่า 100%'}
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>รางวัล</th><th>Tier</th><th>Type</th><th>มูลค่า</th><th>โอกาส %</th><th>สถานะ</th><th></th></tr></thead>
+                            <tbody>${poolArr.map(poolRow).join('')}</tbody>
+                        </table>
+                    </div>`;
+            }
+            return '';
+        }
+
+        function tabBtn(key, label) {
+            return `<button class="filter-btn ${_gachaTab===key?'active':''}" onclick="window.gachaTab('${key}')">${label}</button>`;
+        }
+
+        content.innerHTML = `
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1.25rem; flex-wrap:wrap; gap:1rem;">
+                <div>
+                    <h2 style="margin:0; font-size:1.25rem; font-weight:600; color:var(--text); letter-spacing:-0.02em;">🎰 กาชา</h2>
+                    <p style="margin:0.25rem 0 0; color:var(--text-muted); font-size:0.875rem;">
+                        ดูสถิติ + จัดการรางวัล + ติดตามกิจกรรม
+                    </p>
+                </div>
+                <button class="btn btn-outline btn-sm" onclick="renderGacha()">🔄 รีโหลด</button>
+            </div>
+
+            <div class="filters" style="margin-bottom:1.25rem;">
+                ${tabBtn('overview', '📊 ภาพรวม')}
+                ${tabBtn('prizes_legacy', '🎁 รางวัลทั่วไป (' + (prizes.legacy_prizes?.length || 0) + ')')}
+                ${tabBtn('prizes_pool', '💎 รางวัลใหญ่/Cash (' + (prizes.prize_pool?.length || 0) + ')')}
+            </div>
+
+            <div>${tabContent()}</div>
+        `;
+
+        window.gachaTab = (key) => {
+            _gachaTab = key;
+            renderGacha();
+        };
+
+    } catch (err) {
+        content.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${esc(err.message)}</p></div>`;
+    }
+}
+
+async function gachaToggleLegacy(code, newActive) {
+    if (!confirm((newActive ? 'เปิด' : 'ปิด') + ' รางวัล ' + code + ' ?')) return;
+    try {
+        await api(`/gacha-admin/prizes/legacy/${encodeURIComponent(code)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ is_active: newActive }),
+        });
+        toast('✅ อัปเดตเรียบร้อย', 'success');
+        renderGacha();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
+
+async function gachaTogglePool(id, newEnabled) {
+    if (!confirm((newEnabled ? 'เปิด' : 'ปิด') + ' รางวัล id=' + id + ' ?')) return;
+    try {
+        await api(`/gacha-admin/prize-pool/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ enabled: newEnabled }),
+        });
+        toast('✅ อัปเดตเรียบร้อย', 'success');
+        renderGacha();
     } catch (err) {
         toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
     }
