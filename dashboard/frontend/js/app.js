@@ -4086,3 +4086,108 @@ async function inboxBulkReject() {
     }
 }
 
+// ========== PAGE: PRAE LOGS ==========
+let praeLogsDays = 7;
+
+async function renderPraeLogs() {
+    const area = document.getElementById('page-content');
+    area.innerHTML = '<div class="loading"><div class="spinner"></div> กำลังโหลด...</div>';
+    try {
+        const [summary, topUsers] = await Promise.all([
+            api(`/prae-logs/summary?days=${praeLogsDays}`),
+            api(`/prae-logs/top-users?days=${praeLogsDays}&limit=30`),
+        ]);
+        const cost_thb = (summary.total_cost_usd || 0) * 35;
+
+        area.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+                <h2 style="margin:0;font-size:1.25rem;font-weight:600;">💬 Prae Logs</h2>
+                <div class="filters">
+                    <button class="filter-btn ${praeLogsDays===1?'active':''}" onclick="praeLogsDays=1;renderPraeLogs()">1 วัน</button>
+                    <button class="filter-btn ${praeLogsDays===7?'active':''}" onclick="praeLogsDays=7;renderPraeLogs()">7 วัน</button>
+                    <button class="filter-btn ${praeLogsDays===30?'active':''}" onclick="praeLogsDays=30;renderPraeLogs()">30 วัน</button>
+                </div>
+            </div>
+
+            <div class="mini-cards" style="margin-bottom:1rem;">
+                <div class="mini-card"><div class="mini-card-label">📨 ข้อความรวม</div><div class="mini-card-value">${fmt(summary.total_msgs || 0)}</div></div>
+                <div class="mini-card"><div class="mini-card-label">👥 คนคุย</div><div class="mini-card-value">${fmt(summary.unique_users || 0)}</div></div>
+                <div class="mini-card"><div class="mini-card-label">💸 Cost (USD)</div><div class="mini-card-value">$${(summary.total_cost_usd||0).toFixed(3)}</div></div>
+                <div class="mini-card"><div class="mini-card-label">≈ THB</div><div class="mini-card-value">฿${cost_thb.toFixed(0)}</div></div>
+            </div>
+
+            <div class="card card-full">
+                <div class="card-label">👥 Top คน Prae คุยเยอะสุด (${praeLogsDays} วัน)</div>
+                <div class="table-wrap" style="max-height:60vh;overflow:auto;">
+                    <table style="width:100%;font-size:0.85rem;">
+                        <thead style="background:var(--surface-2);position:sticky;top:0;">
+                            <tr>
+                                <th style="padding:0.5rem;text-align:left;">ลูกค้า</th>
+                                <th style="padding:0.5rem;text-align:left;">Telegram</th>
+                                <th style="padding:0.5rem;text-align:right;">ข้อความ</th>
+                                <th style="padding:0.5rem;text-align:right;">Cost USD</th>
+                                <th style="padding:0.5rem;text-align:right;">≈ THB</th>
+                                <th style="padding:0.5rem;text-align:left;">ล่าสุด</th>
+                                <th style="padding:0.5rem;text-align:center;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${topUsers.map(u => `
+                            <tr style="border-top:1px solid var(--border);">
+                                <td style="padding:0.5rem;">${esc(u.first_name || '?')} ${esc(u.last_name || '')} ${u.username ? '<small style="color:var(--text-muted);">@'+esc(u.username)+'</small>' : ''}</td>
+                                <td style="padding:0.5rem;font-family:var(--font-mono);font-size:0.75rem;">${u.telegram_id}</td>
+                                <td style="padding:0.5rem;text-align:right;font-variant-numeric:tabular-nums;">${fmt(u.msgs)}</td>
+                                <td style="padding:0.5rem;text-align:right;font-variant-numeric:tabular-nums;">$${(u.total_cost_usd||0).toFixed(4)}</td>
+                                <td style="padding:0.5rem;text-align:right;font-variant-numeric:tabular-nums;color:var(--text-muted);">฿${((u.total_cost_usd||0)*35).toFixed(1)}</td>
+                                <td style="padding:0.5rem;font-size:0.75rem;color:var(--text-muted);">${fmtDateTime(u.last_msg_at)}</td>
+                                <td style="padding:0.5rem;text-align:center;">
+                                    <button class="btn btn-sm btn-outline" onclick="openPraeConvo(${u.telegram_id})">💬 ดูแชท</button>
+                                </td>
+                            </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    } catch (err) {
+        area.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${esc(err.message)}</p></div>`;
+    }
+}
+
+async function openPraeConvo(telegramId) {
+    try {
+        const data = await api(`/prae-logs/conversation/${telegramId}?limit=100`);
+        const u = data.user || {};
+        const msgs = data.messages || [];
+
+        const bubbles = msgs.map(m => {
+            const isPrae = m.role === 'assistant';
+            const tools = m.tools_used && Object.keys(m.tools_used).length > 0
+                ? `<div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.25rem;">🔧 ${esc(JSON.stringify(m.tools_used).slice(0,200))}</div>` : '';
+            const cost = m.cost_usd > 0 ? `<span style="font-size:0.65rem;color:var(--text-muted);margin-left:0.5rem;">$${m.cost_usd.toFixed(5)}</span>` : '';
+            return `
+                <div style="display:flex;${isPrae?'justify-content:flex-start':'justify-content:flex-end'};margin-bottom:0.5rem;">
+                    <div style="max-width:75%;padding:0.5rem 0.75rem;border-radius:12px;background:${isPrae?'var(--surface-2)':'var(--accent)'};color:${isPrae?'var(--text)':'#fff'};font-size:0.875rem;">
+                        <div style="font-size:0.7rem;opacity:0.7;margin-bottom:0.2rem;">${isPrae?'🤖 Prae':'👤 ' + esc(u.first_name || 'User')} <span style="opacity:0.6;">${fmtDateTime(m.created_at)}</span>${cost}</div>
+                        <div style="white-space:pre-wrap;word-break:break-word;">${esc(m.content)}</div>
+                        ${tools}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        openModal(`💬 ${esc(u.first_name || '?')} ${esc(u.last_name || '')} (tg:${telegramId})`, `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                <small style="color:var(--text-muted);">${msgs.length} ข้อความ</small>
+                ${u.id ? `<button class="btn btn-sm btn-outline" onclick="closeModal();showCustomer360(${u.id})">👤 Customer 360</button>` : ''}
+            </div>
+            <div style="max-height:65vh;overflow:auto;padding:0.5rem;background:var(--surface);border-radius:8px;">
+                ${bubbles || '<div style="text-align:center;padding:2rem;color:var(--text-muted);">ไม่มีข้อความ</div>'}
+            </div>
+        `);
+    } catch (err) {
+        toast('❌ ' + (err.message || 'load failed'), 'error');
+    }
+}
+
