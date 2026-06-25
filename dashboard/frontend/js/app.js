@@ -4327,3 +4327,175 @@ if (_orig_navigate) {
 if (document.readyState !== 'loading') setupMobile();
 else document.addEventListener('DOMContentLoaded', setupMobile);
 
+// ===== Sprint 3.1: Cmd+K Command Palette =====
+const CMDK_ACTIONS = [
+    // Navigation
+    { type: 'nav', icon: '📊', label: 'ภาพรวม', hint: 'overview', action: () => navigate('overview') },
+    { type: 'nav', icon: '📥', label: 'กล่องรอจัดการ', hint: 'inbox', action: () => navigate('inbox') },
+    { type: 'nav', icon: '👥', label: 'ลูกค้า', hint: 'customers', action: () => navigate('customers') },
+    { type: 'nav', icon: '💰', label: 'รายได้', hint: 'finance/revenue', action: () => navigate('finance') },
+    { type: 'nav', icon: '📋', label: 'แพ็กเกจ', hint: 'packages', action: () => navigate('packages') },
+    { type: 'nav', icon: '🎯', label: 'การตลาด', hint: 'marketing', action: () => navigate('marketing') },
+    { type: 'nav', icon: '💳', label: 'บัญชีรับเงิน', hint: 'receivers', action: () => navigate('receivers') },
+    { type: 'nav', icon: '🎰', label: 'กาชา', hint: 'gacha', action: () => navigate('gacha') },
+    { type: 'nav', icon: '💬', label: 'Prae Logs', hint: 'prae conversation', action: () => navigate('prae_logs') },
+    { type: 'nav', icon: '⚙️', label: 'ตั้งค่า', hint: 'settings', action: () => navigate('settings') },
+    // Quick actions
+    { type: 'action', icon: '📋', label: 'รายงานวันนี้', hint: 'daily report', action: () => openDailyReportModal() },
+    { type: 'action', icon: '📥', label: 'Export Excel...', hint: 'open exports modal', action: () => openExportsModal() },
+    { type: 'action', icon: '🌓', label: 'สลับธีม', hint: 'light / dark', action: () => toggleTheme && toggleTheme() },
+    { type: 'action', icon: '🚪', label: 'ออกจากระบบ', hint: 'logout', action: () => logout && logout() },
+];
+
+let _cmdkOpen = false;
+let _cmdkResults = [];
+let _cmdkCursor = 0;
+
+function openCmdK() {
+    if (_cmdkOpen) return;
+    _cmdkOpen = true;
+    let overlay = document.getElementById('cmdk-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'cmdk-overlay';
+        overlay.className = 'cmdk-overlay';
+        overlay.innerHTML = `
+            <div class="cmdk-modal" onclick="event.stopPropagation()">
+                <input type="text" id="cmdk-input" class="cmdk-input" placeholder="ค้นหา ลูกค้า / payment / หน้า / คำสั่ง...">
+                <div id="cmdk-results" class="cmdk-results"></div>
+                <div class="cmdk-hint-bar">
+                    <span><kbd>↑↓</kbd> เลือก <kbd>↵</kbd> ทำ <kbd>Esc</kbd> ปิด</span>
+                    <span><kbd>Ctrl</kbd>+<kbd>K</kbd></span>
+                </div>
+            </div>
+        `;
+        overlay.onclick = closeCmdK;
+        document.body.appendChild(overlay);
+    }
+    overlay.classList.add('open');
+    const input = document.getElementById('cmdk-input');
+    input.value = '';
+    input.focus();
+    input.addEventListener('input', cmdkSearch);
+    input.addEventListener('keydown', cmdkKeydown);
+    cmdkSearch();
+}
+
+function closeCmdK() {
+    _cmdkOpen = false;
+    const overlay = document.getElementById('cmdk-overlay');
+    if (overlay) overlay.classList.remove('open');
+}
+
+async function cmdkSearch() {
+    const q = (document.getElementById('cmdk-input')?.value || '').trim().toLowerCase();
+    const resultsEl = document.getElementById('cmdk-results');
+    if (!resultsEl) return;
+
+    _cmdkResults = [];
+    _cmdkCursor = 0;
+
+    // Filter built-in actions
+    const actions = CMDK_ACTIONS.filter(a => {
+        if (!q) return true;
+        return (a.label + ' ' + a.hint).toLowerCase().includes(q);
+    });
+    _cmdkResults.push(...actions);
+
+    // If query looks like a search, fire customer + payment search
+    if (q.length >= 2) {
+        try {
+            // Customer search (name/phone/tg id)
+            const r = await api(`/customers?q=${encodeURIComponent(q)}&limit=8`);
+            const customers = (r.items || r || []).slice(0, 5);
+            customers.forEach(c => {
+                _cmdkResults.push({
+                    type: 'customer',
+                    icon: '👤',
+                    label: `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.username || `tg:${c.telegram_id}`,
+                    hint: `${c.username ? '@'+c.username : 'tg:'+c.telegram_id} · ${fmtBaht(c.total_spent || 0)}`,
+                    action: () => { closeCmdK(); showCustomer360(c.id); },
+                });
+            });
+        } catch (err) {}
+    }
+
+    // If query is a number ≥4 digits, try payment id
+    if (/^\d{4,}$/.test(q)) {
+        try {
+            const p = await api(`/payments/${q}`);
+            if (p && p.id) {
+                _cmdkResults.unshift({
+                    type: 'payment',
+                    icon: '💰',
+                    label: `Payment #${p.id} — ${fmtBaht(p.amount)} (${p.status})`,
+                    hint: 'open payment',
+                    action: () => { closeCmdK(); window.open(`/api/payments/${p.id}/slip-image`, '_blank'); },
+                });
+            }
+        } catch (err) {}
+    }
+
+    if (_cmdkResults.length === 0) {
+        resultsEl.innerHTML = '<div class="cmdk-empty">ไม่พบผลลัพธ์</div>';
+        return;
+    }
+
+    let lastType = null;
+    let html = '';
+    _cmdkResults.forEach((r, idx) => {
+        if (r.type !== lastType) {
+            const labels = { nav: '📍 หน้า', action: '⚡ คำสั่ง', customer: '👤 ลูกค้า', payment: '💰 Payment' };
+            html += `<div class="cmdk-section-label">${labels[r.type] || r.type}</div>`;
+            lastType = r.type;
+        }
+        html += `
+            <div class="cmdk-item ${idx === _cmdkCursor ? 'active' : ''}" data-idx="${idx}" onclick="cmdkRun(${idx})">
+                <span class="icon">${r.icon}</span>
+                <span class="label">${esc(r.label)}</span>
+                <span class="hint">${esc(r.hint || '')}</span>
+            </div>
+        `;
+    });
+    resultsEl.innerHTML = html;
+}
+
+function cmdkRun(idx) {
+    const r = _cmdkResults[idx];
+    if (!r) return;
+    closeCmdK();
+    setTimeout(() => r.action && r.action(), 50);
+}
+
+function cmdkKeydown(e) {
+    if (e.key === 'Escape') { closeCmdK(); return; }
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        _cmdkCursor = Math.min(_cmdkCursor + 1, _cmdkResults.length - 1);
+        cmdkRefreshCursor();
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        _cmdkCursor = Math.max(_cmdkCursor - 1, 0);
+        cmdkRefreshCursor();
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        cmdkRun(_cmdkCursor);
+    }
+}
+
+function cmdkRefreshCursor() {
+    document.querySelectorAll('.cmdk-item').forEach((el, idx) => {
+        el.classList.toggle('active', idx === _cmdkCursor);
+        if (idx === _cmdkCursor) el.scrollIntoView({ block: 'nearest' });
+    });
+}
+
+// Global hotkey: Ctrl/Cmd+K
+document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        if (_cmdkOpen) closeCmdK();
+        else openCmdK();
+    }
+});
+

@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+Thai:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <link rel="stylesheet" href="/css/style.css?v=8">
+    <link rel="stylesheet" href="/css/style.css?v=9">
 </head>
 <body>
     <!-- Login Page -->
@@ -74,7 +74,7 @@
             <header class="top-bar">
                 <button class="hamburger" onclick="toggleSidebar()">☰</button>
                 <h2 id="page-title" class="page-title">📊 ภาพรวม</h2>
-                <div class="top-bar-right"><button class="btn btn-outline btn-sm" onclick="openDailyReportModal()" title="รายงานวันนี้ (1 click)">📋 รายงาน</button><button class="btn btn-outline btn-sm" onclick="openExportsModal()" title="Export Excel">📥 Export</button>
+                <div class="top-bar-right"><button class="btn btn-outline btn-sm" onclick="openCmdK()" title="Search (Ctrl+K)">🔍 ค้นหา</button><button class="btn btn-outline btn-sm" onclick="openDailyReportModal()" title="รายงานวันนี้ (1 click)">📋 รายงาน</button><button class="btn btn-outline btn-sm" onclick="openExportsModal()" title="Export Excel">📥 Export</button>
                     <span id="alert-badge" class="alert-badge hidden" onclick="navigate('finance')">🔔 <span id="alert-count">0</span></span>
                 </div>
             </header>
@@ -101,7 +101,7 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=38"></script>
+    <script src="/js/app.js?v=39"></script>
     <script src="/js/bots-page.js?v=2"></script>
 
 </body>
