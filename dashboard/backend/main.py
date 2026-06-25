@@ -24,6 +24,7 @@ from .routers.panda_errors import router as panda_errors_router
 from .routers.redirect import router as redirect_router
 from .routers.receivers import router as receivers_router
 from .routers.gacha_admin import router as gacha_admin_router
+from .routers.exports import router as exports_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -64,6 +65,7 @@ app.include_router(panda_errors_router)
 app.include_router(redirect_router)
 app.include_router(receivers_router, prefix="/api")
 app.include_router(gacha_admin_router, prefix="/api")
+app.include_router(exports_router, prefix="/api")
 
 # Serve frontend static files
 frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")

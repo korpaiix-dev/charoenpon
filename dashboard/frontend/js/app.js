@@ -254,6 +254,25 @@ function toast(msg, type = 'info') {
     setTimeout(() => el.remove(), 5000);
 }
 
+
+
+// Universal authed download helper (Excel/CSV/etc)
+async function downloadAuthed(url, filename) {
+    try {
+        const resp = await fetch('/api' + url, { headers: { 'Authorization': 'Bearer ' + token } });
+        if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+        const blob = await resp.blob();
+        const a = document.createElement('a');
+        const objUrl = URL.createObjectURL(blob);
+        a.href = objUrl; a.download = filename || 'export.xlsx';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(objUrl), 1000);
+        toast('✅ ดาวน์โหลดเรียบร้อย', 'success');
+    } catch (err) {
+        toast('❌ ' + (err.message || 'download failed'), 'error');
+    }
+}
+
 // ========== MODAL ==========
 function openModal(title, bodyHtml) {
     document.getElementById('modal-title').textContent = title;
@@ -3882,3 +3901,45 @@ function _resetIdleTimer() {
     document.addEventListener(e, _resetIdleTimer, true)
 );
 _resetIdleTimer();
+
+// Universal Export modal
+function openExportsModal() {
+    openModal('📥 Export Excel', `
+        <div style="display:grid;gap:0.625rem;">
+            <div class="detail-panel">
+                <div style="font-weight:600;margin-bottom:0.5rem;color:var(--text);">💰 Payments</div>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                    <button class="btn btn-sm btn-outline" onclick="downloadAuthed('/exports/payments?days=7', 'payments_7d.xlsx')">📥 7 วัน</button>
+                    <button class="btn btn-sm btn-outline" onclick="downloadAuthed('/exports/payments?days=30', 'payments_30d.xlsx')">📥 30 วัน</button>
+                    <button class="btn btn-sm btn-outline" onclick="downloadAuthed('/exports/payments?days=90', 'payments_90d.xlsx')">📥 90 วัน</button>
+                    <button class="btn btn-sm btn-outline" onclick="downloadAuthed('/exports/payments?days=30&status=CONFIRMED', 'payments_confirmed_30d.xlsx')">📥 Confirmed 30d</button>
+                </div>
+            </div>
+
+            <div class="detail-panel">
+                <div style="font-weight:600;margin-bottom:0.5rem;color:var(--text);">👥 Customers</div>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                    <button class="btn btn-sm btn-outline" onclick="downloadAuthed('/exports/customers?status=all', 'customers_all.xlsx')">📥 ทั้งหมด</button>
+                    <button class="btn btn-sm btn-outline" onclick="downloadAuthed('/exports/customers?status=active', 'customers_active.xlsx')">📥 Active</button>
+                    <button class="btn btn-sm btn-outline" onclick="downloadAuthed('/exports/customers?status=expired', 'customers_expired.xlsx')">📥 Expired</button>
+                    <button class="btn btn-sm btn-outline" onclick="downloadAuthed('/exports/customers?status=banned', 'customers_banned.xlsx')">📥 Banned</button>
+                </div>
+            </div>
+
+            <div class="detail-panel">
+                <div style="font-weight:600;margin-bottom:0.5rem;color:var(--text);">📋 Subscriptions</div>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                    <button class="btn btn-sm btn-outline" onclick="downloadAuthed('/exports/subscriptions?status=ACTIVE', 'subs_active.xlsx')">📥 Active</button>
+                    <button class="btn btn-sm btn-outline" onclick="downloadAuthed('/exports/subscriptions?status=EXPIRED', 'subs_expired.xlsx')">📥 Expired</button>
+                    <button class="btn btn-sm btn-outline" onclick="downloadAuthed('/exports/subscriptions', 'subs_all.xlsx')">📥 ทั้งหมด</button>
+                </div>
+            </div>
+
+            <div class="detail-panel">
+                <div style="font-weight:600;margin-bottom:0.5rem;color:var(--text);">🎯 Marketing</div>
+                <button class="btn btn-sm btn-outline" onclick="downloadAuthed('/exports/marketing-links', 'marketing_links.xlsx')">📥 Marketing Links + ROI</button>
+            </div>
+        </div>
+    `);
+}
+
