@@ -293,13 +293,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             from sqlalchemy import text as _t
             from shared.database import get_session as _gs
             tg_user = update.effective_user
+            # FIX 2026-06-25: strip mkt_ prefix — DB stores name_tag without prefix
+            mkt_tag = source[4:]  # "mkt_pai_xxx" → "pai_xxx"
             
             async with _gs() as _s:
                 # Lookup link by name_tag
                 row = (await _s.execute(_t(
                     "SELECT id, marketer, platform, group_chat_id FROM marketing_invite_links "
                     "WHERE name_tag = :tag AND link_type = 'bot_deeplink' AND is_revoked = false LIMIT 1"
-                ), {"tag": source})).first()
+                ), {"tag": mkt_tag})).first()
                 
                 if row:
                     link_id = row.id
