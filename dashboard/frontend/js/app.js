@@ -1469,8 +1469,11 @@ async function showCustomer360(userId) {
                 <button class="btn btn-outline btn-sm" onclick="customerAction(${u.id},'dm')">📩 DM</button>
                 <button class="btn btn-outline btn-sm" onclick="customerAction(${u.id},'extend')">⏰ ต่อเวลา</button>
                 <button class="btn btn-outline btn-sm" onclick="customerAction(${u.id},'upgrade')">🆙 อัพเกรด</button>
+                <button class="btn btn-outline btn-sm" onclick="customerCancelSub(${u.id})">⛔ ยกเลิก sub</button>
+                <button class="btn btn-outline btn-sm" onclick="customerReactivateSub(${u.id})">♻️ Reactivate</button>
+                <button class="btn btn-outline btn-sm" onclick="customerGiftSub(${u.id})">🎁 Gift sub</button>
                 <button class="btn btn-outline btn-sm" onclick="customerAction(${u.id},'kick')">🔨 เตะ</button>
-                <button class="btn btn-${u.is_banned ? 'success' : 'danger'} btn-sm" style="grid-column:span 2;" onclick="customerAction(${u.id},'ban')">${u.is_banned ? '🔓 ปลดแบน' : '🚫 แบน'}</button>
+                <button class="btn btn-${u.is_banned ? 'success' : 'danger'} btn-sm" onclick="customerAction(${u.id},'ban')">${u.is_banned ? '🔓 ปลดแบน' : '🚫 แบน'}</button>
             </div>` : '';
 
         // Filter chips
