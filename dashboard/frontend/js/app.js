@@ -3018,10 +3018,25 @@ async function loadScheduledPromos() {
     } catch (e) { toast(e.message, 'error'); }
 }
 
-function showScheduledForm() {
+async function showScheduledForm() {
+    let groupOpts = '<option value="G300">VIP ทั่วไป (G300)</option>';
+    try {
+        const groups = await api('/groups/categorized');
+        const vip = groups.vip || groups.VIP || [];
+        const free = groups.free || groups.FREE || [];
+        const all = [...vip, ...free];
+        if (all.length > 0) {
+            groupOpts = all.map(g => `<option value="${esc(g.slug)}">${esc(g.title || g.slug)} (${esc(g.slug)})</option>`).join('');
+        }
+    } catch (err) {}
+
     openModal('📅 สร้างโปรโมทตั้งเวลา', `
         <div class="form-group"><label>ชื่อ</label><input id="sp-name" placeholder="ชื่อโปรโมชั่น"></div>
         <div class="form-group"><label>ข้อความ</label><textarea id="sp-msg" placeholder="ข้อความที่จะส่ง..."></textarea></div>
+        <div class="form-group">
+            <label>กลุ่มเป้าหมาย (กด Ctrl เพื่อเลือกหลายกลุ่ม)</label>
+            <select id="sp-groups" multiple style="height:120px;">${groupOpts}</select>
+        </div>
         <div class="form-row">
             <div class="form-group"><label>เวลา</label><input id="sp-time" type="datetime-local"></div>
             <div class="form-group"><label>ทุก</label><select id="sp-repeat"><option value="once">ครั้งเดียว</option><option value="daily">ทุกวัน</option><option value="weekly">ทุกสัปดาห์</option></select></div>
@@ -3032,14 +3047,21 @@ function showScheduledForm() {
 
 async function createScheduledPromo() {
     try {
+        const sel = document.getElementById('sp-groups');
+        const target_groups = Array.from(sel.selectedOptions).map(o => o.value);
+        if (target_groups.length === 0) { toast('เลือกอย่างน้อย 1 กลุ่ม', 'error'); return; }
+        const name = document.getElementById('sp-name').value.trim();
+        const msg = document.getElementById('sp-msg').value.trim();
+        const time = document.getElementById('sp-time').value;
+        if (!name || !msg || !time) { toast('กรอกข้อมูลให้ครบ', 'error'); return; }
         await api('/scheduled-promotions', { method: 'POST', body: JSON.stringify({
-            name: document.getElementById('sp-name').value,
-            message_text: document.getElementById('sp-msg').value,
-            scheduled_at: document.getElementById('sp-time').value,
+            name, message_text: msg, scheduled_at: time,
             repeat_type: document.getElementById('sp-repeat').value,
-            target_groups: ["G300"],
+            target_groups,
         })});
-        toast('สร้างแล้ว', 'success'); closeModal(); loadScheduledPromos();
+        toast(`✅ สร้างแล้ว — broadcast ${target_groups.length} กลุ่ม`, 'success');
+        closeModal();
+        loadScheduledPromos();
     } catch (e) { toast(e.message, 'error'); }
 }
 
