@@ -2393,47 +2393,7 @@ async function loadCustomers(page) {
 }
 
 async function showCustomerDetail(userId) {
-    // Sprint 1.2: route to new Customer 360 page
     return showCustomer360(userId);
-    try {
-        const [detail, payments, subs, groups] = await Promise.all([
-            api(`/customers/${userId}`),
-            api(`/customers/${userId}/payments`),
-            api(`/customers/${userId}/subscriptions`),
-            api(`/customers/${userId}/groups`),
-        ]);
-        const u = detail.user;
-        const sub = detail.subscription;
-        
-        let payHtml = payments.map(p => `<tr><td>${fmtDate(p.created_at)}</td><td>${fmtBaht(p.amount)}</td><td>${esc(p.method)}</td><td>${statusBadge(p.status)}</td></tr>`).join('');
-        let groupsHtml = groups.map(g => `<span class="status-badge status-active">${esc(g.slug)}</span>`).join(' ') || '-';
-        
-        let actionsHtml = '';
-        if (hasRole('admin')) {
-            actionsHtml = `
-                <div class="btn-group" style="margin-top:1rem;">
-                    <button class="btn btn-sm btn-success" onclick="customerAction(${userId},'extend')">✅ ต่อเวลา</button>
-                    <button class="btn btn-sm btn-primary" onclick="customerAction(${userId},'upgrade')">🆙 อัพเกรด</button>
-                    <button class="btn btn-sm btn-outline" onclick="customerAction(${userId},'dm')">📩 ส่ง DM</button>
-                    <button class="btn btn-sm btn-warning" onclick="customerAction(${userId},'kick')">🔨 เตะ</button>
-                    <button class="btn btn-sm btn-danger" onclick="customerAction(${userId},'ban')">${u.is_banned ? '🔓 ปลดแบน' : '🚫 แบน'}</button>
-                </div>`;
-        }
-        
-        openModal(`👤 ${u.username ? '@'+esc(u.username) : esc(u.first_name) || 'User'} (ID: ${u.telegram_id})`, `
-            <div class="detail-panel">
-                <div class="detail-row"><span class="detail-label">แพ็กเกจ</span><span class="detail-value">${sub ? sub.package_name : '-'}</span></div>
-                <div class="detail-row"><span class="detail-label">สถานะ</span><span class="detail-value">${sub ? statusBadge(sub.status) : statusBadge(u.is_banned ? 'BANNED' : 'NONE')}</span></div>
-                <div class="detail-row"><span class="detail-label">หมดอายุ</span><span class="detail-value">${sub ? fmtDate(sub.end_date) : '-'}</span></div>
-                <div class="detail-row"><span class="detail-label">สมาชิกตั้งแต่</span><span class="detail-value">${fmtDate(u.created_at)}</span></div>
-                <div class="detail-row"><span class="detail-label">ยอดจ่ายรวม</span><span class="detail-value">${fmtBaht(u.total_spent)}</span></div>
-                <div class="detail-row"><span class="detail-label">กลุ่ม</span><span class="detail-value">${groupsHtml}</span></div>
-            </div>
-            <div class="section-title" style="margin-top:1rem;">💳 ประวัติ Payment</div>
-            <div class="table-wrap"><table><thead><tr><th>วันที่</th><th>จำนวน</th><th>วิธี</th><th>สถานะ</th></tr></thead><tbody>${payHtml || '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);">ไม่มี</td></tr>'}</tbody></table></div>
-            ${actionsHtml}
-        `);
-    } catch (err) { toast(err.message, 'error'); }
 }
 
 async function customerAction(userId, action) {
@@ -3570,7 +3530,6 @@ async function renderSettings() {
             <div class="tab ${settingsTab==='packages'?'active':''}" onclick="settingsTab='packages';renderSettings()">📦 แพ็กเกจ</div>
             ${hasRole('owner') ? `` : ''}
             ${hasRole('super_admin') && !hasRole('owner') ? `` : ''}
-            <div class="tab ${settingsTab==='dm'?'active':''}" onclick="settingsTab='dm';renderSettings()">📩 DM</div>
             <div class="tab ${settingsTab==='banned'?'active':''}" onclick="settingsTab='banned';renderSettings()">🚫 รายการแบน</div>
             <div class="tab ${settingsTab==='prae_prompt'?'active':''}" onclick="settingsTab='prae_prompt';renderSettings()">🤖 บุคลิก Prae</div>
         </div>
@@ -3578,7 +3537,7 @@ async function renderSettings() {
     `;
     if (settingsTab === 'packages') loadPackages();
     
-    else if (settingsTab === 'dm') loadDMSettings();
+
     else if (settingsTab === 'banned') loadBannedSettings();
     else if (settingsTab === 'prae_prompt') loadPraePrompt();
 }
@@ -3657,65 +3616,6 @@ function startEditToken(name) {
 
 
 
-async function loadDMSettings() {
-    try {
-        const data = await api('/settings/dm');
-        
-        // Try to get DM stats
-        let dmStats = { comeback_sent: 0, comeback_respond: 0, comeback_convert: 0, trial_sent: 0, trial_click: 0, trial_convert: 0 };
-        try { dmStats = await api('/dashboard/dm-stats'); } catch {}
-        
-        document.getElementById('settings-area').innerHTML = `
-            <div class="section-title">📊 สถิติ DM วันนี้</div>
-            <div class="dm-stats-grid">
-                <div class="mini-card"><div class="mini-card-label">Comeback ส่ง</div><div class="mini-card-value" style="color:var(--primary);">${dmStats.comeback_sent || 0}</div></div>
-                <div class="mini-card"><div class="mini-card-label">Comeback ตอบ</div><div class="mini-card-value" style="color:var(--success);">${dmStats.comeback_respond || 0}</div></div>
-                <div class="mini-card"><div class="mini-card-label">Comeback สมัคร</div><div class="mini-card-value" style="color:var(--warning);">${dmStats.comeback_convert || 0}</div></div>
-                <div class="mini-card"><div class="mini-card-label">Trial ส่ง</div><div class="mini-card-value" style="color:var(--primary);">${dmStats.trial_sent || 0}</div></div>
-                <div class="mini-card"><div class="mini-card-label">Trial คลิก</div><div class="mini-card-value" style="color:var(--success);">${dmStats.trial_click || 0}</div></div>
-                <div class="mini-card"><div class="mini-card-label">Trial สมัคร</div><div class="mini-card-value" style="color:var(--warning);">${dmStats.trial_convert || 0}</div></div>
-            </div>
-            
-            <div class="detail-panel" style="margin-top:1rem;">
-                <div class="section-title">📩 DM Settings</div>
-                
-                <div class="detail-row">
-                    <div>
-                        <span class="detail-label">COMEBACK DM / วัน</span>
-                        <div class="dm-description">ส่ง DM ให้ลูกค้าที่หมดอายุ > 3 วัน พร้อมส่วนลดชวนกลับมา</div>
-                    </div>
-                    <span class="detail-value">${data.comeback_per_day}</span>
-                </div>
-                <div class="detail-row">
-                    <div>
-                        <span class="detail-label">Comeback Delay (วินาที)</span>
-                        <div class="dm-description">หน่วงเวลาระหว่างแต่ละ DM (วินาที) กัน Telegram ban</div>
-                    </div>
-                    <span class="detail-value">${data.comeback_delay}s</span>
-                </div>
-                <div class="detail-row">
-                    <div>
-                        <span class="detail-label">Trial DM / วัน</span>
-                        <div class="dm-description">ส่ง DM ให้คนที่ไม่เคยจ่ายเงิน ชวนทดลอง Trial ฿99/24ชม.</div>
-                    </div>
-                    <span class="detail-value">${data.trial_per_day}</span>
-                </div>
-                <div class="detail-row">
-                    <div>
-                        <span class="detail-label">Trial Delay (วินาที)</span>
-                        <div class="dm-description">หน่วงเวลาระหว่างแต่ละ DM (วินาที) กัน Telegram ban</div>
-                    </div>
-                    <span class="detail-value">${data.trial_delay}s</span>
-                </div>
-            </div>
-            
-            <div class="btn-group" style="margin-top:1rem;">
-                <button class="btn btn-primary" onclick="testDM('comeback')">▶️ ทดสอบส่ง Comeback 1 คน</button>
-                <button class="btn btn-primary" onclick="testDM('trial')">▶️ ทดสอบส่ง Trial 1 คน</button>
-            </div>
-        `;
-    } catch (e) { toast(e.message, 'error'); }
-}
 
 async function testDM(type) {
     if (!confirm(`ทดสอบส่ง ${type} DM ให้ 1 คน?`)) return;
