@@ -4499,3 +4499,113 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// ===== Sprint 3.2: Real-time WebSocket =====
+let _wsConn = null;
+let _wsReconnectTimer = null;
+
+function startLiveUpdates() {
+    if (!token) return;
+    if (_wsConn && _wsConn.readyState <= 1) return;
+
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const url = `${proto}://${location.host}/ws/events?token=${encodeURIComponent(token)}`;
+    try {
+        _wsConn = new WebSocket(url);
+    } catch (err) {
+        console.warn('[WS] open failed:', err);
+        return;
+    }
+
+    _wsConn.onopen = () => {
+        console.log('[WS] connected');
+        // Show small live indicator
+        let dot = document.getElementById('ws-live-dot');
+        if (!dot) {
+            dot = document.createElement('span');
+            dot.id = 'ws-live-dot';
+            dot.style.cssText = 'display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--success);margin-right:0.35rem;animation:pulseDot 1.5s infinite;vertical-align:middle;';
+            dot.title = 'Live updates connected';
+            const right = document.querySelector('.top-bar-right');
+            if (right) right.insertBefore(dot, right.firstChild);
+        }
+    };
+
+    _wsConn.onmessage = (ev) => {
+        try {
+            const m = JSON.parse(ev.data);
+            handleWsMessage(m);
+        } catch (err) {}
+    };
+
+    _wsConn.onclose = () => {
+        console.log('[WS] disconnected — retry in 5s');
+        const dot = document.getElementById('ws-live-dot');
+        if (dot) dot.style.background = 'var(--text-muted)';
+        clearTimeout(_wsReconnectTimer);
+        _wsReconnectTimer = setTimeout(startLiveUpdates, 5000);
+    };
+
+    _wsConn.onerror = (err) => {
+        console.warn('[WS] error:', err);
+    };
+}
+
+function handleWsMessage(m) {
+    if (m.type === 'new_payment') {
+        toast(`💰 Payment ใหม่ #${m.id} — กล่องรอจัดการ: ${m.total_pending} รายการ`, 'info');
+        // If inbox page open, refresh
+        if (window.__currentPage === 'inbox' && typeof renderInbox === 'function') {
+            renderInbox();
+        }
+        // Update alert badge counter
+        const badge = document.getElementById('alert-badge');
+        const cnt = document.getElementById('alert-count');
+        if (badge && cnt) {
+            cnt.textContent = m.total_pending;
+            badge.classList.remove('hidden');
+        }
+    } else if (m.type === 'new_sos') {
+        toast(`🚨 SOS ใหม่ #${m.id} — เปิดอยู่: ${m.total_open}`, 'error', 8000);
+        if (window.__currentPage === 'inbox' && typeof renderInbox === 'function') {
+            renderInbox();
+        }
+    } else if (m.type === 'tick') {
+        // Update badge from snapshot
+        const badge = document.getElementById('alert-badge');
+        const cnt = document.getElementById('alert-count');
+        const total = (m.data?.pending_payments || 0) + (m.data?.open_sos || 0);
+        if (badge && cnt) {
+            cnt.textContent = total;
+            badge.classList.toggle('hidden', total === 0);
+        }
+    }
+}
+
+// Inject pulse animation
+if (!document.getElementById('ws-pulse-style')) {
+    const s = document.createElement('style');
+    s.id = 'ws-pulse-style';
+    s.textContent = '@keyframes pulseDot { 0%,100%{opacity:1} 50%{opacity:0.4} }';
+    document.head.appendChild(s);
+}
+
+// Start when authenticated
+const _origRenderLogin = window.renderLogin;
+function _kickoffLiveAfterLogin() {
+    if (token && !_wsConn) {
+        setTimeout(startLiveUpdates, 1000);
+    }
+}
+// Auto-start if already logged in
+if (typeof token !== 'undefined' && token) {
+    setTimeout(_kickoffLiveAfterLogin, 2000);
+}
+// Hook navigate so we know the current page
+const _navOrig = window.navigate;
+if (_navOrig) {
+    window.navigate = function(page) {
+        window.__currentPage = page;
+        _navOrig(page);
+    };
+}
+

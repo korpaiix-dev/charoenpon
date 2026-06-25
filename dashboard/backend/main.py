@@ -27,6 +27,7 @@ from .routers.gacha_admin import router as gacha_admin_router
 from .routers.exports import router as exports_router
 from .routers.prae_logs import router as prae_logs_router
 from .routers.daily_report import router as daily_report_router
+from .routers.ws import router as ws_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -70,6 +71,7 @@ app.include_router(gacha_admin_router, prefix="/api")
 app.include_router(exports_router, prefix="/api")
 app.include_router(prae_logs_router, prefix="/api")
 app.include_router(daily_report_router, prefix="/api")
+app.include_router(ws_router)
 
 # Serve frontend static files
 frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
