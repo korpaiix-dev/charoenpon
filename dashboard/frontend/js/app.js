@@ -3544,6 +3544,8 @@ async function renderMarketing() {
             </div>
             ` : ''}
 
+                        ` : ''}
+
             ${links.length > 0 ? `
             <div class="card card-full" style="margin-top:1rem;">
                 <div class="card-label">🔗 ลิ้งทั้งหมด (${links.length})</div>
@@ -3592,7 +3594,6 @@ async function renderMarketing() {
                     💡 <b>💰</b> = แก้ค่าโฆษณา/notes &nbsp;·&nbsp; <b>🚫</b> = revoke (link จะใช้ไม่ได้). หรือผ่าน Discord: <code>cost &lt;id&gt; &lt;amount&gt;</code> ใน #ivy / #wasu / #pai
                 </div>
             </div>
-            ` : ''}
             ` : ''}
 
             <div class="card card-full" style="margin-top:1.5rem;">

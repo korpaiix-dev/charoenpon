@@ -61,7 +61,7 @@ async def gacha_overview(admin=Depends(require_role("admin"))):
     last30 = await pool.fetchrow("""
         SELECT
             COUNT(*) AS pulls,
-            COUNT(DISTINCT user_id) AS users,
+            COUNT(DISTINCT gp.user_id) AS users,
             COALESCE(SUM(prize_value_thb), 0) AS prize_value,
             COUNT(*) FILTER (WHERE payment_id IS NOT NULL) AS paid_pulls,
             COALESCE(SUM(p.amount), 0) AS revenue
