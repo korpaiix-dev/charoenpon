@@ -1,0 +1,131 @@
+# HTTP server: telebord.net + www.telebord.net + IP:8091 (legacy)
+# Will be expanded to HTTPS by certbot
+
+# www.telebord.net (canonical) — port 80, will redirect to HTTPS after SSL
+server {
+    server_name www.telebord.net telebord.net;
+
+    client_max_body_size 20M;
+    access_log /var/log/nginx/teleboard.access.log;
+    error_log /var/log/nginx/teleboard.error.log;
+
+    root /var/www/teleboard;
+    index index.html;
+
+
+    # Charoenpon Customer WebApp Dashboard
+    location /webapp/ {
+        proxy_pass http://127.0.0.1:8010/webapp/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Charoenpon Gacha API
+    location /api/cgacha/ {
+        client_max_body_size 128k;
+        proxy_pass http://127.0.0.1:8001/api/gacha/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+
+    # Marketing short URL redirect — telebord.net/r/<code>
+    location /r/ {
+        proxy_pass http://127.0.0.1:8010/r/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_redirect off;
+    }
+
+    # Gacha WebApp — no cache (frequent updates)
+    location ^~ /gacha/ {
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
+        try_files $uri $uri/ /gacha/index.html;
+    }
+
+    # API proxy
+    location /api/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Static files with caching
+    location ~* \.(html|css|js)$ {
+        expires 1h;
+        add_header Cache-Control "public, must-revalidate";
+    }
+    location ~* \.(jpg|jpeg|png|gif|webp|svg|ico|woff|woff2|ttf)$ {
+        expires 7d;
+        add_header Cache-Control "public";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    listen [::]:443 ssl ipv6only=on; # managed by Certbot
+    listen 443 ssl; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/telebord.net/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/telebord.net/privkey.pem; # managed by Certbot
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+
+
+
+
+
+}
+
+# Legacy IP:8091 — keep working for now, will redirect to https://www.telebord.net after SSL
+server {
+    listen 8091;
+    server_name _;
+    client_max_body_size 20M;
+    root /var/www/teleboard;
+    index index.html;
+    access_log /var/log/nginx/teleboard-legacy.access.log;
+    error_log /var/log/nginx/teleboard-legacy.error.log;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    location ~* \.(html|css|js)$ { expires 1h; add_header Cache-Control "public, must-revalidate"; }
+    location ~* \.(jpg|jpeg|png|gif|webp|svg|ico)$ { expires 7d; add_header Cache-Control "public"; }
+    location / { try_files $uri $uri/ /index.html; }
+}
+
+server {
+    if ($host = www.telebord.net) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    if ($host = telebord.net) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    listen 80;
+    listen [::]:80;
+    server_name www.telebord.net telebord.net;
+    return 404; # managed by Certbot
+
+
+
+
+}

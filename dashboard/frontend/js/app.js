@@ -117,6 +117,7 @@ const NAV_ITEMS = [
     { id: 'promotions', icon: '📢', label: 'โปรโมชั่น', minRole: 'admin' },
     { id: 'content', icon: '📸', label: 'Content', minRole: 'moderator' },
     { id: 'gacha', icon: '🎰', label: 'กาชา', minRole: 'admin' },
+    { id: 'prae_logs', icon: '💬', label: 'Prae Logs', minRole: 'admin' },
     { id: 'groups', icon: '📱', label: 'กลุ่ม', minRole: 'admin' },
     { id: 'team', icon: '👨‍💼', label: 'ทีมงาน', minRole: 'admin' },
     { id: 'settings', icon: '⚙️', label: 'ตั้งค่า', minRole: 'admin' },
@@ -3426,6 +3427,7 @@ async function renderSettings() {
             ${hasRole('super_admin') && !hasRole('owner') ? `<div class="tab ${settingsTab==='bots'?'active':''}" onclick="settingsTab='bots';renderSettings()">🤖 Bots (ดูอย่างเดียว)</div>` : ''}
             <div class="tab ${settingsTab==='dm'?'active':''}" onclick="settingsTab='dm';renderSettings()">📩 DM</div>
             <div class="tab ${settingsTab==='banned'?'active':''}" onclick="settingsTab='banned';renderSettings()">🚫 รายการแบน</div>
+            <div class="tab ${settingsTab==='prae_prompt'?'active':''}" onclick="settingsTab='prae_prompt';renderSettings()">🤖 บุคลิก Prae</div>
         </div>
         <div id="settings-area"><div class="loading"><div class="spinner"></div></div></div>
     `;
@@ -3433,6 +3435,7 @@ async function renderSettings() {
     else if (settingsTab === 'bots') loadBotSettings();
     else if (settingsTab === 'dm') loadDMSettings();
     else if (settingsTab === 'banned') loadBannedSettings();
+    else if (settingsTab === 'prae_prompt') loadPraePrompt();
 }
 
 async function loadPackages() {
