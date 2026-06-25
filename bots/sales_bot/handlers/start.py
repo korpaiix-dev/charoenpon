@@ -331,20 +331,20 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                             "marketing bot-deeplink attribution: tg=%s marketer=%s platform=%s link_id=%s",
                             tg_user.id, row.marketer, row.platform, link_id,
                         )
-                        # Discord notification (fire-and-forget)
+                        # FIX 2026-06-25: await directly instead of fire-and-forget so we know if Discord post worked
                         try:
                             from shared.discord_notify import notify_marketer_join
-                            import asyncio as _aio
                             count_r = (await _s.execute(_t(
                                 "SELECT COUNT(*) FROM marketing_invite_joins WHERE link_id = :lid"
                             ), {"lid": link_id})).scalar()
-                            _aio.create_task(notify_marketer_join(
+                            _ok_discord = await notify_marketer_join(
                                 marketer=row.marketer, platform=row.platform,
                                 group_title="(via bot deep-link)",
                                 telegram_id=tg_user.id, tg_username=tg_user.username,
                                 tg_first_name=tg_user.first_name, link_id=link_id,
                                 total_joins_for_link=int(count_r or 1),
-                            ))
+                            )
+                            logger.info("discord notify_marketer_join: marketer=%s link_id=%s tg=%s ok=%s", row.marketer, link_id, tg_user.id, _ok_discord)
                         except Exception as _nx:
                             logger.warning("discord notify (bot deeplink) failed: %s", _nx)
         except Exception as _exc:
