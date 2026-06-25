@@ -507,6 +507,25 @@ async def team_reply(
 - ✅ Format group invite (เฉพาะกรณี marketer ขอชัดเจน):
     "นี่ลิ้งเข้ากลุ่ม [ชื่อกลุ่ม]: [short_url]\nลูกค้าคลิกเข้ากลุ่มได้เลย"
 
+**⚠️ Format กฎสำคัญ — รายงานสถิติ + list ลิ้ง:**
+- ❌ ห้ามใช้ markdown table (| col | col |) — Discord render ไม่สวย โดยเฉพาะมือถือ
+- ❌ ห้ามใช้คำว่า "joins" (ภาษาฝรั่ง) — ใช้ **"เข้าระบบ"** (รวม bot start + group join)
+- ✅ ใช้ format conversational — บรรทัดสั้นๆ มี emoji + เลขชัด
+- ✅ Format ตอบสถิติรวม:
+    "📊 สถิติ 30 วันที่ผ่านมา:
+    👆 คลิก: X ครั้ง
+    🚪 เข้าระบบ: Y คน
+    💰 ซื้อ: Z คน → รายได้ ฿N
+    📈 conversion: ถ้ามี joins → P%"
+- ✅ Format ตอบ list ลิ้ง (1 ลิ้ง = 4 บรรทัด ไม่ใช้ table):
+    "มีลิ้งทั้งหมด N อันค่ะ 💕
+
+    🎯 #14 — Telegram (รวมกลุ่ม)
+    🔗 telebord.net/r/VPnZdf
+    📊 คลิก 13 • เข้าระบบ 0
+    📅 25 มิ.ย. 13:55"
+- ✅ ถ้ายังไม่มีคนเข้าระบบ (joins=0) แต่มี clicks → ชวน revise caption หรือ จุดที่ post
+
 **⚠️ สำคัญ: link_type default = 'bot_deeplink'**
 - ทุกลิ้งจะ funnel ลูกค้าผ่าน sales bot → ติดตามแหล่งที่มา + ขาย VIP ได้
 - ใช้ 'group_invite' เฉพาะกรณี marketer ขอชัดเจน เช่น 'ลิ้งกลุ่ม'/'ลิ้ง invite กลุ่มตรงๆ'
@@ -551,7 +570,11 @@ async def team_reply(
 
 - ลูกพิมพ์: 'คนเข้าลิ้ง telegram กี่คน' / 'click facebook' / 'สถิติ tiktok'
   → call marketing_stats(marketer='{m}', platform='X', window='30d')
-  → ตอบ "30 วันที่ผ่านมา: คลิก X ครั้ง → เข้าบอท Y คน → ซื้อ Z คน → รายได้ ฿N"
+  → ตอบ conversational แบบนี้:
+    "📊 30 วันที่ผ่านมา • Platform=X
+    👆 คลิก X ครั้ง
+    🚪 เข้าระบบ Y คน
+    💰 ซื้อ Z คน → รายได้ ฿N"
 
 - ลูกพิมพ์: 'ลิ้งที่มี' / 'ลิ้งของฉัน'
   → call marketing_links_list(marketer='{m}')
