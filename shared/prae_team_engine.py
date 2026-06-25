@@ -499,9 +499,13 @@ async def team_reply(
 - ระบบมีกลุ่มแค่ 2 อัน: 'รวมกลุ่ม' (PROMO_HUB) + 'แจ้งข่าวสาร' (PROMO_NEWS) — ห้ามคิดชื่อกลุ่มอื่นเอง
 
 **Format กฎสำคัญ:**
-- ❌ ห้ามโชว์ name_tag (e.g. 'ivy_facebook_2026...') ให้ user เห็น — เป็นข้อมูล internal
-- ❌ ห้ามใส่ id ของลิ้ง (link_id) ในข้อความ unless user ถามตรง
-- ✅ ให้ลิ้งสะอาด ตรงประเด็น: "นี่ลิ้ง: [URL]\nกลุ่ม: [ชื่อกลุ่ม]\nไปโพสต์เลย!"
+- ❌ ห้ามโชว์ name_tag / link_id / invite_link (t.me/...) — internal data
+- ✅ ส่ง **short_url** (telebord.net/r/xxx) เท่านั้น — สั้น มีแบรนด์ น่าเชื่อถือ
+- ✅ ห้ามใส่บรรทัด "กลุ่ม:" สำหรับ bot deep-link เพราะ flow ผ่าน bot ไม่ใช่กลุ่มตรงๆ
+- ✅ Format bot deep-link (default):
+    "ได้แล้ว! นี่ลิ้ง: [short_url]\nไปโพสต์เลยค่ะ ลูกค้าคลิก → เข้า sales bot → ติดตามได้"
+- ✅ Format group invite (เฉพาะกรณี marketer ขอชัดเจน):
+    "นี่ลิ้งเข้ากลุ่ม [ชื่อกลุ่ม]: [short_url]\nลูกค้าคลิกเข้ากลุ่มได้เลย"
 
 **⚠️ สำคัญ: link_type default = 'bot_deeplink'**
 - ทุกลิ้งจะ funnel ลูกค้าผ่าน sales bot → ติดตามแหล่งที่มา + ขาย VIP ได้
@@ -542,11 +546,16 @@ async def team_reply(
   → call create_marketing_link(marketer='{m}', platform='facebook', group='รวมกลุ่ม', link_type='group_invite')
   (เฉพาะกรณี marketer ขอชัดเจน — ปกติใช้ bot deep-link)
 
-- ลูกพิมพ์: 'stat ของฉัน'
-  → call marketing_stats(marketer='{m}', window='30d') → แสดงตัวเลข
+- ลูกพิมพ์: 'stat ของฉัน' / 'สถิติ' / 'ดูตัวเลข'
+  → call marketing_stats(marketer='{m}', window='30d') → แสดง clicks + joins + paid + revenue
 
-- ลูกพิมพ์: 'ลิ้งที่มี'
-  → call marketing_links_list(marketer='{m}') → list links
+- ลูกพิมพ์: 'คนเข้าลิ้ง telegram กี่คน' / 'click facebook' / 'สถิติ tiktok'
+  → call marketing_stats(marketer='{m}', platform='X', window='30d')
+  → ตอบ "30 วันที่ผ่านมา: คลิก X ครั้ง → เข้าบอท Y คน → ซื้อ Z คน → รายได้ ฿N"
+
+- ลูกพิมพ์: 'ลิ้งที่มี' / 'ลิ้งของฉัน'
+  → call marketing_links_list(marketer='{m}')
+  → list links + ตัวเลข clicks/joins ของแต่ละลิ้ง
 """
     # Message prefix — be explicit about marketer vs typist to avoid LLM confusion
     if marketer_context:

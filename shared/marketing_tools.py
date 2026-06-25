@@ -243,7 +243,23 @@ async def marketing_stats(
     else:
         time_cond = f"AND (p.created_at - j.joined_at) <= interval '{int(days)} days'"
 
+    # Clicks subquery (separate to keep the joins query readable)
+    if days is None:
+        clicks_time_cond = ""
+    else:
+        clicks_time_cond = f"AND c.clicked_at >= NOW() - interval '{int(days)} days'"
+
     async with get_session() as s:
+        # Click counts per marketer-platform within the window
+        click_rows = (await s.execute(sql_text(f"""
+            SELECT l.marketer, l.platform, COUNT(c.id) AS click_count
+            FROM marketing_invite_links l
+            LEFT JOIN marketing_link_clicks c ON c.link_id = l.id {clicks_time_cond}
+            WHERE {where_sql}
+            GROUP BY l.marketer, l.platform
+        """), params)).fetchall()
+        click_map = {(r.marketer, r.platform): int(r.click_count or 0) for r in click_rows}
+
         # Per-marketer-platform breakdown
         rows = (await s.execute(sql_text(f"""
             WITH joins AS (
@@ -282,6 +298,7 @@ async def marketing_stats(
         total_joins = 0
         total_paid = 0
         total_rev = 0.0
+        total_clicks_local = 0
         for r in rows:
             j = int(r.joins or 0)
             pu = int(r.paid_users or 0)
@@ -289,28 +306,38 @@ async def marketing_stats(
             arpu = rv / j if j > 0 else 0.0
             cvr = (pu / j * 100) if j > 0 else 0.0
             atp = float(r.avg_days_to_pay or 0)
+            clicks = click_map.get((r.marketer, r.platform), 0)
+            click_to_join = (j / clicks * 100) if clicks > 0 else 0.0
             breakdown.append({
                 "marketer": r.marketer, "platform": r.platform,
+                "clicks": clicks,
                 "joins": j, "paid": pu, "revenue": rv,
                 "arpu": round(arpu, 2),
                 "conversion_pct": round(cvr, 2),
+                "click_to_join_pct": round(click_to_join, 2),
                 "avg_days_to_pay": round(atp, 1),
             })
             total_joins += j
             total_paid += pu
             total_rev += rv
+            total_clicks_local = total_clicks_local + clicks  # type: ignore[name-defined]
 
         total_arpu = total_rev / total_joins if total_joins > 0 else 0
         total_cvr = (total_paid / total_joins * 100) if total_joins > 0 else 0
+        # Total clicks: sum click_map (covers links with clicks even if no joins)
+        total_clicks = sum(click_map.values())
+        total_c2j = (total_joins / total_clicks * 100) if total_clicks > 0 else 0
 
     return {
         "window": window,
         "filter": {"marketer": marketer, "platform": platform},
         "totals": {
+            "clicks": total_clicks,
             "joins": total_joins, "paid": total_paid,
             "revenue": round(total_rev, 2),
             "arpu": round(total_arpu, 2),
             "conversion_pct": round(total_cvr, 2),
+            "click_to_join_pct": round(total_c2j, 2),
         },
         "breakdown": breakdown,
     }
@@ -341,8 +368,9 @@ async def marketing_links_list(
     async with get_session() as s:
         rows = (await s.execute(sql_text(f"""
             SELECT l.id, l.marketer, l.platform, l.group_slug::text AS group_slug,
-                   l.invite_link, l.name_tag, l.created_at,
-                   (SELECT COUNT(*) FROM marketing_invite_joins j WHERE j.link_id = l.id) AS join_count
+                   l.invite_link, l.name_tag, l.created_at, l.short_code, l.link_type,
+                   (SELECT COUNT(*) FROM marketing_invite_joins j WHERE j.link_id = l.id) AS join_count,
+                   (SELECT COUNT(*) FROM marketing_link_clicks c WHERE c.link_id = l.id) AS click_count
             FROM marketing_invite_links l
             WHERE {where_sql}
             ORDER BY l.created_at DESC
@@ -354,8 +382,11 @@ async def marketing_links_list(
         "links": [
             {
                 "id": r.id, "marketer": r.marketer, "platform": r.platform,
-                "group_slug": r.group_slug,
+                "group_slug": r.group_slug, "link_type": r.link_type,
                 "invite_link": r.invite_link,
+                "short_code": r.short_code,
+                "short_url": (f"https://telebord.net/r/{r.short_code}" if r.short_code else None),
+                "clicks": int(r.click_count or 0),
                 "joins": int(r.join_count or 0),
                 "created_at": r.created_at.isoformat() if r.created_at else None,
             }
