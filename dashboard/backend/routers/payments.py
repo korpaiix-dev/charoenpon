@@ -482,6 +482,72 @@ async def approve_payment(payment_id: int, request: Request, admin=Depends(get_c
     except Exception as exc:
         logger.warning("Flash sale slot increment failed (non-critical): %s", exc)
 
+    # ── 9. Loyalty rank trigger (added 2026-06-25 from audit) ──
+    # Was missing: dashboard approve bypassed apply_payment_approval() → loyalty never re-checked
+    try:
+        from shared.loyalty_rank import compute_rank_for_user, promote_user_to_rank, rank_higher
+        from shared.database import get_session
+        from sqlalchemy import text as _ltxt
+        async with get_session() as _ls:
+            r = await _ls.execute(_ltxt("SELECT loyalty_rank FROM users WHERE id=:i"), {"i": pay["user_id"]})
+            current_rank = (r.scalar() or "NONE")
+        target_rank = await compute_rank_for_user(pay["user_id"])
+        if target_rank and target_rank != "NONE" and rank_higher(target_rank, current_rank):
+            logger.info("[dashboard approve] loyalty trigger from dashboard: user=%s %s -> %s", pay["user_id"], current_rank, target_rank)
+            await promote_user_to_rank(pay["user_id"], target_rank, silent=False)
+    except Exception as exc:
+        logger.warning("[dashboard approve] loyalty trigger failed: %s", exc)
+
+    # ── 10. Marketing conversion attribution (added 2026-06-25 from audit) ──
+    try:
+        from shared.discord_notify import notify_marketer_conversion as _mk_notify
+        from shared.database import get_session
+        from sqlalchemy import text as _mtxt
+        async with get_session() as _ms:
+            row = (await _ms.execute(_mtxt("""
+                SELECT l.id AS link_id, l.marketer, l.platform,
+                       EXTRACT(DAY FROM (now() - j.joined_at))::int AS days_since_join
+                FROM marketing_invite_joins j
+                JOIN marketing_invite_links l ON l.id = j.link_id
+                WHERE j.user_id = :uid OR j.telegram_id = :tg
+                ORDER BY j.joined_at DESC LIMIT 1
+            """), {"uid": pay["user_id"], "tg": pay["customer_telegram_id"]})).first()
+            if row:
+                marker = f"marketing_conv_notified:{payment_id}"
+                existing = (await _ms.execute(_mtxt(
+                    "SELECT 1 FROM admin_logs WHERE action = :a LIMIT 1"
+                ), {"a": marker})).first()
+                if not existing:
+                    await _ms.execute(_mtxt(
+                        "INSERT INTO admin_logs (admin_id, action, details, created_at) "
+                        "VALUES (0, :a, :d, now())"
+                    ), {"a": marker, "d": f"link={row.link_id} marketer={row.marketer}"})
+                    await _ms.commit()
+                    month_row = (await _ms.execute(_mtxt("""
+                        SELECT COUNT(DISTINCT p.id) AS cnt, COALESCE(SUM(p.amount), 0) AS rev
+                        FROM marketing_invite_joins j2
+                        JOIN marketing_invite_links l2 ON l2.id = j2.link_id
+                        JOIN users u2 ON u2.telegram_id = j2.telegram_id
+                        JOIN payments p ON p.user_id = u2.id
+                        WHERE l2.marketer = :m AND p.status = 'CONFIRMED' AND p.amount > 0
+                          AND (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok') >= date_trunc('month', now() AT TIME ZONE 'Asia/Bangkok')
+                          AND u2.telegram_id < 9000000000
+                    """), {"m": row.marketer})).first()
+                    m_cnt = int(month_row.cnt or 0) if month_row else 0
+                    m_rev = float(month_row.rev or 0) if month_row else 0
+                    import asyncio as _aio
+                    _aio.create_task(_mk_notify(
+                        marketer=row.marketer, platform=row.platform,
+                        telegram_id=pay["customer_telegram_id"],
+                        tg_username=None, tg_first_name=pay["customer_name"],
+                        amount=float(pay["amount"]),
+                        tier=str(pkg["tier"]) if pkg else "",
+                        days_since_join=int(row.days_since_join or 0),
+                        link_id=int(row.link_id), marketer_month_count=m_cnt, marketer_month_revenue=m_rev,
+                    ))
+    except Exception as exc:
+        logger.warning("[dashboard approve] marketing conversion notify failed: %s", exc)
+
     # ── Mark teaser clicks as converted ──
     try:
         await pool.execute("""
@@ -508,7 +574,11 @@ async def approve_payment(payment_id: int, request: Request, admin=Depends(get_c
 
 @router.post("/{payment_id}/reject")
 async def reject_payment(payment_id: int, req: PaymentReject, request: Request, admin=Depends(get_current_admin)):
-    pay = await pool.fetchrow("SELECT * FROM payments WHERE id = $1", payment_id)
+    pay = await pool.fetchrow("""
+        SELECT p.*, (SELECT telegram_id FROM users WHERE id = p.user_id) AS customer_telegram_id,
+               (SELECT first_name FROM users WHERE id = p.user_id) AS customer_name
+        FROM payments p WHERE p.id = $1
+    """, payment_id)
     if not pay:
         raise HTTPException(404, "Payment not found")
     if pay["status"] != "PENDING":
@@ -519,10 +589,28 @@ async def reject_payment(payment_id: int, req: PaymentReject, request: Request, 
         req.reason, admin["telegram_id"], payment_id
     )
     
+    # FIX 2026-06-25 (audit): DM customer about rejection (was missing — silent reject)
+    dm_sent = False
+    try:
+        if SALES_BOT_TOKEN and pay["customer_telegram_id"]:
+            msg = (
+                f"❌ <b>สลิปไม่ผ่านการตรวจสอบ</b>\n"
+                f"💰 ยอด: {int(pay['amount'])} บาท\n"
+                f"📝 เหตุผล: {req.reason}\n\n"
+                f"กรุณาตรวจสอบและส่งสลิปใหม่ หรือทักแอดมินถ้าต้องการสอบถาม"
+            )
+            result = await _telegram_api(SALES_BOT_TOKEN, "sendMessage", {
+                "chat_id": pay["customer_telegram_id"],
+                "text": msg, "parse_mode": "HTML",
+            })
+            dm_sent = bool(result.get("ok"))
+    except Exception as exc:
+        logger.warning("[dashboard reject] DM customer failed: %s", exc)
+    
     ip = request.client.host if request.client else None
     await _log(admin["id"], "reject_payment", "payment", payment_id,
-               {"amount": float(pay["amount"]), "reason": req.reason}, ip)
-    return {"ok": True}
+               {"amount": float(pay["amount"]), "reason": req.reason, "dm_sent": dm_sent}, ip)
+    return {"ok": True, "dm_sent": dm_sent}
 
 @router.get("/summary")
 async def payment_summary(admin=Depends(require_role("admin"))):

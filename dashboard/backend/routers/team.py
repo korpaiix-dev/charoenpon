@@ -22,7 +22,7 @@ async def _log(admin_id, action, entity_type, entity_id, details, ip):
 async def list_team(admin=Depends(require_role("admin"))):
     rows = await pool.fetch("""
         SELECT id, telegram_id, username, display_name, role, is_active, last_login_at, created_at
-        FROM dashboard_admins ORDER BY 
+        FROM dashboard_admins ORDER BY
         CASE role WHEN 'owner' THEN 1 WHEN 'admin' THEN 2 ELSE 3 END, display_name
     """)
     return [dict(r) for r in rows]
@@ -85,8 +85,67 @@ async def delete_team_member(member_id: int, request: Request, admin=Depends(req
     if member_id == admin["id"]:
         raise HTTPException(400, "Cannot delete yourself")
     # FIX 2025-05-21 (Phase D-6): protect last active owner from deletion
-    target = await pool.fetchrow("SELECT role FROM dashboard_admins WHERE id=$1", member_id)
-    if target and target["role"] == "owner":
+    target = await pool.fetchrow("SELECT role, display_name FROM dashboard_admins WHERE id=$1", member_id)
+    if not target:
+        raise HTTPException(404, "Member not found")
+    if target["role"] == "owner":
         owners = await pool.fetchval(
             "SELECT COUNT(*) FROM dashboard_admins WHERE role='owner' AND is_active=TRUE"
         )
+        if owners <= 1:
+            raise HTTPException(400, "Cannot delete the last owner")
+    # FIX 2026-06-25 (audit): actually DELETE — was truncated mid-function
+    # Soft delete instead of hard: set is_active=FALSE + revoke active sessions
+    await pool.execute("UPDATE dashboard_admins SET is_active=FALSE, updated_at=NOW() WHERE id=$1", member_id)
+    await pool.execute(
+        "UPDATE dashboard_sessions SET revoked_at=NOW() WHERE admin_id=$1 AND revoked_at IS NULL",
+        member_id,
+    )
+    ip = request.client.host if request.client else None
+    await _log(admin["id"], "delete_team_member", "admin", member_id,
+               {"display_name": target["display_name"], "role": target["role"], "method": "soft"}, ip)
+    return {"ok": True}
+
+
+# FIX 2026-06-25 (audit): missing endpoint — Password reset
+@router.post("/{member_id}/password-reset")
+async def password_reset(member_id: int, req: PasswordReset, request: Request, admin=Depends(require_role("owner"))):
+    if len(req.new_password) < 10:
+        raise HTTPException(400, "Password must be at least 10 characters")
+    target = await pool.fetchrow("SELECT id, display_name FROM dashboard_admins WHERE id=$1", member_id)
+    if not target:
+        raise HTTPException(404, "Member not found")
+    pw_hash = bcrypt.hashpw(req.new_password.encode(), bcrypt.gensalt()).decode()
+    await pool.execute(
+        "UPDATE dashboard_admins SET password_hash=$1, updated_at=NOW() WHERE id=$2",
+        pw_hash, member_id,
+    )
+    # Revoke all active sessions so old password JWTs stop working
+    await pool.execute(
+        "UPDATE dashboard_sessions SET revoked_at=NOW() WHERE admin_id=$1 AND revoked_at IS NULL",
+        member_id,
+    )
+    ip = request.client.host if request.client else None
+    await _log(admin["id"], "password_reset", "admin", member_id, {"display_name": target["display_name"]}, ip)
+    return {"ok": True, "sessions_revoked": True}
+
+
+# FIX 2026-06-25 (audit): missing endpoint — view admin's activity log
+@router.get("/{member_id}/activity")
+async def member_activity(member_id: int, limit: int = 50, admin=Depends(require_role("admin"))):
+    limit = max(1, min(limit, 200))
+    target = await pool.fetchrow("SELECT display_name FROM dashboard_admins WHERE id=$1", member_id)
+    if not target:
+        raise HTTPException(404, "Member not found")
+    rows = await pool.fetch("""
+        SELECT id, action, entity_type, entity_id, details, ip_address, created_at
+        FROM dashboard_activity_log
+        WHERE admin_id=$1
+        ORDER BY created_at DESC
+        LIMIT $2
+    """, member_id, limit)
+    return {
+        "member": dict(target),
+        "items": [dict(r) for r in rows],
+        "total": len(rows),
+    }

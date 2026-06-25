@@ -3424,8 +3424,8 @@ async function renderSettings() {
     content.innerHTML = `
         <div class="tabs">
             <div class="tab ${settingsTab==='packages'?'active':''}" onclick="settingsTab='packages';renderSettings()">📦 แพ็กเกจ</div>
-            ${hasRole('owner') ? `<div class="tab ${settingsTab==='bots'?'active':''}" onclick="settingsTab='bots';renderSettings()">🤖 Bots</div>` : ''}
-            ${hasRole('super_admin') && !hasRole('owner') ? `<div class="tab ${settingsTab==='bots'?'active':''}" onclick="settingsTab='bots';renderSettings()">🤖 Bots (ดูอย่างเดียว)</div>` : ''}
+            ${hasRole('owner') ? `` : ''}
+            ${hasRole('super_admin') && !hasRole('owner') ? `` : ''}
             <div class="tab ${settingsTab==='dm'?'active':''}" onclick="settingsTab='dm';renderSettings()">📩 DM</div>
             <div class="tab ${settingsTab==='banned'?'active':''}" onclick="settingsTab='banned';renderSettings()">🚫 รายการแบน</div>
             <div class="tab ${settingsTab==='prae_prompt'?'active':''}" onclick="settingsTab='prae_prompt';renderSettings()">🤖 บุคลิก Prae</div>
@@ -3433,7 +3433,7 @@ async function renderSettings() {
         <div id="settings-area"><div class="loading"><div class="spinner"></div></div></div>
     `;
     if (settingsTab === 'packages') loadPackages();
-    else if (settingsTab === 'bots') loadBotSettings();
+    
     else if (settingsTab === 'dm') loadDMSettings();
     else if (settingsTab === 'banned') loadBannedSettings();
     else if (settingsTab === 'prae_prompt') loadPraePrompt();
@@ -3501,27 +3501,6 @@ async function updatePkg(id) {
     } catch (e) { toast(e.message, 'error'); }
 }
 
-async function loadBotSettings() {
-    try {
-        const data = await api('/admin/bots');
-        const botNames = { sales: '🛒 Sales Bot', guardian: '🛡️ Guardian Bot', admin: '⚙️ Admin Bot', content: '📸 Content Bot', announce: '📢 Announce Bot' };
-        let html = '<div class="section-title">🤖 Bot Tokens</div>';
-        Object.entries(data).forEach(([name, maskedToken]) => {
-            html += `<div class="detail-row" id="bot-row-${name}">
-                <span class="detail-label">${botNames[name] || name}</span>
-                <span class="detail-value" style="display:flex;align-items:center;gap:0.5rem;">
-                    <span id="bot-display-${name}" style="font-family:var(--font-mono);">${maskedToken}</span>
-                    <input type="text" id="bot-input-${name}" placeholder="ใส่ token ใหม่..." style="display:none;width:320px;padding:0.4rem 0.6rem;font-size:0.8rem;">
-                    <button class="btn btn-sm btn-outline" id="bot-edit-${name}" onclick="startEditToken('${name}')">✏️ แก้ไข</button>
-                    <button class="btn btn-sm btn-success" id="bot-save-${name}" style="display:none;" onclick="saveToken('${name}')">💾 บันทึก</button>
-                    <button class="btn btn-sm btn-outline" id="bot-cancel-${name}" style="display:none;" onclick="cancelEditToken('${name}')">✕</button>
-                </span>
-            </div>`;
-        });
-        html += '<div style="margin-top:1rem;font-size:0.8rem;color:var(--text-dim);">⚠️ หลังแก้ token ต้อง restart bot container เพื่อให้มีผล</div>';
-        document.getElementById('settings-area').innerHTML = `<div class="detail-panel">${html}</div>`;
-    } catch (e) { toast(e.message, 'error'); }
-}
 
 function startEditToken(name) {
     document.getElementById(`bot-display-${name}`).style.display = 'none';
@@ -3532,24 +3511,7 @@ function startEditToken(name) {
     document.getElementById(`bot-input-${name}`).focus();
 }
 
-function cancelEditToken(name) {
-    document.getElementById(`bot-display-${name}`).style.display = '';
-    document.getElementById(`bot-edit-${name}`).style.display = '';
-    document.getElementById(`bot-input-${name}`).style.display = 'none';
-    document.getElementById(`bot-save-${name}`).style.display = 'none';
-    document.getElementById(`bot-cancel-${name}`).style.display = 'none';
-    document.getElementById(`bot-input-${name}`).value = '';
-}
 
-async function saveToken(name) {
-    const newToken = document.getElementById(`bot-input-${name}`).value.trim();
-    if (!newToken || !newToken.includes(':')) { toast('Token ไม่ถูกต้อง (ต้องมี :)', 'error'); return; }
-    try {
-        await api('/settings/bot-token', { method: 'PUT', body: JSON.stringify({ name, token: newToken }) });
-        toast(`✅ อัพเดต ${name} token สำเร็จ`, 'success');
-        loadBotSettings();
-    } catch (e) { toast(e.message, 'error'); }
-}
 
 async function loadDMSettings() {
     try {
