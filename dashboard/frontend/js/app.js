@@ -224,7 +224,7 @@ function navigate(page) {
         dashboard: '📊 ภาพรวม', inbox: '📥 กล่องรอจัดการ', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน', gacha: '🎰 กาชา',
         promotions: '📢 โปรโมชั่น', content: '📸 Content', groups: '📱 กลุ่ม',
         team: '👨‍💼 ทีมงาน', settings: '⚙️ ตั้งค่า', marketing: '📊 Marketing',
-        activity: '📋 Activity Log',
+        activity: '📋 Activity Log', prae_logs: '💬 Prae Logs',
     };
     document.getElementById('page-title').textContent = titles[page] || page;
     document.getElementById('sidebar').classList.remove('open');
@@ -240,7 +240,7 @@ function navigate(page) {
         dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance, receivers: renderReceivers, gacha: renderGacha,
         promotions: renderPromotions, content: renderContent, groups: renderGroups,
         team: renderTeam, settings: renderSettings, marketing: renderMarketing,
-        activity: renderActivityLog,
+        activity: renderActivityLog, prae_logs: renderPraeLogs,
     };
     (pages[page] || (() => { content.innerHTML = '<div class="empty-state"><div class="icon">🚧</div><p>Coming soon</p></div>'; }))();
 }
