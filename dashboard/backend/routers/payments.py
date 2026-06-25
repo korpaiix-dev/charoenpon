@@ -601,3 +601,90 @@ async def get_slip_image(payment_id: int, admin=Depends(get_current_admin)):
             media_type=content_type,
             headers={"Cache-Control": "private, max-age=3600"},
         )
+
+
+# ====== Sprint 3.4: Bulk actions ======
+from pydantic import BaseModel as _BM_bulk
+from typing import List as _List
+
+class _BulkApproveReq(_BM_bulk):
+    payment_ids: _List[int]
+
+@router.post('/bulk-approve')
+async def bulk_approve(req: _BulkApproveReq, request: Request, admin=Depends(get_current_admin)):
+    """Approve multiple payments — call existing approve flow per id."""
+    results = {'approved': [], 'failed': []}
+    for pid in req.payment_ids[:50]:  # safety cap
+        try:
+            # reuse the existing approve handler logic by calling internally
+            # safest: call the apply_payment_approval service directly
+            from shared.payment_approval import apply_payment_approval, PaymentApprovalInput
+            from shared.database import get_session
+            from sqlalchemy import text as _t
+            async with get_session() as s:
+                row = (await s.execute(_t('SELECT user_id, amount, package_id, status::text AS status FROM payments WHERE id=:id'), {'id': pid})).first()
+                if not row:
+                    results['failed'].append({'id': pid, 'reason': 'not found'})
+                    continue
+                if row.status == 'CONFIRMED':
+                    results['failed'].append({'id': pid, 'reason': 'already confirmed'})
+                    continue
+                inp = PaymentApprovalInput(
+                    payment_id=pid,
+                    db_user_id=row.user_id,
+                    amount_paid=float(row.amount or 0),
+                    package_id=row.package_id,
+                    method='SLIP',
+                    path='dashboard:bulk',
+                    decided_by=admin['telegram_id'],
+                )
+                result = await apply_payment_approval(inp)
+                if result.success:
+                    results['approved'].append(pid)
+                else:
+                    results['failed'].append({'id': pid, 'reason': result.error or 'unknown'})
+        except Exception as exc:
+            results['failed'].append({'id': pid, 'reason': str(exc)[:100]})
+
+    try:
+        await pool.execute(
+            "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details) "
+            "VALUES ($1, 'bulk_approve', 'payment', 0, $2)",
+            admin['telegram_id'], f"approved={len(results['approved'])} failed={len(results['failed'])}"
+        )
+    except Exception:
+        pass
+    return results
+
+
+class _BulkRejectReq(_BM_bulk):
+    payment_ids: _List[int]
+    reason: str = ''
+
+@router.post('/bulk-reject')
+async def bulk_reject(req: _BulkRejectReq, admin=Depends(get_current_admin)):
+    """Reject multiple payments."""
+    results = {'rejected': [], 'failed': []}
+    for pid in req.payment_ids[:50]:
+        try:
+            row = await pool.fetchrow(
+                "UPDATE payments SET status='REJECTED', reject_reason=$2, verified_at=NOW() "
+                "WHERE id=$1 AND status::text NOT IN ('CONFIRMED','REJECTED') RETURNING id",
+                pid, (req.reason or 'bulk reject')[:200]
+            )
+            if row:
+                results['rejected'].append(pid)
+            else:
+                results['failed'].append({'id': pid, 'reason': 'not in pending state'})
+        except Exception as exc:
+            results['failed'].append({'id': pid, 'reason': str(exc)[:100]})
+    try:
+        await pool.execute(
+            "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details) "
+            "VALUES ($1, 'bulk_reject', 'payment', 0, $2)",
+            admin['telegram_id'], f"rejected={len(results['rejected'])} reason={req.reason[:100]}"
+        )
+    except Exception:
+        pass
+    return results
+

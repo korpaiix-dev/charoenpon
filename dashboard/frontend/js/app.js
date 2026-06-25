@@ -1722,6 +1722,7 @@ async function renderInbox() {
                 let actions = '';
                 if (it.type === 'payment') {
                     actions = `
+                        <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.75rem;color:var(--text-muted);cursor:pointer;"><input type="checkbox" ${window._inboxSelected?.has(${it.id}) ? 'checked' : ''} onclick="event.stopPropagation();inboxToggle(${it.id})" style="width:auto;"> เลือก</label>
                         <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); window.open('/api/payments/${it.id}/slip-image', '_blank');">👁 ดูสลิป</button>
                         <button class="btn btn-sm btn-success" onclick="event.stopPropagation(); inboxAction('approve_payment', ${it.id});">✅ Approve</button>
                         <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); inboxAction('reject_payment', ${it.id});">❌ Reject</button>`;
@@ -4013,6 +4014,75 @@ async function doCustomerGiftSub(uid) {
         showCustomer360(uid);
     } catch (err) {
         toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
+
+// ===== Sprint 3.4: Bulk approve/reject =====
+window._inboxSelected = new Set();
+
+function inboxToggle(id) {
+    if (window._inboxSelected.has(id)) window._inboxSelected.delete(id);
+    else window._inboxSelected.add(id);
+    updateInboxBulkBar();
+}
+
+function updateInboxBulkBar() {
+    let bar = document.getElementById('inbox-bulk-bar');
+    const count = window._inboxSelected.size;
+    if (count === 0) {
+        if (bar) bar.remove();
+        return;
+    }
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'inbox-bulk-bar';
+        bar.style.cssText = 'position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:0.625rem 1rem;box-shadow:var(--shadow-lg);z-index:200;display:flex;gap:0.5rem;align-items:center;';
+        document.body.appendChild(bar);
+    }
+    bar.innerHTML = `
+        <span style="font-size:0.875rem;font-weight:500;color:var(--text);">เลือก ${count} รายการ</span>
+        <button class="btn btn-success btn-sm" onclick="inboxBulkApprove()">✅ Approve ทั้งหมด</button>
+        <button class="btn btn-danger btn-sm" onclick="inboxBulkReject()">❌ Reject ทั้งหมด</button>
+        <button class="btn btn-outline btn-sm" onclick="window._inboxSelected.clear();updateInboxBulkBar();renderInbox();">ยกเลิก</button>
+    `;
+}
+
+async function inboxBulkApprove() {
+    const ids = Array.from(window._inboxSelected);
+    if (!confirm(`Approve ${ids.length} payment พร้อมกัน?`)) return;
+    try {
+        const result = await api('/payments/bulk-approve', {
+            method: 'POST',
+            body: JSON.stringify({ payment_ids: ids }),
+        });
+        const ok = result.approved?.length || 0;
+        const fail = result.failed?.length || 0;
+        toast(`✅ Approved ${ok}${fail > 0 ? ' / ❌ Failed ' + fail : ''}`, fail === 0 ? 'success' : 'info');
+        window._inboxSelected.clear();
+        updateInboxBulkBar();
+        renderInbox();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'fail'), 'error');
+    }
+}
+
+async function inboxBulkReject() {
+    const reason = prompt('เหตุผล reject:');
+    if (reason === null) return;
+    const ids = Array.from(window._inboxSelected);
+    try {
+        const result = await api('/payments/bulk-reject', {
+            method: 'POST',
+            body: JSON.stringify({ payment_ids: ids, reason }),
+        });
+        const ok = result.rejected?.length || 0;
+        const fail = result.failed?.length || 0;
+        toast(`❌ Rejected ${ok}${fail > 0 ? ' / Failed ' + fail : ''}`, fail === 0 ? 'success' : 'info');
+        window._inboxSelected.clear();
+        updateInboxBulkBar();
+        renderInbox();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'fail'), 'error');
     }
 }
 
