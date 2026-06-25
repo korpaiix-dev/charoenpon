@@ -58,8 +58,12 @@ async def _get_daily_revenue(date: datetime) -> dict[str, Any]:
             select(
                 func.coalesce(func.sum(Payment.amount), 0).label("total"),
                 func.count(Payment.id).label("count"),
-            ).where(
+            )
+            .join(User, User.id == Payment.user_id)
+            .where(
                 Payment.status == PaymentStatus.CONFIRMED,
+                Payment.amount > 0,
+                User.telegram_id < 9000000000,
                 Payment.created_at >= day_start,
                 Payment.created_at < day_end,
             )
@@ -391,10 +395,12 @@ def format_weekly_report_discord(report: dict[str, Any]) -> str:
 
 
 async def check_alerts() -> list[dict[str, Any]]:
-    """ตรวจสอบ alert conditions อัตโนมัติ."""
+    """ตรวจสอบ alert conditions อัตโนมัติ (BKK timezone)."""
     alerts: list[dict[str, Any]] = []
-    now = datetime.utcnow()
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    # BKK timezone — convert to naive UTC for DB compare
+    now_bkk = datetime.now(TH_TZ)
+    today_bkk = now_bkk.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = today_bkk.astimezone(timezone.utc).replace(tzinfo=None)
     yesterday_start = today_start - timedelta(days=1)
 
     # 1. Revenue drop > 30%

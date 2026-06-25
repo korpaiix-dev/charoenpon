@@ -54,18 +54,28 @@ NOW_STR=$(date '+%Y-%m-%d %H:%M')
 # ── Aggregations ─────────────────────────────────────────────────────────────
 # Today (CONFIRMED): count + sum
 TODAY_CONFIRMED=$(psql_q "
-  SELECT COALESCE(COUNT(*),0) || '|' || COALESCE(SUM(amount),0)::text
-  FROM payments
-  WHERE status='CONFIRMED' AND created_at::date = CURRENT_DATE
+  SELECT COALESCE(COUNT(*),0) || '|' || COALESCE(SUM(p.amount),0)::text
+  FROM payments p
+  JOIN users u ON u.id = p.user_id
+  WHERE p.status='CONFIRMED'
+    AND p.amount > 0
+    AND u.telegram_id < 9000000000
+    AND ((p.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date
+        = ((NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date
 ")
 TODAY_COUNT=${TODAY_CONFIRMED%%|*}
 TODAY_SUM=${TODAY_CONFIRMED##*|}
 
 # Yesterday (CONFIRMED): count + sum
 YDAY_CONFIRMED=$(psql_q "
-  SELECT COALESCE(COUNT(*),0) || '|' || COALESCE(SUM(amount),0)::text
-  FROM payments
-  WHERE status='CONFIRMED' AND created_at::date = CURRENT_DATE - INTERVAL '1 day'
+  SELECT COALESCE(COUNT(*),0) || '|' || COALESCE(SUM(p.amount),0)::text
+  FROM payments p
+  JOIN users u ON u.id = p.user_id
+  WHERE p.status='CONFIRMED'
+    AND p.amount > 0
+    AND u.telegram_id < 9000000000
+    AND ((p.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date
+        = ((NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date - INTERVAL '1 day'
 ")
 YDAY_COUNT=${YDAY_CONFIRMED%%|*}
 YDAY_SUM=${YDAY_CONFIRMED##*|}
@@ -73,8 +83,14 @@ YDAY_SUM=${YDAY_CONFIRMED##*|}
 # Today by package
 BY_PACKAGE=$(psql_q "
   SELECT pkg.name || ' — ' || COUNT(*)::text || ' ออเดอร์ / ' || SUM(p.amount)::text || ' บาท'
-  FROM payments p LEFT JOIN packages pkg ON pkg.id=p.package_id
-  WHERE p.status='CONFIRMED' AND p.created_at::date = CURRENT_DATE
+  FROM payments p
+  LEFT JOIN packages pkg ON pkg.id=p.package_id
+  JOIN users u ON u.id = p.user_id
+  WHERE p.status='CONFIRMED'
+    AND p.amount > 0
+    AND u.telegram_id < 9000000000
+    AND ((p.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date
+        = ((NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date
   GROUP BY pkg.name
   ORDER BY SUM(p.amount) DESC
 ")
@@ -90,9 +106,14 @@ PENDING=$(psql_q "
 
 # Month-to-date (CONFIRMED): count + sum
 MTD=$(psql_q "
-  SELECT COALESCE(COUNT(*),0) || '|' || COALESCE(SUM(amount),0)::text
-  FROM payments
-  WHERE status='CONFIRMED' AND created_at >= date_trunc('month', CURRENT_DATE)
+  SELECT COALESCE(COUNT(*),0) || '|' || COALESCE(SUM(p.amount),0)::text
+  FROM payments p
+  JOIN users u ON u.id = p.user_id
+  WHERE p.status='CONFIRMED'
+    AND p.amount > 0
+    AND u.telegram_id < 9000000000
+    AND ((p.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date
+        >= date_trunc('month', ((NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date)
 ")
 MTD_COUNT=${MTD%%|*}
 MTD_SUM=${MTD##*|}
