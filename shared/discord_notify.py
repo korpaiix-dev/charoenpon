@@ -51,6 +51,33 @@ async def post_to_channel(channel_id: str, content: str) -> bool:
         return False
 
 
+async def post_embed(channel_id: str, embed: dict, content: str = "") -> bool:
+    """Post a message with Discord embed."""
+    if not channel_id or not DISCORD_TOKEN:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as cli:
+            r = await cli.post(
+                f"{API}/channels/{channel_id}/messages",
+                json={"content": content, "embeds": [embed]},
+                headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
+            )
+            if r.status_code not in (200, 201):
+                logger.warning("post_embed: status %s: %s", r.status_code, r.text[:200])
+                return False
+        return True
+    except Exception as exc:
+        logger.exception("post_embed failed: %s", exc)
+        return False
+
+
+_PLATFORM_EMOJI = {
+    "telegram": "✈️", "twitter": "🐦", "x": "🐦",
+    "facebook": "📘", "tiktok": "🎵", "instagram": "📸",
+    "youtube": "▶️", "line": "💬",
+}
+
+
 async def notify_marketer_join(
     marketer: str,
     platform: str,
@@ -60,20 +87,22 @@ async def notify_marketer_join(
     tg_first_name: Optional[str],
     link_id: int,
     total_joins_for_link: int,
-) -> None:
+) -> bool:
     """Notify marketer's feed channel that someone joined via their link."""
     ch = _FEED_CHANNELS.get(marketer)
     if not ch:
-        return
+        logger.warning("notify_marketer_join: no channel for marketer=%s", marketer)
+        return False
     name = tg_first_name or tg_username or f"tg_{telegram_id}"
-    handle = f"@{tg_username}" if tg_username else f"`{telegram_id}`"
-    msg = (
-        f"🔥 **คนใหม่เข้า!** ลิ้ง #{link_id} ({platform})\n"
-        f"└ 👤 {name} ({handle})\n"
-        f"└ 📍 กลุ่ม: {group_title}\n"
-        f"└ 📊 ลิ้งนี้ตอนนี้: **{total_joins_for_link}** คน"
-    )
-    await post_to_channel(ch, msg)
+    handle = f"@{tg_username}" if tg_username else str(telegram_id)
+    plat_emoji = _PLATFORM_EMOJI.get(platform.lower(), "🔗")
+    embed = {
+        "color": 0x10b981,  # green
+        "title": f"🔥 {name}",
+        "description": f"{plat_emoji} **{platform}** · ลิ้ง `#{link_id}` · รวม **{total_joins_for_link}** คน",
+        "footer": {"text": f"@{tg_username}" if tg_username else f"tg: {telegram_id}"},
+    }
+    return await post_embed(ch, embed)
 
 
 async def notify_marketer_conversion(

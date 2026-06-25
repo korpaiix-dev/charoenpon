@@ -133,42 +133,40 @@ _last_click_notify: dict = {}
 _CLICK_NOTIFY_COOLDOWN_SEC = 600  # 10 minutes between notifications per link
 
 async def _notify_click_discord(link_id: int):
-    """Notify the marketer's Discord feed channel about clicks (batched)."""
+    """Notify the marketer's Discord feed channel about clicks (batched, embed-based)."""
     now = _time.time()
     last = _last_click_notify.get(link_id, 0)
     if now - last < _CLICK_NOTIFY_COOLDOWN_SEC:
-        return  # skip — cooled down
+        return
     _last_click_notify[link_id] = now
-    
-    # Lookup link details + click count in cooldown window
+
     link = await pool.fetchrow(
-        "SELECT marketer, platform, short_code, link_type "
-        "FROM marketing_invite_links WHERE id = $1", link_id
+        "SELECT marketer, platform, short_code FROM marketing_invite_links WHERE id = $1",
+        link_id,
     )
     if not link:
         return
-    
-    # Count clicks in last 10 minutes
-    recent_clicks = await pool.fetchval(
+
+    recent = await pool.fetchval(
         "SELECT COUNT(*) FROM marketing_link_clicks "
-        "WHERE link_id = $1 AND clicked_at >= NOW() - INTERVAL '10 minutes'",
-        link_id
+        "WHERE link_id = $1 AND clicked_at >= NOW() - INTERVAL \'10 minutes\'",
+        link_id,
     )
-    total_clicks = await pool.fetchval(
-        "SELECT COUNT(*) FROM marketing_link_clicks WHERE link_id = $1",
-        link_id
+    total = await pool.fetchval(
+        "SELECT COUNT(*) FROM marketing_link_clicks WHERE link_id = $1", link_id,
     )
-    
-    from shared.discord_notify import _FEED_CHANNELS, post_to_channel
+
+    from shared.discord_notify import _FEED_CHANNELS, post_embed, _PLATFORM_EMOJI
     ch = _FEED_CHANNELS.get(link["marketer"])
     if not ch:
         return
-    
-    msg = (
-        f"👁 **มีคนคลิกลิ้งคุณ!** ({link['platform']} · #{link_id})\n"
-        f"└ 📊 10 นาทีที่ผ่านมา: **{recent_clicks}** คลิก\n"
-        f"└ 📈 รวมทั้งหมด: **{total_clicks}** คลิก\n"
-        f"└ 🔗 telebord.net/r/{link['short_code']}"
-    )
-    await post_to_channel(ch, msg)
+
+    plat_emoji = _PLATFORM_EMOJI.get((link["platform"] or "").lower(), "🔗")
+    embed = {
+        "color": 0x3b82f6,  # blue
+        "title": f"👁 {recent} คลิก",
+        "description": f"{plat_emoji} **{link['platform']}** · ลิ้ง `#{link_id}` · รวม **{total}** คลิก",
+        "footer": {"text": f"telebord.net/r/{link['short_code']}"},
+    }
+    await post_embed(ch, embed)
 
