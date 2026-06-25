@@ -424,3 +424,228 @@ async def dm_customer(user_id: int, req: DMRequest, request: Request, admin=Depe
     ip = request.client.host if request.client else None
     await _log(admin["id"], "send_dm", "user", user_id, {"message_preview": req.message[:100]}, ip)
     return {"ok": True, "result": result}
+
+@router.get("/{user_id}/timeline")
+async def get_customer_timeline(user_id: int, admin=Depends(require_role("moderator"))):
+    """Unified customer timeline — all events in one chronological list.
+
+    Sources:
+      - payments (PENDING / CONFIRMED / REJECTED)
+      - subscriptions (created)
+      - admin_logs (rank_up, kick_expired, ban, unban, manual approves)
+      - marketing_invite_joins (attribution event)
+      - sos_alerts
+      - gachapon_pulls (top-tier rewards)
+    """
+    # First confirm user exists + get telegram_id
+    user_row = await pool.fetchrow(
+        "SELECT id, telegram_id, first_name, last_name, username FROM users WHERE id = $1",
+        user_id,
+    )
+    if not user_row:
+        raise HTTPException(404, "user not found")
+    tg_id = user_row["telegram_id"]
+
+    events = []
+
+    # Payments
+    pay_rows = await pool.fetch("""
+        SELECT p.id, p.amount, p.status::text AS status, p.method::text AS method,
+               p.created_at, p.verified_at, p.auto_approved, p.reject_reason,
+               pk.name AS package_name
+        FROM payments p
+        LEFT JOIN packages pk ON pk.id = p.package_id
+        WHERE p.user_id = $1
+        ORDER BY p.created_at DESC
+        LIMIT 50
+    """, user_id)
+    for r in pay_rows:
+        if r["status"] == "CONFIRMED":
+            events.append({
+                "type": "payment_confirmed",
+                "icon": "💰",
+                "color": "success",
+                "at": r["verified_at"].isoformat() if r["verified_at"] else r["created_at"].isoformat(),
+                "title": f"จ่ายเงิน ฿{float(r['amount']):,.0f}",
+                "subtitle": f"{r['package_name'] or '?'} · {r['method']}{' (auto)' if r['auto_approved'] else ' (manual)'}",
+                "ref_id": r["id"],
+                "ref_type": "payment",
+            })
+        elif r["status"] == "REJECTED":
+            events.append({
+                "type": "payment_rejected",
+                "icon": "❌",
+                "color": "error",
+                "at": r["created_at"].isoformat(),
+                "title": f"Payment ถูก reject ฿{float(r['amount']):,.0f}",
+                "subtitle": (r["reject_reason"] or "no reason")[:120],
+                "ref_id": r["id"],
+                "ref_type": "payment",
+            })
+        else:  # PENDING/HOLD
+            events.append({
+                "type": "payment_pending",
+                "icon": "⏳",
+                "color": "warning",
+                "at": r["created_at"].isoformat(),
+                "title": f"ส่งสลิป ฿{float(r['amount']):,.0f} รออนุมัติ",
+                "subtitle": r["package_name"] or "?",
+                "ref_id": r["id"],
+                "ref_type": "payment",
+            })
+
+    # Subscriptions
+    sub_rows = await pool.fetch("""
+        SELECT s.id, s.status::text AS status, s.created_at, s.start_date, s.end_date,
+               pk.name AS package_name, pk.tier::text AS tier
+        FROM subscriptions s
+        LEFT JOIN packages pk ON pk.id = s.package_id
+        WHERE s.user_id = $1
+        ORDER BY s.created_at DESC
+        LIMIT 20
+    """, user_id)
+    for r in sub_rows:
+        events.append({
+            "type": "subscription_created",
+            "icon": "📋",
+            "color": "info",
+            "at": r["created_at"].isoformat(),
+            "title": f"เริ่มสมาชิก {r['package_name'] or '?'}",
+            "subtitle": f"{r['tier'] or ''} · ถึง {r['end_date'].strftime('%d %b %Y')}" if r["end_date"] else r["tier"],
+            "ref_id": r["id"],
+            "ref_type": "subscription",
+        })
+
+    # Admin logs (rank up, kick, ban, manual approve etc) by tg_id OR by user.id
+    log_rows = await pool.fetch("""
+        SELECT id, admin_id, action, target_type, target_id, details, created_at
+        FROM admin_logs
+        WHERE (target_id = $1 OR target_id = $2)
+        ORDER BY created_at DESC
+        LIMIT 50
+    """, user_id, tg_id)
+    for r in log_rows:
+        action = r["action"]
+        details = r["details"] or ""
+        # Skip self-payment events (they show in payments section)
+        if action in ("payment_approved_backfill_admin", "approve_by_price"):
+            continue
+        # Pretty labels
+        if action == "loyalty_rank_up_v2":
+            events.append({
+                "type": "loyalty_rank_up",
+                "icon": "🏆",
+                "color": "success",
+                "at": r["created_at"].isoformat(),
+                "title": "เลื่อนยศ Loyalty",
+                "subtitle": (details if isinstance(details, str) else str(details))[:120],
+                "ref_id": r["id"],
+            })
+        elif action == "kick_expired":
+            events.append({
+                "type": "kicked",
+                "icon": "🚪",
+                "color": "warning",
+                "at": r["created_at"].isoformat(),
+                "title": "ถูกเตะจากกลุ่ม (sub expired)",
+                "subtitle": (details if isinstance(details, str) else str(details))[:120],
+                "ref_id": r["id"],
+            })
+        elif action == "gacha_reward_delivered":
+            events.append({
+                "type": "gacha_reward",
+                "icon": "🎰",
+                "color": "success",
+                "at": r["created_at"].isoformat(),
+                "title": "ได้รางวัลจากกาชา",
+                "subtitle": (details if isinstance(details, str) else str(details))[:120],
+                "ref_id": r["id"],
+            })
+        elif action == "create_one_time_invite":
+            events.append({
+                "type": "invite_created",
+                "icon": "🔗",
+                "color": "info",
+                "at": r["created_at"].isoformat(),
+                "title": "สร้างลิ้งเข้ากลุ่ม",
+                "subtitle": (details if isinstance(details, str) else str(details))[:120],
+                "ref_id": r["id"],
+            })
+        elif "ban" in action:
+            events.append({
+                "type": action,
+                "icon": "🚫" if "unban" not in action else "🔓",
+                "color": "error" if "unban" not in action else "info",
+                "at": r["created_at"].isoformat(),
+                "title": "ถูกแบน" if "unban" not in action else "ปลดแบน",
+                "subtitle": (details if isinstance(details, str) else str(details))[:120],
+                "ref_id": r["id"],
+            })
+        else:
+            events.append({
+                "type": action,
+                "icon": "📝",
+                "color": "default",
+                "at": r["created_at"].isoformat(),
+                "title": action.replace("_", " ").title(),
+                "subtitle": (details if isinstance(details, str) else str(details))[:120],
+                "ref_id": r["id"],
+            })
+
+    # Marketing attribution (first event when user joined via mkt_ link)
+    mkt_rows = await pool.fetch("""
+        SELECT j.id, j.joined_at, l.marketer, l.platform, l.link_type, l.group_slug::text AS group_slug
+        FROM marketing_invite_joins j
+        LEFT JOIN marketing_invite_links l ON l.id = j.link_id
+        WHERE j.telegram_id = $1
+    """, tg_id)
+    for r in mkt_rows:
+        events.append({
+            "type": "marketing_attribution",
+            "icon": "🎯",
+            "color": "info",
+            "at": r["joined_at"].isoformat(),
+            "title": f"เข้าระบบผ่าน {r['marketer']} / {r['platform']}",
+            "subtitle": f"link_type={r['link_type']} group={r['group_slug']}",
+            "ref_id": r["id"],
+        })
+
+    # SOS alerts
+    sos_rows = await pool.fetch("""
+        SELECT id, message, status, ai_status, ai_detail, created_at, resolved_at, resolved_by
+        FROM sos_alerts
+        WHERE telegram_id = $1
+        ORDER BY created_at DESC
+        LIMIT 20
+    """, tg_id)
+    for r in sos_rows:
+        events.append({
+            "type": "sos_alert",
+            "icon": "🆘",
+            "color": "error" if r["status"] == "PENDING" else "default",
+            "at": r["created_at"].isoformat(),
+            "title": f"SOS ticket ({r['status']})",
+            "subtitle": (r["message"] or "")[:120],
+            "ref_id": r["id"],
+        })
+
+    # User registration as oldest event
+    events.append({
+        "type": "registered",
+        "icon": "🆕",
+        "color": "info",
+        "at": user_row["telegram_id"] and (await pool.fetchval("SELECT created_at FROM users WHERE id=$1", user_id)).isoformat(),
+        "title": "สมัครเข้าระบบ",
+        "subtitle": f"ชื่อ: {user_row['first_name'] or '?'} {user_row['last_name'] or ''}",
+    })
+
+    # Sort newest first
+    events.sort(key=lambda e: e["at"], reverse=True)
+
+    return {
+        "user_id": user_id,
+        "telegram_id": tg_id,
+        "total_events": len(events),
+        "events": events,
+    }
+

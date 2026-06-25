@@ -544,6 +544,248 @@ function paginationHtml(page, pages, fn) {
 
 
 
+
+
+// ========== PAGE: CUSTOMER 360 (timeline view) ==========
+const C360_TYPE_COLORS = {
+    success: { bar: '#16a34a', dot: '#16a34a' },
+    warning: { bar: '#d97706', dot: '#d97706' },
+    error:   { bar: '#dc2626', dot: '#dc2626' },
+    info:    { bar: '#0070f3', dot: '#0070f3' },
+    default: { bar: '#9a9aa8', dot: '#9a9aa8' },
+};
+
+function _fmtEventDate(iso) {
+    if (!iso) return '';
+    try {
+        const d = new Date(iso);
+        const opt = { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false };
+        return d.toLocaleString('th-TH', opt);
+    } catch { return iso; }
+}
+
+let _c360State = { userId: null, filter: 'all' };
+
+async function showCustomer360(userId) {
+    _c360State.userId = userId;
+    _c360State.filter = 'all';
+    const content = document.getElementById('page-content');
+    content.innerHTML = '<div class="loading"><div class="spinner"></div> กำลังโหลด...</div>';
+
+    try {
+        const [detail, payments, subs, groups, timeline] = await Promise.all([
+            api(`/customers/${userId}`),
+            api(`/customers/${userId}/payments`),
+            api(`/customers/${userId}/subscriptions`),
+            api(`/customers/${userId}/groups`),
+            api(`/customers/${userId}/timeline`),
+        ]);
+
+        const u = detail.user;
+        const activeSub = detail.subscription;
+        const events = timeline.events || [];
+
+        const username = u.username ? '@' + u.username : (u.first_name || 'User');
+        const initial = (u.first_name || u.username || '?').charAt(0).toUpperCase();
+
+        // Loyalty rank colors
+        const rankBadges = {
+            'NONE':     { label: 'NONE',    bg: '#f0f0f2', color: '#6e6e80' },
+            'BRONZE':   { label: '🥉 Bronze',  bg: '#fef3e2', color: '#a85b00' },
+            'SILVER':   { label: '🥈 Silver',  bg: '#eaeaea', color: '#525252' },
+            'DIAMOND':  { label: '💎 Diamond', bg: '#dbeafe', color: '#1e3a8a' },
+        };
+        const rank = rankBadges[u.loyalty_rank || 'NONE'] || rankBadges.NONE;
+
+        // Active subs from /subscriptions
+        const activeSubs = (subs || []).filter(s => s.status === 'ACTIVE');
+        const subsHtml = activeSubs.length === 0
+            ? '<p style="color:var(--text-dim);font-size:0.8125rem;">ไม่มี active sub</p>'
+            : activeSubs.map(s => `
+                <div style="padding:0.625rem 0.75rem;background:var(--surface-2);border-radius:6px;margin-bottom:0.4rem;">
+                    <div style="font-size:0.875rem;font-weight:600;color:var(--text);">${esc(s.package_name || '?')}</div>
+                    <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.15rem;">ถึง ${fmtDate(s.end_date)}</div>
+                </div>`).join('');
+
+        // Groups
+        const activeGroups = (groups || []).filter(g => g.status === 'ACTIVE' || g.status === undefined);
+        const groupsHtml = activeGroups.length === 0
+            ? '<p style="color:var(--text-dim);font-size:0.8125rem;">ไม่อยู่ในกลุ่ม</p>'
+            : activeGroups.map(g => `<span class="status-badge status-active" style="margin:0.15rem;display:inline-block;">${esc(g.slug || '?')}</span>`).join('');
+
+        // Marketing attribution from timeline (find first marketing_attribution event)
+        const mktEvent = events.find(e => e.type === 'marketing_attribution');
+        const mktHtml = mktEvent
+            ? `<div style="font-size:0.8125rem;color:var(--text);font-weight:500;">${esc(mktEvent.title.replace('เข้าระบบผ่าน ', ''))}</div>
+               <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.15rem;">${esc(mktEvent.subtitle || '')}</div>`
+            : '<p style="color:var(--text-dim);font-size:0.8125rem;">ไม่ผ่านลิ้ง marketing (Direct)</p>';
+
+        // Action buttons (reuse existing customerAction)
+        const canActAdmin = hasRole('admin');
+        const actionsHtml = canActAdmin ? `
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-top:1rem;">
+                <button class="btn btn-outline btn-sm" onclick="customerAction(${u.id},'dm')">📩 DM</button>
+                <button class="btn btn-outline btn-sm" onclick="customerAction(${u.id},'extend')">⏰ ต่อเวลา</button>
+                <button class="btn btn-outline btn-sm" onclick="customerAction(${u.id},'upgrade')">🆙 อัพเกรด</button>
+                <button class="btn btn-outline btn-sm" onclick="customerAction(${u.id},'kick')">🔨 เตะ</button>
+                <button class="btn btn-${u.is_banned ? 'success' : 'danger'} btn-sm" style="grid-column:span 2;" onclick="customerAction(${u.id},'ban')">${u.is_banned ? '🔓 ปลดแบน' : '🚫 แบน'}</button>
+            </div>` : '';
+
+        // Filter chips
+        const counts = events.reduce((acc, e) => {
+            const grp = e.type.startsWith('payment') ? 'payment'
+                      : e.type.startsWith('subscription') ? 'sub'
+                      : e.type === 'gacha_reward' ? 'gacha'
+                      : e.type === 'sos_alert' ? 'sos'
+                      : 'other';
+            acc[grp] = (acc[grp] || 0) + 1;
+            return acc;
+        }, {});
+
+        // Render timeline
+        function renderTimeline() {
+            const f = _c360State.filter;
+            const filtered = events.filter(e => {
+                if (f === 'all') return true;
+                if (f === 'payment') return e.type.startsWith('payment');
+                if (f === 'sub') return e.type.startsWith('subscription');
+                if (f === 'gacha') return e.type === 'gacha_reward';
+                if (f === 'sos') return e.type === 'sos_alert';
+                if (f === 'other') return !e.type.startsWith('payment') && !e.type.startsWith('subscription') && e.type !== 'gacha_reward' && e.type !== 'sos_alert';
+                return true;
+            });
+
+            if (filtered.length === 0) {
+                return '<div class="empty-state" style="padding:2rem;"><div class="icon">📭</div><p>ไม่มีเหตุการณ์ในหมวดนี้</p></div>';
+            }
+
+            // Timeline rendering with vertical line
+            let html = '<div style="position:relative;padding-left:1.75rem;">';
+            html += '<div style="position:absolute;left:0.5rem;top:0.5rem;bottom:0.5rem;width:2px;background:var(--border);"></div>';
+            filtered.forEach((e, i) => {
+                const c = C360_TYPE_COLORS[e.color] || C360_TYPE_COLORS.default;
+                html += `
+                    <div style="position:relative;margin-bottom:0.875rem;">
+                        <div style="position:absolute;left:-1.625rem;top:0.4rem;width:1rem;height:1rem;border-radius:50%;background:${c.dot};border:2px solid var(--surface);box-shadow:0 0 0 2px ${c.dot}33;display:flex;align-items:center;justify-content:center;font-size:0.6rem;">
+                        </div>
+                        <div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ${c.bar};border-radius:8px;padding:0.75rem 0.875rem;">
+                            <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.25rem;">
+                                <span style="font-size:1rem;">${e.icon || '📝'}</span>
+                                <span style="font-weight:600;font-size:0.875rem;color:var(--text);">${esc(e.title || '')}</span>
+                            </div>
+                            ${e.subtitle ? `<div style="font-size:0.8125rem;color:var(--text-muted);line-height:1.4;">${esc(e.subtitle)}</div>` : ''}
+                            <div style="font-size:0.6875rem;color:var(--text-dim);margin-top:0.4rem;">${_fmtEventDate(e.at)}</div>
+                        </div>
+                    </div>`;
+            });
+            html += '</div>';
+            return html;
+        }
+
+        function renderChips() {
+            const chip = (key, label, count) => `
+                <button class="filter-btn ${_c360State.filter===key?'active':''}" onclick="window.c360Filter('${key}')">
+                    ${label}${count !== undefined ? ` <span style="opacity:0.7;font-size:0.7rem;">${count}</span>` : ''}
+                </button>`;
+            return chip('all', 'ทั้งหมด', events.length) +
+                   chip('payment', '💰 จ่าย', counts.payment || 0) +
+                   chip('sub', '📋 สมาชิก', counts.sub || 0) +
+                   chip('gacha', '🎰 กาชา', counts.gacha || 0) +
+                   chip('sos', '🆘 SOS', counts.sos || 0) +
+                   chip('other', '📝 อื่น', counts.other || 0);
+        }
+
+        // 3-column layout. Mobile: collapses to single column via CSS.
+        content.innerHTML = `
+            <div style="display:flex;align-items:center;gap:0.625rem;margin-bottom:1.25rem;">
+                <button class="btn btn-outline btn-sm" onclick="navigate('customers')">← กลับ</button>
+                <h2 style="margin:0;font-size:1.1rem;font-weight:600;color:var(--text);">ข้อมูลลูกค้า</h2>
+            </div>
+
+            <div class="c360-grid" style="display:grid;grid-template-columns:280px 1fr 260px;gap:1.25rem;align-items:start;">
+
+                <!-- LEFT: Identity card -->
+                <div class="c360-left" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.25rem;position:sticky;top:5rem;">
+                    <div style="display:flex;align-items:center;gap:0.875rem;margin-bottom:1rem;">
+                        <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--primary),var(--primary-hover));color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.5rem;font-weight:600;">${esc(initial)}</div>
+                        <div style="min-width:0;">
+                            <div style="font-weight:600;font-size:1rem;color:var(--text);overflow:hidden;text-overflow:ellipsis;">${esc(u.first_name || '?')} ${esc(u.last_name || '')}</div>
+                            <div style="font-size:0.8125rem;color:var(--text-muted);">${esc(username)}</div>
+                        </div>
+                    </div>
+
+                    <div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.875rem;">
+                        <span style="padding:0.2rem 0.6rem;border-radius:6px;background:${rank.bg};color:${rank.color};font-size:0.75rem;font-weight:600;">${rank.label}</span>
+                        ${u.is_banned ? `<span class="status-badge status-rejected">🚫 BANNED</span>` : ''}
+                        ${u.is_blocked_bot ? `<span class="status-badge status-pending">⚠️ Bot Blocked</span>` : ''}
+                    </div>
+
+                    <div style="font-size:0.75rem;color:var(--text-dim);margin-bottom:0.875rem;font-family:var(--font-mono);">tg: ${u.telegram_id}</div>
+
+                    <div style="background:var(--surface-2);border-radius:8px;padding:0.75rem;margin-bottom:0.75rem;">
+                        <div style="font-size:0.6875rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.25rem;">Total Spent</div>
+                        <div style="font-size:1.375rem;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums;">${fmtBaht(u.total_spent)}</div>
+                    </div>
+
+                    <div style="font-size:0.75rem;color:var(--text-muted);">
+                        <div>สมาชิกตั้งแต่: ${fmtDate(u.created_at)}</div>
+                        ${u.phone ? `<div style="margin-top:0.15rem;">📞 ${esc(u.phone)}</div>` : ''}
+                    </div>
+
+                    ${actionsHtml}
+                </div>
+
+                <!-- CENTER: Timeline -->
+                <div class="c360-center" style="min-width:0;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.875rem;">
+                        <h3 style="margin:0;font-size:0.9375rem;font-weight:600;color:var(--text);">📜 Timeline (${events.length} เหตุการณ์)</h3>
+                        <button class="btn btn-outline btn-sm" onclick="showCustomer360(${u.id})">🔄</button>
+                    </div>
+                    <div class="filters" style="margin-bottom:0.875rem;">${renderChips()}</div>
+                    <div id="c360-timeline">${renderTimeline()}</div>
+                </div>
+
+                <!-- RIGHT: Context cards -->
+                <div class="c360-right" style="display:flex;flex-direction:column;gap:0.875rem;">
+                    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1rem;">
+                        <div style="font-size:0.6875rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.5rem;">📋 Active Subs</div>
+                        ${subsHtml}
+                    </div>
+                    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1rem;">
+                        <div style="font-size:0.6875rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.5rem;">🎯 Attribution</div>
+                        ${mktHtml}
+                    </div>
+                    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1rem;">
+                        <div style="font-size:0.6875rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.5rem;">🏠 กลุ่ม (${activeGroups.length})</div>
+                        ${groupsHtml}
+                    </div>
+                </div>
+
+            </div>
+
+            <style>
+                @media (max-width: 980px) {
+                    .c360-grid { grid-template-columns: 1fr !important; }
+                    .c360-left { position: static !important; }
+                }
+            </style>
+        `;
+
+        window.c360Filter = (key) => {
+            _c360State.filter = key;
+            const el = document.getElementById('c360-timeline');
+            if (el) el.innerHTML = renderTimeline();
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            // re-mark active
+            const active = Array.from(document.querySelectorAll('.filter-btn')).find(b => b.getAttribute('onclick')?.includes(`'${key}'`));
+            if (active) active.classList.add('active');
+        };
+
+    } catch (err) {
+        content.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${esc(err.message)}</p></div>`;
+    }
+}
+
 // ========== PAGE: INBOX (unified queue) ==========
 async function renderInbox() {
     const content = document.getElementById('page-content');
@@ -1303,6 +1545,8 @@ async function loadCustomers(page) {
 }
 
 async function showCustomerDetail(userId) {
+    // Sprint 1.2: route to new Customer 360 page
+    return showCustomer360(userId);
     try {
         const [detail, payments, subs, groups] = await Promise.all([
             api(`/customers/${userId}`),
