@@ -3470,7 +3470,7 @@ async function updatePkg(id) {
 
 async function loadBotSettings() {
     try {
-        const data = await api('/settings/bots');
+        const data = await api('/admin/bots');
         const botNames = { sales: '🛒 Sales Bot', guardian: '🛡️ Guardian Bot', admin: '⚙️ Admin Bot', content: '📸 Content Bot', announce: '📢 Announce Bot' };
         let html = '<div class="section-title">🤖 Bot Tokens</div>';
         Object.entries(data).forEach(([name, maskedToken]) => {
