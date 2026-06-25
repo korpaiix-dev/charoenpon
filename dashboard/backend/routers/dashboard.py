@@ -663,3 +663,126 @@ async def revenue_summary(admin=Depends(get_current_admin)):
             "count": row["all_time_count"],
         },
     }
+
+
+@router.get("/inbox")
+async def get_inbox(admin=Depends(require_role("admin"))):
+    """Unified inbox queue — pending payments + SOS alerts + pending broadcasts.
+
+    Returns a flat list sorted by severity then age, plus per-type counts.
+    """
+    # Pending payments
+    pay_rows = await pool.fetch("""
+        SELECT
+            p.id, p.amount, p.status::text AS status, p.method::text AS method,
+            p.created_at, u.telegram_id, u.username, u.first_name,
+            pk.name AS package_name,
+            EXTRACT(EPOCH FROM (NOW() - p.created_at))::int AS age_sec
+        FROM payments p
+        LEFT JOIN users u ON u.id = p.user_id
+        LEFT JOIN packages pk ON pk.id = p.package_id
+        WHERE p.status::text NOT IN ('CONFIRMED','REJECTED','REFUNDED','EXPIRED')
+        ORDER BY p.created_at ASC
+        LIMIT 50
+    """)
+
+    # SOS alerts
+    sos_rows = await pool.fetch("""
+        SELECT
+            id, telegram_id, first_name, username, message, status,
+            created_at,
+            EXTRACT(EPOCH FROM (NOW() - created_at))::int AS age_sec
+        FROM sos_alerts
+        WHERE status = 'PENDING'
+        ORDER BY created_at ASC
+        LIMIT 50
+    """)
+
+    # Pending broadcasts (status='pending' = awaiting boss approval)
+    bc_rows = await pool.fetch("""
+        SELECT
+            id, target_type, target_value, message_text, sent_by_username, started_at,
+            EXTRACT(EPOCH FROM (NOW() - started_at))::int AS age_sec
+        FROM broadcasts
+        WHERE status = 'pending'
+        ORDER BY started_at ASC
+        LIMIT 50
+    """)
+
+    # Severity classifier
+    # SOS unanswered > 15 min → red; > 30 min → critical
+    # Pending payments > 30 min → orange
+    # Pending broadcasts > 1 hr → yellow
+    def _sev_payment(age):
+        if age > 1800: return "high"
+        if age > 600: return "medium"
+        return "normal"
+
+    def _sev_sos(age):
+        if age > 1800: return "critical"
+        if age > 900: return "high"
+        return "medium"
+
+    def _sev_broadcast(age):
+        if age > 3600: return "medium"
+        return "low"
+
+    items = []
+
+    for r in pay_rows:
+        items.append({
+            "type": "payment",
+            "id": r["id"],
+            "severity": _sev_payment(r["age_sec"]),
+            "title": f"Payment #{r['id']} — ฿{float(r['amount']):,.0f}",
+            "subtitle": f"{r['first_name'] or 'Unknown'} · {r['package_name'] or '?'}",
+            "telegram_id": r["telegram_id"],
+            "username": r["username"],
+            "amount": float(r["amount"]) if r["amount"] is not None else 0,
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "age_sec": r["age_sec"],
+            "status": r["status"],
+        })
+
+    for r in sos_rows:
+        items.append({
+            "type": "sos",
+            "id": r["id"],
+            "severity": _sev_sos(r["age_sec"]),
+            "title": f"SOS — {r['first_name'] or 'Unknown'}",
+            "subtitle": (r["message"] or "")[:80],
+            "telegram_id": r["telegram_id"],
+            "username": r["username"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "age_sec": r["age_sec"],
+            "status": r["status"],
+        })
+
+    for r in bc_rows:
+        target = f"{r['target_type']}={r['target_value']}" if r["target_value"] else r["target_type"]
+        preview = (r["message_text"] or "")[:80]
+        items.append({
+            "type": "broadcast",
+            "id": r["id"],
+            "severity": _sev_broadcast(r["age_sec"]),
+            "title": f"Broadcast — {target}",
+            "subtitle": preview,
+            "sent_by": r["sent_by_username"],
+            "created_at": r["started_at"].isoformat() if r["started_at"] else None,
+            "age_sec": r["age_sec"],
+        })
+
+    # Sort: severity rank then oldest first
+    sev_rank = {"critical": 0, "high": 1, "medium": 2, "normal": 3, "low": 4}
+    items.sort(key=lambda x: (sev_rank.get(x["severity"], 5), -(x["age_sec"] or 0)))
+
+    return {
+        "total": len(items),
+        "counts": {
+            "payment": len(pay_rows),
+            "sos": len(sos_rows),
+            "broadcast": len(bc_rows),
+        },
+        "items": items,
+    }
+

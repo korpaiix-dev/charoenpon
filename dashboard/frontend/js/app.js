@@ -110,6 +110,7 @@ async function withBusy(key, fn) {
 
 const NAV_ITEMS = [
     { id: 'dashboard', icon: '📊', label: 'ภาพรวม', minRole: 'moderator' },
+    { id: 'inbox', icon: '📥', label: 'กล่องรอจัดการ', minRole: 'moderator' },
     { id: 'customers', icon: '👥', label: 'ลูกค้า', minRole: 'moderator' },
     { id: 'finance', icon: '💰', label: 'การเงิน', minRole: 'moderator' },
     { id: 'promotions', icon: '📢', label: 'โปรโมชั่น', minRole: 'admin' },
@@ -217,7 +218,7 @@ function navigate(page) {
     try { window.__currentPage = page; } catch {}
     renderSidebar();
     const titles = {
-        dashboard: '📊 ภาพรวม', customers: '👥 ลูกค้า', finance: '💰 การเงิน',
+        dashboard: '📊 ภาพรวม', inbox: '📥 กล่องรอจัดการ', customers: '👥 ลูกค้า', finance: '💰 การเงิน',
         promotions: '📢 โปรโมชั่น', content: '📸 Content', groups: '📱 กลุ่ม',
         team: '👨‍💼 ทีมงาน', settings: '⚙️ ตั้งค่า', marketing: '📊 Marketing',
         activity: '📋 Activity Log',
@@ -233,7 +234,7 @@ function navigate(page) {
     content.innerHTML = '<div class="loading"><div class="spinner"></div> กำลังโหลด...</div>';
     
     const pages = {
-        dashboard: renderDashboard, customers: renderCustomers, finance: renderFinance,
+        dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance,
         promotions: renderPromotions, content: renderContent, groups: renderGroups,
         team: renderTeam, settings: renderSettings, marketing: renderMarketing,
         activity: renderActivityLog,
