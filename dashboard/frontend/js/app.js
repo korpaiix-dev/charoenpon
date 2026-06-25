@@ -4258,3 +4258,72 @@ async function openDailyReportModal() {
     }
 }
 
+// ===== Sprint 3.3: Mobile drawer + bottom nav =====
+function toggleMobileSidebar() {
+    const sb = document.querySelector('.sidebar');
+    if (!sb) return;
+    sb.classList.toggle('mobile-open');
+    document.body.classList.toggle('has-mobile-overlay');
+}
+
+function setupMobile() {
+    // Add burger button to top-bar-left (before page-title)
+    const topBar = document.querySelector('.top-bar');
+    if (!topBar) return;
+    if (!document.querySelector('.mobile-burger')) {
+        const burger = document.createElement('button');
+        burger.className = 'mobile-burger';
+        burger.innerHTML = '☰';
+        burger.onclick = toggleMobileSidebar;
+        topBar.insertBefore(burger, topBar.firstChild);
+    }
+
+    // Close drawer when clicking page content
+    document.body.addEventListener('click', (e) => {
+        const sb = document.querySelector('.sidebar.mobile-open');
+        if (sb && !sb.contains(e.target) && !e.target.closest('.mobile-burger')) {
+            sb.classList.remove('mobile-open');
+            document.body.classList.remove('has-mobile-overlay');
+        }
+    });
+
+    // Add bottom nav (mobile only)
+    if (!document.querySelector('.mobile-bottom-nav')) {
+        const items = [
+            {id:'overview', icon:'📊', label:'ภาพรวม'},
+            {id:'inbox', icon:'📥', label:'รอจัดการ'},
+            {id:'customers', icon:'👥', label:'ลูกค้า'},
+            {id:'finance', icon:'💰', label:'รายได้'},
+            {id:'settings', icon:'⚙️', label:'ตั้งค่า'},
+        ];
+        const nav = document.createElement('div');
+        nav.className = 'mobile-bottom-nav';
+        nav.innerHTML = items.map(it => `
+            <button class="nav-btn" data-page="${it.id}" onclick="navigate('${it.id}')">
+                <span class="icon">${it.icon}</span>
+                <span>${it.label}</span>
+            </button>
+        `).join('');
+        document.body.appendChild(nav);
+    }
+}
+
+// Hook: refresh bottom nav active state on navigate
+const _orig_navigate = window.navigate;
+if (_orig_navigate) {
+    window.navigate = function(page) {
+        _orig_navigate(page);
+        // close drawer
+        const sb = document.querySelector('.sidebar.mobile-open');
+        if (sb) { sb.classList.remove('mobile-open'); document.body.classList.remove('has-mobile-overlay'); }
+        // update bottom nav active
+        document.querySelectorAll('.mobile-bottom-nav .nav-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.page === page);
+        });
+    };
+}
+
+// Initialize on DOM ready
+if (document.readyState !== 'loading') setupMobile();
+else document.addEventListener('DOMContentLoaded', setupMobile);
+
