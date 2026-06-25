@@ -128,6 +128,7 @@ _ALLOWED_SERVICES = {
     "finance-scheduler",
     "manager-agent",
     "broadcast-worker",
+    "relay-bot",
 }
 
 

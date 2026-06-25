@@ -3161,8 +3161,63 @@ async function loadContentStats() {
     } catch (e) { toast(e.message, 'error'); }
 }
 
+// ===== Audit 2026-06-25: Relay-bot sync helpers =====
+async function renderRelaySync() {
+    const el = document.getElementById('relay-sync-banner');
+    if (!el) return;
+    try {
+        const r = await api('/groups/relay-sync-status');
+        if (r.in_sync) {
+            el.innerHTML = `
+                <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:0.625rem 0.875rem;display:flex;justify-content:space-between;align-items:center;font-size:0.875rem;">
+                    <div>
+                        <span style="font-weight:600;color:var(--success);">✅ Relay-bot sync แล้ว</span>
+                        <span style="color:var(--text-muted);margin-left:0.5rem;">— ${r.db_count} กลุ่มฟรี broadcast ได้</span>
+                    </div>
+                    <button class="btn btn-sm btn-outline" onclick="syncRelayBot(true)" title="Force resync">🔄 Resync</button>
+                </div>`;
+        } else {
+            const missing = r.missing_in_relay.map(g => `<code>${esc(g.slug)}</code>`).join(', ');
+            const extra = r.extra_in_relay.length;
+            el.innerHTML = `
+                <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.4);border-radius:8px;padding:0.75rem 1rem;font-size:0.875rem;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                        <span style="font-weight:600;color:var(--warning);">⚠️ Relay-bot ไม่ sync กับ DB</span>
+                        <button class="btn btn-sm btn-primary" onclick="syncRelayBot(false)">🔄 Sync ทันที</button>
+                    </div>
+                    <div style="font-size:0.78rem;color:var(--text-muted);line-height:1.6;">
+                        DB: ${r.db_count} กลุ่ม · Relay-bot env: ${r.env_count} กลุ่ม<br>
+                        ${r.missing_in_relay.length > 0 ? `<b>กลุ่มที่ relay ยังไม่รู้:</b> ${missing}<br>` : ''}
+                        ${extra > 0 ? `<b>${extra} กลุ่มเก่าที่ไม่อยู่ใน DB แล้ว</b><br>` : ''}
+                        <span style="color:var(--text-dim);">หมายเหตุ: relay-bot ใช้ env DEST_CHAT_IDS, ไม่อ่าน DB ตรง</span>
+                    </div>
+                </div>`;
+        }
+    } catch (err) {
+        el.innerHTML = `<div style="color:var(--text-muted);font-size:0.78rem;">⚠️ เช็ค relay sync ไม่ได้: ${esc(err.message || '')}</div>`;
+    }
+}
+
+async function syncRelayBot(force) {
+    if (!force && !confirm('Sync กลุ่มทั้งหมดไปยัง relay-bot + restart container?\n\nrelay-bot จะ down ~15 วินาที — broadcast ระหว่างนั้นจะไม่ส่ง')) return;
+    try {
+        toast('🔄 กำลัง sync + restart relay-bot...', 'info', 10000);
+        const r = await api('/groups/relay-sync', { method: 'POST' });
+        if (r.ok) {
+            toast(`✅ Sync เรียบร้อย — ${r.synced_count} กลุ่ม`, 'success');
+        } else {
+            toast(`⚠️ Env เขียนแล้วแต่ restart ล้มเหลว: ${r.restart_error || 'unknown'}`, 'error', 10000);
+        }
+        renderRelaySync();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'sync failed'), 'error');
+    }
+}
+
 // ========== PAGE: GROUPS ==========
 async function renderGroups() {
+    setTimeout(() => { try { renderRelaySync(); } catch (e) {} }, 200);
+
     const content = document.getElementById('page-content');
     try {
         const data = await api('/groups/categorized');

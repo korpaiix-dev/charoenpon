@@ -119,3 +119,150 @@ async def gen_invite_link(group_id: int, request: Request, admin=Depends(require
         raise HTTPException(404, "Group not found")
     
     result
+
+
+# ====== Audit 2026-06-25: Groups → relay-bot sync ======
+# Relay-bot is Node.js, reads DEST_CHAT_IDS from env, NOT from group_registry table.
+# This endpoint computes the diff + writes env + restarts relay-bot service.
+import os as _os
+import asyncio as _asyncio
+from pathlib import Path as _Path
+
+_ENV_PATH = _Path(_os.environ.get("HOST_ENV_PATH", "/app/host.env"))
+
+
+def _read_env_groups_sync() -> dict:
+    if not _ENV_PATH.exists():
+        return {}
+    result = {}
+    for line in _ENV_PATH.read_text(encoding="utf-8").splitlines():
+        line = line.rstrip()
+        if not line or line.lstrip().startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        result[k.strip()] = v.strip()
+    return result
+
+
+def _write_env_var_groups_sync(key: str, value: str):
+    """Set/update one env var preserving comments."""
+    lines = _ENV_PATH.read_text(encoding="utf-8").splitlines() if _ENV_PATH.exists() else []
+    found = False
+    new_lines = []
+    for line in lines:
+        if not line.lstrip().startswith("#") and "=" in line:
+            k = line.split("=", 1)[0].strip()
+            if k == key:
+                new_lines.append(f"{key}={value}")
+                found = True
+                continue
+        new_lines.append(line)
+    if not found:
+        new_lines.append(f"{key}={value}")
+    _ENV_PATH.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+
+@router.get("/relay-sync-status")
+async def relay_sync_status(admin=Depends(require_role("admin"))):
+    """Compare group_registry vs relay-bot DEST_CHAT_IDS env. Returns diff."""
+    # 1. Get active FREE groups from DB
+    rows = await pool.fetch("""
+        SELECT slug::text AS slug, chat_id, title, is_active
+        FROM group_registry
+        WHERE min_tier = 'FREE' AND is_active = TRUE
+        ORDER BY slug
+    """)
+    db_chat_ids = sorted(int(r["chat_id"]) for r in rows)
+    db_slugs = {int(r["chat_id"]): r["slug"] for r in rows}
+    db_titles = {int(r["chat_id"]): r["title"] for r in rows}
+
+    # 2. Get current env value
+    env = _read_env_groups_sync()
+    env_value = env.get("DEST_CHAT_IDS", "")
+    env_chat_ids = []
+    if env_value:
+        for s in env_value.split(","):
+            s = s.strip()
+            if s.lstrip("-").isdigit():
+                env_chat_ids.append(int(s))
+    env_chat_ids.sort()
+
+    # 3. Compute diff
+    db_set = set(db_chat_ids)
+    env_set = set(env_chat_ids)
+    only_in_db = sorted(db_set - env_set)
+    only_in_env = sorted(env_set - db_set)
+    in_sync = (db_set == env_set)
+
+    return {
+        "in_sync": in_sync,
+        "db_count": len(db_chat_ids),
+        "env_count": len(env_chat_ids),
+        "missing_in_relay": [
+            {"chat_id": cid, "slug": db_slugs.get(cid, "?"), "title": db_titles.get(cid, "?")}
+            for cid in only_in_db
+        ],
+        "extra_in_relay": [{"chat_id": cid} for cid in only_in_env],
+        "db_chat_ids": db_chat_ids,
+        "env_chat_ids": env_chat_ids,
+    }
+
+
+@router.post("/relay-sync")
+async def sync_relay_bot(admin=Depends(require_role("admin"))):
+    """Write current FREE groups to DEST_CHAT_IDS env + restart relay-bot."""
+    rows = await pool.fetch("""
+        SELECT chat_id FROM group_registry
+        WHERE min_tier = 'FREE' AND is_active = TRUE
+        ORDER BY id
+    """)
+    chat_ids = [str(r["chat_id"]) for r in rows]
+    new_value = ",".join(chat_ids)
+
+    # Write env
+    try:
+        _write_env_var_groups_sync("DEST_CHAT_IDS", new_value)
+    except Exception as exc:
+        raise HTTPException(500, f"write env failed: {exc}")
+
+    # Restart relay-bot
+    try:
+        proc = await _asyncio.create_subprocess_exec(
+            "docker", "compose", "up", "-d", "--force-recreate", "--no-deps", "--", "relay-bot",
+            cwd="/app",
+            stdout=_asyncio.subprocess.PIPE,
+            stderr=_asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await _asyncio.wait_for(proc.communicate(), timeout=120)
+        if proc.returncode != 0:
+            return {
+                "ok": False,
+                "synced_count": len(chat_ids),
+                "env_written": True,
+                "restart_error": stderr.decode(errors="replace")[-500:],
+            }
+    except _asyncio.TimeoutError:
+        return {"ok": False, "synced_count": len(chat_ids), "env_written": True, "restart_error": "timeout"}
+    except Exception as exc:
+        return {"ok": False, "synced_count": len(chat_ids), "env_written": True, "restart_error": str(exc)[:300]}
+
+    # Audit log
+    try:
+        await pool.execute(
+            "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details) "
+            "VALUES ($1, 'relay_bot_sync', 'system', 0, $2)",
+            admin["telegram_id"], f"synced {len(chat_ids)} free groups"
+        )
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "synced_count": len(chat_ids),
+        "env_written": True,
+        "restarted": True,
+        "chat_ids": chat_ids,
+    }
+
