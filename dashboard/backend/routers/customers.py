@@ -34,7 +34,7 @@ async def list_customers(
     idx = 1
 
     if search:
-        conditions.append(f"(u.username ILIKE ${idx} OR u.first_name ILIKE ${idx} OR CAST(u.telegram_id AS TEXT) LIKE ${idx})")
+        conditions.append(f"(u.username ILIKE ${idx} OR u.first_name ILIKE ${idx} OR u.last_name ILIKE ${idx} OR (COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) ILIKE ${idx} OR CAST(u.telegram_id AS TEXT) LIKE ${idx})")
         params.append(f"%{search}%")
         idx += 1
 
