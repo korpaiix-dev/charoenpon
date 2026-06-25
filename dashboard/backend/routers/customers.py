@@ -649,3 +649,93 @@ async def get_customer_timeline(user_id: int, admin=Depends(require_role("modera
         "events": events,
     }
 
+
+# ====== Sprint 2.6: Subscription manipulation ======
+from pydantic import BaseModel as _BM2
+
+class _SubCancelReq(_BM2):
+    reason: str = ''
+    refund_kept_days: bool = False
+
+@router.post('/{user_id}/cancel-sub')
+async def cancel_subscription(user_id: int, req: _SubCancelReq, admin=Depends(get_current_admin)):
+    """Cancel active subscription. Optionally keep used days (no refund) or full revoke."""
+    row = await pool.fetchrow(
+        "UPDATE subscriptions SET status='EXPIRED', end_date=NOW(), updated_at=NOW() "
+        "WHERE user_id=$1 AND status='ACTIVE' RETURNING id, package_id",
+        user_id,
+    )
+    if not row:
+        raise HTTPException(404, 'no active subscription found')
+    try:
+        await pool.execute(
+            "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details) "
+            "VALUES ($1, 'subscription_cancel', 'subscription', $2, $3)",
+            admin['telegram_id'], row['id'],
+            f"user_id={user_id} reason={req.reason[:200]} kept_days={req.refund_kept_days}"
+        )
+    except Exception:
+        pass
+    return {'ok': True, 'subscription_id': row['id']}
+
+
+@router.post('/{user_id}/reactivate-sub')
+async def reactivate_subscription(user_id: int, admin=Depends(get_current_admin)):
+    """Reactivate latest EXPIRED sub if end_date >= NOW() (revert cancel)."""
+    row = await pool.fetchrow(
+        """UPDATE subscriptions SET status='ACTIVE', updated_at=NOW()
+            WHERE id = (
+                SELECT id FROM subscriptions
+                WHERE user_id=$1 AND status='EXPIRED'
+                ORDER BY updated_at DESC LIMIT 1
+            )
+            AND end_date > NOW()
+            RETURNING id, end_date""",
+        user_id,
+    )
+    if not row:
+        raise HTTPException(400, 'no recent EXPIRED sub with future end_date to reactivate')
+    try:
+        await pool.execute(
+            "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details) "
+            "VALUES ($1, 'subscription_reactivate', 'subscription', $2, $3)",
+            admin['telegram_id'], row['id'],
+            f"user_id={user_id} end_date={row['end_date']}"
+        )
+    except Exception:
+        pass
+    return {'ok': True, 'subscription_id': row['id']}
+
+
+class _GiftSubReq(_BM2):
+    package_id: int
+    days: int = 30
+    reason: str = ''
+
+@router.post('/{user_id}/gift-sub')
+async def gift_subscription(user_id: int, req: _GiftSubReq, admin=Depends(get_current_admin)):
+    """Grant a free subscription (no payment_id) — used for compensation / gift."""
+    if req.days < 1 or req.days > 365:
+        raise HTTPException(400, 'days must be 1-365')
+    # Verify package exists
+    pk = await pool.fetchrow('SELECT id, name FROM packages WHERE id = $1', req.package_id)
+    if not pk:
+        raise HTTPException(404, 'package not found')
+    # Create sub starting now
+    row = await pool.fetchrow(
+        """INSERT INTO subscriptions (user_id, package_id, status, start_date, end_date, auto_renew)
+            VALUES ($1, $2, 'ACTIVE', NOW(), NOW() + ($3 || ' days')::interval, false)
+            RETURNING id, end_date""",
+        user_id, req.package_id, str(req.days),
+    )
+    try:
+        await pool.execute(
+            "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details) "
+            "VALUES ($1, 'subscription_gift', 'subscription', $2, $3)",
+            admin['telegram_id'], row['id'],
+            f"user_id={user_id} package={pk['name']} days={req.days} reason={req.reason[:200]}"
+        )
+    except Exception:
+        pass
+    return {'ok': True, 'subscription_id': row['id'], 'end_date': row['end_date'].isoformat()}
+

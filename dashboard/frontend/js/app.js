@@ -3943,3 +3943,73 @@ function openExportsModal() {
     `);
 }
 
+// ===== Sprint 2.6: Subscription manipulation handlers =====
+async function customerCancelSub(uid) {
+    const reason = prompt('เหตุผลที่ยกเลิก sub:');
+    if (reason === null) return;
+    try {
+        await api(`/customers/${uid}/cancel-sub`, {
+            method: 'POST',
+            body: JSON.stringify({ reason: reason || '', refund_kept_days: false }),
+        });
+        toast('✅ ยกเลิก sub เรียบร้อย', 'success');
+        showCustomer360(uid);
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
+
+async function customerReactivateSub(uid) {
+    if (!confirm('Reactivate sub ที่ยกเลิกล่าสุด? (ใช้ได้ถ้า end_date ยังไม่หมดจริง)')) return;
+    try {
+        await api(`/customers/${uid}/reactivate-sub`, { method: 'POST' });
+        toast('✅ Reactivate เรียบร้อย', 'success');
+        showCustomer360(uid);
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
+
+async function customerGiftSub(uid) {
+    try {
+        const pkgs = await api('/settings/packages');
+        const opts = pkgs.map(p => `<option value="${p.id}">${esc(p.name)} (${fmtBaht(p.price)})</option>`).join('');
+        openModal('🎁 Gift Subscription', `
+            <p style="font-size:0.875rem;color:var(--text-muted);margin-bottom:1rem;">มอบ sub ฟรีให้ลูกค้า — ไม่นับเป็นรายได้ (no payment_id)</p>
+            <div class="form-group">
+                <label>แพ็กเกจ</label>
+                <select id="gift-pkg">${opts}</select>
+            </div>
+            <div class="form-group">
+                <label>จำนวนวัน (1-365)</label>
+                <input type="number" id="gift-days" min="1" max="365" value="30">
+            </div>
+            <div class="form-group">
+                <label>เหตุผล</label>
+                <input id="gift-reason" placeholder="เช่น: ชดเชย bug / promo / VIP จริง">
+            </div>
+            <button class="btn btn-primary btn-full" onclick="doCustomerGiftSub(${uid})">✅ มอบ Gift</button>
+        `);
+    } catch (err) {
+        toast('❌ ' + (err.message || 'load failed'), 'error');
+    }
+}
+
+async function doCustomerGiftSub(uid) {
+    try {
+        const package_id = parseInt(document.getElementById('gift-pkg').value);
+        const days = parseInt(document.getElementById('gift-days').value);
+        const reason = document.getElementById('gift-reason').value.trim();
+        if (!package_id) { toast('เลือกแพ็กเกจ', 'error'); return; }
+        await api(`/customers/${uid}/gift-sub`, {
+            method: 'POST',
+            body: JSON.stringify({ package_id, days, reason }),
+        });
+        toast('✅ มอบ gift เรียบร้อย', 'success');
+        closeModal();
+        showCustomer360(uid);
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
+
