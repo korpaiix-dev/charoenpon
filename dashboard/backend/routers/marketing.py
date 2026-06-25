@@ -1,5 +1,7 @@
 """Marketing analytics router."""
-from fastapi import APIRouter, Depends
+from typing import Optional
+from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException
 from ..auth.dependencies import require_role
 from ..database import pool
 
@@ -202,9 +204,10 @@ async def marketing_links_list(admin=Depends(require_role("admin"))):
     """All marketing links with cost + revenue info."""
     rows = await pool.fetch("""
         SELECT l.id, l.marketer, l.platform, l.group_slug::text AS group_slug,
-               l.invite_link, l.name_tag,
+               l.invite_link, l.name_tag, l.short_code, l.link_type,
                l.cost::float AS cost, l.is_revoked, l.created_at,
                l.cost_updated_at, l.cost_notes,
+               (SELECT COUNT(*) FROM marketing_link_clicks c WHERE c.link_id = l.id)::int AS clicks,
                (SELECT COUNT(*) FROM marketing_invite_joins j WHERE j.link_id = l.id)::int AS joins,
                (SELECT COALESCE(SUM(p.amount), 0)::float
                 FROM marketing_invite_joins j
@@ -222,6 +225,9 @@ async def marketing_links_list(admin=Depends(require_role("admin"))):
             "id": r["id"], "marketer": r["marketer"], "platform": r["platform"],
             "group_slug": r["group_slug"],
             "invite_link": r["invite_link"], "name_tag": r["name_tag"],
+            "short_code": r["short_code"], "link_type": r["link_type"],
+            "short_url": (f"https://telebord.net/r/{r['short_code']}" if r["short_code"] else None),
+            "clicks": r["clicks"] or 0,
             "cost": r["cost"] or 0, "is_revoked": r["is_revoked"],
             "joins": r["joins"], "revenue": r["revenue"] or 0,
             "profit": (r["revenue"] or 0) - (r["cost"] or 0),
@@ -231,3 +237,91 @@ async def marketing_links_list(admin=Depends(require_role("admin"))):
         }
         for r in rows
     ]
+
+# ====== Sprint 2.3: Link CRUD endpoints ======
+
+class _LinkCostUpdate(BaseModel):
+    cost: Optional[float] = None
+    cost_notes: Optional[str] = None
+
+
+@router.patch("/links/{link_id}")
+async def update_marketing_link(link_id: int, req: _LinkCostUpdate,
+                                admin=Depends(require_role("admin"))):
+    """Update cost / cost_notes for a marketing link."""
+    sets = []
+    params: list = []
+    idx = 1
+    if req.cost is not None:
+        if req.cost < 0:
+            raise HTTPException(400, "cost must be >= 0")
+        sets.append(f"cost = ${idx}::numeric")
+        params.append(req.cost)
+        idx += 1
+    if req.cost_notes is not None:
+        sets.append(f"cost_notes = ${idx}")
+        params.append(req.cost_notes[:500])
+        idx += 1
+    if not sets:
+        raise HTTPException(400, "no fields to update")
+    sets.append("cost_updated_at = NOW()")
+    params.append(link_id)
+    sql = f"UPDATE marketing_invite_links SET {', '.join(sets)} WHERE id = ${idx} RETURNING id, marketer, platform"
+    row = await pool.fetchrow(sql, *params)
+    if not row:
+        raise HTTPException(404, "link not found")
+    try:
+        await pool.execute(
+            "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details) "
+            "VALUES ($1, 'marketing_link_update', 'marketing_link', $2, $3)",
+            admin["telegram_id"], link_id,
+            f"marketer={row['marketer']} platform={row['platform']} cost={req.cost}",
+        )
+    except Exception:
+        pass
+    return {"ok": True, "id": link_id}
+
+
+@router.post("/links/{link_id}/revoke")
+async def revoke_marketing_link(link_id: int, admin=Depends(require_role("admin"))):
+    """Mark link as revoked. Group invites also revoked via Telegram API."""
+    row = await pool.fetchrow(
+        "SELECT id, marketer, platform, link_type, invite_link, group_chat_id, is_revoked "
+        "FROM marketing_invite_links WHERE id = $1",
+        link_id,
+    )
+    if not row:
+        raise HTTPException(404, "link not found")
+    if row["is_revoked"]:
+        return {"ok": True, "already_revoked": True}
+
+    tg_revoke_result = None
+    if row["link_type"] == "group_invite" and row["invite_link"] and row["group_chat_id"]:
+        try:
+            import os, httpx
+            token = os.getenv("GUARDIAN_BOT_TOKEN", "")
+            if token:
+                async with httpx.AsyncClient(timeout=10) as cx:
+                    r = await cx.post(
+                        f"https://api.telegram.org/bot{token}/revokeChatInviteLink",
+                        data={"chat_id": row["group_chat_id"], "invite_link": row["invite_link"]},
+                    )
+                    tg_revoke_result = bool(r.json().get("ok", False))
+        except Exception:
+            pass
+
+    await pool.execute(
+        "UPDATE marketing_invite_links SET is_revoked = TRUE WHERE id = $1",
+        link_id,
+    )
+    try:
+        await pool.execute(
+            "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details) "
+            "VALUES ($1, 'marketing_link_revoke', 'marketing_link', $2, $3)",
+            admin["telegram_id"], link_id,
+            f"marketer={row['marketer']} platform={row['platform']} tg_api={tg_revoke_result}",
+        )
+    except Exception:
+        pass
+    return {"ok": True, "id": link_id, "tg_revoked": tg_revoke_result}
+

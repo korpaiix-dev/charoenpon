@@ -942,6 +942,51 @@ async function receiverHistory(rid, owner) {
 
 
 
+
+
+// ===== Marketing link CRUD helpers =====
+async function marketingLinkEditCost(linkId, currentCost, currentNotes) {
+    openModal('💰 แก้ค่าโฆษณา — Link #' + linkId, `
+        <div class="form-group">
+            <label>ค่าโฆษณา (บาท)</label>
+            <input type="number" id="mkt-cost" min="0" step="1" value="${currentCost || ''}" placeholder="เช่น 500">
+        </div>
+        <div class="form-group">
+            <label>Notes (optional)</label>
+            <input id="mkt-cost-notes" placeholder="เช่น: ครีเอเตอร์ A 2 คลิป" value="${esc(currentNotes || '')}">
+        </div>
+        <button class="btn btn-primary btn-full" onclick="doMarketingLinkCost(${linkId})">บันทึก</button>
+    `);
+}
+
+async function doMarketingLinkCost(linkId) {
+    try {
+        const cost = parseFloat(document.getElementById('mkt-cost').value);
+        const notes = document.getElementById('mkt-cost-notes').value.trim();
+        if (isNaN(cost) || cost < 0) { toast('ใส่ตัวเลข ≥ 0', 'error'); return; }
+        await api(`/marketing/links/${linkId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ cost, cost_notes: notes || null }),
+        });
+        toast('✅ บันทึกเรียบร้อย', 'success');
+        closeModal();
+        renderMarketing();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
+
+async function marketingLinkRevoke(linkId, marketer, platform) {
+    if (!confirm('Revoke link #' + linkId + ' (' + marketer + ' / ' + platform + ')?\n\nลิ้งนี้จะใช้ไม่ได้อีก:\n• Short URL จะ return 410\n• Group invite ถูก revoke ใน Telegram\n• Click logs จะไม่ track ใหม่')) return;
+    try {
+        await api(`/marketing/links/${linkId}/revoke`, { method: 'POST' });
+        toast('✅ Revoked เรียบร้อย', 'success');
+        renderMarketing();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
+
 // ========== PAGE: GACHA ADMIN ==========
 let _gachaTab = 'overview';
 
@@ -3504,36 +3549,47 @@ async function renderMarketing() {
                 <div class="card-label">🔗 ลิ้งทั้งหมด (${links.length})</div>
                 <div style="overflow-x:auto;max-height:400px;overflow-y:auto;">
                 <table style="width:100%;border-collapse:collapse;color:var(--text);font-size:0.8rem;">
-                    <thead style="background:rgba(0,212,255,0.08);position:sticky;top:0;">
+                    <thead style="background:var(--surface-2);position:sticky;top:0;">
                         <tr>
                             <th style="padding:0.5rem;text-align:left;">ID</th>
                             <th style="padding:0.5rem;text-align:left;">Marketer</th>
                             <th style="padding:0.5rem;text-align:left;">Platform</th>
+                            <th style="padding:0.5rem;text-align:left;">Short URL</th>
                             <th style="padding:0.5rem;text-align:right;">Cost</th>
+                            <th style="padding:0.5rem;text-align:right;">Clicks</th>
                             <th style="padding:0.5rem;text-align:right;">Joins</th>
                             <th style="padding:0.5rem;text-align:right;">Revenue</th>
                             <th style="padding:0.5rem;text-align:right;">Profit</th>
                             <th style="padding:0.5rem;text-align:center;">Status</th>
+                            <th style="padding:0.5rem;text-align:center;">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${links.map(l => `
-                        <tr style="border-top:1px solid var(--border);${l.is_revoked ? 'opacity:0.4;' : ''}">
+                        <tr style="border-top:1px solid var(--border);${l.is_revoked ? 'opacity:0.5;' : ''}">
                             <td style="padding:0.5rem;font-family:var(--font-mono,monospace);">#${l.id}</td>
                             <td style="padding:0.5rem;">${esc(l.marketer)}</td>
                             <td style="padding:0.5rem;">${esc(l.platform)}</td>
+                            <td style="padding:0.5rem;">${l.short_url
+                                ? `<a href="${esc(l.short_url)}" target="_blank" style="color:var(--accent);font-family:var(--font-mono);font-size:0.78rem;">${esc(l.short_code)}</a>`
+                                : '<span style="color:var(--text-dim);font-size:0.78rem;">—</span>'}</td>
                             <td style="padding:0.5rem;text-align:right;">${l.cost > 0 ? fmtBaht(l.cost) : '<span style="color:var(--text-muted);">-</span>'}</td>
-                            <td style="padding:0.5rem;text-align:right;">${fmt(l.joins)}</td>
-                            <td style="padding:0.5rem;text-align:right;color:var(--primary);">${fmtBaht(l.revenue)}</td>
-                            <td style="padding:0.5rem;text-align:right;color:${l.profit >= 0 ? 'var(--success)' : 'var(--error)'};">${fmtBaht(l.profit)}</td>
-                            <td style="padding:0.5rem;text-align:center;">${l.is_revoked ? '🔴' : '🟢'}</td>
+                            <td style="padding:0.5rem;text-align:right;font-variant-numeric:tabular-nums;">${fmt(l.clicks || 0)}</td>
+                            <td style="padding:0.5rem;text-align:right;font-variant-numeric:tabular-nums;">${fmt(l.joins)}</td>
+                            <td style="padding:0.5rem;text-align:right;color:var(--primary);font-variant-numeric:tabular-nums;">${fmtBaht(l.revenue)}</td>
+                            <td style="padding:0.5rem;text-align:right;color:${l.profit >= 0 ? 'var(--success)' : 'var(--error)'};font-variant-numeric:tabular-nums;">${fmtBaht(l.profit)}</td>
+                            <td style="padding:0.5rem;text-align:center;">${l.is_revoked ? '🔴 revoked' : '🟢 active'}</td>
+                            <td style="padding:0.5rem;text-align:center;white-space:nowrap;">
+                                <button class="btn btn-sm btn-outline" onclick="marketingLinkEditCost(${l.id}, ${parseFloat(l.cost || 0)}, '${esc(l.cost_notes || '').replace(/'/g, "\'")}')" title="แก้ Cost" style="padding:0.2rem 0.4rem;">💰</button>
+                                ${l.is_revoked ? '' : `<button class="btn btn-sm btn-outline" onclick="marketingLinkRevoke(${l.id}, '${esc(l.marketer)}', '${esc(l.platform)}')" title="Revoke" style="padding:0.2rem 0.4rem;">🚫</button>`}
+                            </td>
                         </tr>
                         `).join('')}
                     </tbody>
                 </table>
                 </div>
                 <div style="font-size:0.75rem;color:var(--text-muted);padding:0.5rem 0;margin-top:0.5rem;">
-                    💡 ใส่ค่าโฆษณาผ่าน Discord: พิมพ์ <code>cost &lt;id&gt; &lt;amount&gt;</code> ใน #ivy / #wasu / #pai
+                    💡 <b>💰</b> = แก้ค่าโฆษณา/notes &nbsp;·&nbsp; <b>🚫</b> = revoke (link จะใช้ไม่ได้). หรือผ่าน Discord: <code>cost &lt;id&gt; &lt;amount&gt;</code> ใน #ivy / #wasu / #pai
                 </div>
             </div>
             ` : ''}
