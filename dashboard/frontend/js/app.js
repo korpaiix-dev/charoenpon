@@ -4609,3 +4609,132 @@ if (_navOrig) {
     };
 }
 
+// ===== Sprint 2.5: Prae Prompt Editor =====
+async function loadPraePrompt() {
+    const area = document.getElementById('settings-area');
+    if (!area) return;
+    area.innerHTML = '<div class="loading"><div class="spinner"></div> กำลังโหลด...</div>';
+    try {
+        const [current, versions] = await Promise.all([
+            api('/prae-prompt/active'),
+            api('/prae-prompt/versions'),
+        ]);
+
+        const isOverride = current.active_source === 'file' || current.override_exists;
+        const versionsHtml = versions.length === 0
+            ? '<div style="text-align:center;padding:1rem;color:var(--text-muted);font-size:0.875rem;">ยังไม่มีเวอร์ชันที่เซฟ</div>'
+            : `
+                <table style="width:100%;font-size:0.85rem;">
+                    <thead style="background:var(--surface-2);">
+                        <tr>
+                            <th style="padding:0.4rem;text-align:left;">v</th>
+                            <th style="padding:0.4rem;text-align:left;">Notes</th>
+                            <th style="padding:0.4rem;text-align:right;">ขนาด</th>
+                            <th style="padding:0.4rem;text-align:left;">บันทึกเมื่อ</th>
+                            <th style="padding:0.4rem;text-align:center;">Status</th>
+                            <th style="padding:0.4rem;text-align:center;"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${versions.map(v => `
+                            <tr style="border-top:1px solid var(--border);${v.is_active?'background:rgba(0,200,100,0.06);':''}">
+                                <td style="padding:0.4rem;">v${v.version}</td>
+                                <td style="padding:0.4rem;font-size:0.78rem;color:var(--text-muted);">${esc(v.notes || '-')}</td>
+                                <td style="padding:0.4rem;text-align:right;font-variant-numeric:tabular-nums;">${fmt(v.char_count)}</td>
+                                <td style="padding:0.4rem;font-size:0.78rem;color:var(--text-muted);">${fmtDateTime(v.created_at)}</td>
+                                <td style="padding:0.4rem;text-align:center;">${v.is_active ? '🟢 active' : '⚪'}</td>
+                                <td style="padding:0.4rem;text-align:center;">
+                                    <button class="btn btn-sm btn-outline" onclick="previewPromptVersion(${v.id})" title="ดู">👁</button>
+                                    ${!v.is_active ? `<button class="btn btn-sm btn-outline" onclick="activatePromptVersion(${v.id})" title="ใช้เวอร์ชันนี้">✅</button>` : ''}
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+
+        area.innerHTML = `
+            <div style="margin-bottom:1rem;padding:0.75rem;background:${isOverride?'rgba(0,200,100,0.08)':'var(--surface-2)'};border-radius:8px;font-size:0.85rem;">
+                <strong>${isOverride ? '🟢 ใช้ prompt ที่บอสตั้งจาก dashboard' : '⚪ ใช้ prompt ค่าเริ่มต้นจากโค้ด'}</strong>
+                <span style="color:var(--text-muted);margin-left:0.5rem;">— ${fmt(current.char_count)} ตัวอักษร</span>
+            </div>
+
+            <div class="card" style="margin-bottom:1rem;">
+                <div class="card-label">✏️ แก้บุคลิก Prae</div>
+                <textarea id="prae-prompt-textarea" rows="20" style="width:100%;font-family:var(--font-mono);font-size:0.8rem;padding:0.625rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);line-height:1.5;resize:vertical;">${esc(current.content)}</textarea>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.75rem;">
+                    <input id="prae-prompt-notes" placeholder="โน้ตการเปลี่ยน (เช่น: ปรับความสุภาพ + เพิ่ม emoji)" style="flex:1;margin-right:0.5rem;">
+                    <button class="btn btn-primary btn-sm" onclick="savePraePrompt(true)">💾 บันทึก + Activate</button>
+                    <button class="btn btn-outline btn-sm" onclick="savePraePrompt(false)" style="margin-left:0.5rem;">💾 บันทึกเฉยๆ</button>
+                </div>
+                <div style="margin-top:0.5rem;display:flex;justify-content:space-between;align-items:center;">
+                    <small style="color:var(--text-muted);">⚠️ Cache 60 วินาที — เปลี่ยนแล้วรอ 1 นาทีถึงจะ effect</small>
+                    ${isOverride ? '<button class="btn btn-sm btn-outline" style="color:var(--error);" onclick="resetPraePrompt()">🔄 รีเซ็ตเป็นค่าเริ่มต้น</button>' : ''}
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-label">📜 ประวัติเวอร์ชัน (${versions.length})</div>
+                ${versionsHtml}
+            </div>
+        `;
+    } catch (err) {
+        area.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${esc(err.message)}</p></div>`;
+    }
+}
+
+async function savePraePrompt(activate) {
+    const content = document.getElementById('prae-prompt-textarea').value;
+    const notes = document.getElementById('prae-prompt-notes').value.trim();
+    if (!content.trim()) { toast('content ว่าง', 'error'); return; }
+    if (activate && !confirm('Activate prompt ใหม่นี้ไหม?\n\nบอท Prae จะใช้ prompt ใหม่ภายใน 1 นาที')) return;
+    try {
+        const r = await api('/prae-prompt/save', {
+            method: 'POST',
+            body: JSON.stringify({ content, notes, activate }),
+        });
+        toast(`✅ บันทึก v${r.version}${activate ? ' (active)' : ''}`, 'success');
+        loadPraePrompt();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'save failed'), 'error');
+    }
+}
+
+async function previewPromptVersion(vid) {
+    try {
+        const v = await api(`/prae-prompt/versions/${vid}`);
+        openModal(`🤖 Prae Prompt v${v.version}`, `
+            <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.75rem;">
+                ${esc(v.notes || '—')} · ${fmtDateTime(v.created_at)} · ${fmt(v.content.length)} chars
+                ${v.is_active ? '<span style="color:var(--success);margin-left:0.5rem;">🟢 active</span>' : ''}
+            </div>
+            <pre style="background:var(--surface);padding:0.75rem;border-radius:8px;white-space:pre-wrap;font-size:0.8rem;line-height:1.5;max-height:60vh;overflow:auto;font-family:var(--font-mono);">${esc(v.content)}</pre>
+            ${!v.is_active ? `<button class="btn btn-primary btn-full" style="margin-top:0.75rem;" onclick="closeModal();activatePromptVersion(${v.id})">✅ ใช้เวอร์ชันนี้</button>` : ''}
+        `);
+    } catch (err) {
+        toast('❌ ' + (err.message || 'load failed'), 'error');
+    }
+}
+
+async function activatePromptVersion(vid) {
+    if (!confirm('Activate เวอร์ชันนี้? Prae จะใช้ prompt นี้ภายใน 1 นาที')) return;
+    try {
+        await api(`/prae-prompt/activate/${vid}`, { method: 'POST' });
+        toast('✅ Activated', 'success');
+        loadPraePrompt();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'activate failed'), 'error');
+    }
+}
+
+async function resetPraePrompt() {
+    if (!confirm('รีเซ็ตเป็น prompt ค่าเริ่มต้นจากโค้ด?\n\nเวอร์ชันที่บันทึกไว้จะยังคงอยู่ แต่จะไม่ active')) return;
+    try {
+        await api('/prae-prompt/override', { method: 'DELETE' });
+        toast('✅ Reset เรียบร้อย', 'success');
+        loadPraePrompt();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'reset failed'), 'error');
+    }
+}
+
