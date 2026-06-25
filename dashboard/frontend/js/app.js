@@ -542,6 +542,162 @@ function paginationHtml(page, pages, fn) {
     return html;
 }
 
+
+
+// ========== PAGE: INBOX (unified queue) ==========
+async function renderInbox() {
+    const content = document.getElementById('page-content');
+    try {
+        const data = await api('/dashboard/inbox');
+        const total = data.total || 0;
+        const c = data.counts || {payment:0, sos:0, broadcast:0};
+        const items = data.items || [];
+
+        const sevMeta = {
+            critical: { color: '#dc2626', icon: '🚨' },
+            high:     { color: '#dc2626', icon: '🔴' },
+            medium:   { color: '#d97706', icon: '🟠' },
+            normal:   { color: '#16a34a', icon: '🟡' },
+            low:      { color: '#6e6e80', icon: '🟢' },
+        };
+        const typeMeta = {
+            payment:   { icon: '💰', label: 'จ่ายเงิน' },
+            sos:       { icon: '🆘', label: 'SOS' },
+            broadcast: { icon: '📢', label: 'broadcast' },
+        };
+
+        function fmtAge(sec) {
+            if (sec < 60) return sec + ' วิ';
+            if (sec < 3600) return Math.floor(sec/60) + ' นาที';
+            if (sec < 86400) return Math.floor(sec/3600) + ' ชม.';
+            return Math.floor(sec/86400) + ' วัน';
+        }
+
+        let filter = 'all';
+
+        function renderList() {
+            const filtered = filter === 'all' ? items : items.filter(i => i.type === filter);
+            if (filtered.length === 0) {
+                return `<div class="empty-state" style="padding:3rem 1rem;">
+                    <div class="icon" style="font-size:3.5rem;">✨</div>
+                    <p style="font-size:1rem;font-weight:600;color:var(--text);margin-bottom:0.5rem;">ไม่มีงานค้าง</p>
+                    <p style="color:var(--text-muted);font-size:0.875rem;">ทุกอย่างถูกจัดการเรียบร้อย</p>
+                </div>`;
+            }
+            return filtered.map(it => {
+                const sev = sevMeta[it.severity] || sevMeta.normal;
+                const tm  = typeMeta[it.type] || { icon: '📋', label: it.type };
+                let actions = '';
+                if (it.type === 'payment') {
+                    actions = `
+                        <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); window.open('/api/payments/${it.id}/slip-image', '_blank');">👁 ดูสลิป</button>
+                        <button class="btn btn-sm btn-success" onclick="event.stopPropagation(); inboxAction('approve_payment', ${it.id});">✅ Approve</button>
+                        <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); inboxAction('reject_payment', ${it.id});">❌ Reject</button>`;
+                } else if (it.type === 'sos') {
+                    actions = `
+                        <button class="btn btn-sm btn-success" onclick="event.stopPropagation(); inboxAction('resolve_sos', ${it.id});">✅ จบ</button>
+                        <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); window.open('tg://user?id=${it.telegram_id}', '_blank');">💬 ติดต่อ</button>`;
+                } else if (it.type === 'broadcast') {
+                    actions = `
+                        <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); inboxAction('preview_broadcast', ${it.id});">👀 พรีวิว</button>`;
+                }
+                const username = it.username ? '@' + it.username : (it.telegram_id ? 'tg:' + it.telegram_id : '');
+                const subtitle = esc(it.subtitle || '');
+                return `
+                <div class="inbox-row" style="
+                    display:flex; gap:0.875rem; align-items:flex-start;
+                    padding:1rem 1.125rem;
+                    border:1px solid var(--border);
+                    border-left:3px solid ${sev.color};
+                    border-radius:var(--radius);
+                    background:var(--surface);
+                    margin-bottom:0.625rem;">
+                    <div style="font-size:1.4rem; flex-shrink:0; line-height:1;">${sev.icon}</div>
+                    <div style="flex:1; min-width:0;">
+                        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.25rem;">
+                            <span style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.04em;
+                                  color:${sev.color}; font-weight:600;">${tm.icon} ${tm.label}</span>
+                            <span style="font-size:0.75rem; color:var(--text-dim);">· ${fmtAge(it.age_sec || 0)} ที่แล้ว</span>
+                        </div>
+                        <div style="font-size:0.9375rem; font-weight:600; color:var(--text); margin-bottom:0.2rem;">
+                            ${esc(it.title)}
+                        </div>
+                        ${subtitle ? `<div style="font-size:0.8125rem; color:var(--text-muted); margin-bottom:0.5rem;">${subtitle}</div>` : ''}
+                        ${username ? `<div style="font-size:0.75rem; color:var(--text-dim); margin-bottom:0.5rem;">${esc(username)}</div>` : ''}
+                        <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">${actions}</div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function renderChips() {
+            const chip = (key, label, count) => `
+                <button class="filter-btn ${filter===key?'active':''}" onclick="window.inboxFilter('${key}')">
+                    ${label} <span style="opacity:0.7;font-size:0.7rem;">${count}</span>
+                </button>`;
+            return chip('all', 'ทั้งหมด', total) +
+                   chip('payment', '💰 จ่าย', c.payment || 0) +
+                   chip('sos', '🆘 SOS', c.sos || 0) +
+                   chip('broadcast', '📢 ส่ง', c.broadcast || 0);
+        }
+
+        function fullRender() {
+            content.innerHTML = `
+                <div style="max-width:760px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1.25rem;">
+                        <div>
+                            <h2 style="margin:0; font-size:1.25rem; font-weight:600; color:var(--text); letter-spacing:-0.02em;">📥 กล่องรอจัดการ</h2>
+                            <p style="margin:0.25rem 0 0; color:var(--text-muted); font-size:0.875rem;">
+                                ${total === 0 ? 'ไม่มีงานค้างค่ะ' : 'มี ' + total + ' งานรอจัดการ'}
+                            </p>
+                        </div>
+                        <button class="btn btn-outline btn-sm" onclick="renderInbox()">🔄 รีโหลด</button>
+                    </div>
+                    <div class="filters" style="margin-bottom:1rem;">${renderChips()}</div>
+                    <div id="inbox-list">${renderList()}</div>
+                </div>`;
+        }
+
+        window.inboxFilter = (key) => {
+            filter = key;
+            const listEl = document.getElementById('inbox-list');
+            if (listEl) listEl.innerHTML = renderList();
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        };
+
+        fullRender();
+    } catch (err) {
+        content.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${esc(err.message)}</p></div>`;
+    }
+}
+
+async function inboxAction(action, id) {
+    try {
+        if (action === 'approve_payment') {
+            if (!confirm('Approve payment #' + id + '?')) return;
+            await api(`/payments/${id}/approve`, { method: 'POST' });
+            toast('✅ Approve เรียบร้อย', 'success');
+            renderInbox();
+        } else if (action === 'reject_payment') {
+            const reason = prompt('เหตุผลที่ reject:');
+            if (!reason) return;
+            await api(`/payments/${id}/reject`, { method: 'POST', body: JSON.stringify({reason}) });
+            toast('❌ Reject เรียบร้อย', 'success');
+            renderInbox();
+        } else if (action === 'resolve_sos') {
+            if (!confirm('จบ SOS ticket #' + id + '?')) return;
+            await api(`/dashboard/sos/${id}/resolve`, { method: 'POST' });
+            toast('✅ Resolved', 'success');
+            renderInbox();
+        } else if (action === 'preview_broadcast') {
+            alert('Preview broadcast — coming in Sprint 1.2');
+        }
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
+
+
 // ========== PAGE: DASHBOARD ==========
 async function renderDashboard() {
     const content = document.getElementById('page-content');
