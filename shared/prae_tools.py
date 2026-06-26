@@ -581,6 +581,102 @@ async def _handle_group_access_issue_with_sos(telegram_id: int) -> dict:
         logging.getLogger(__name__).warning("SOS update from tool failed: %s", _exc)
     return result
 
+
+# Tool: send_payment_info
+# Used when customer expresses purchase intent (types amount, "อยากซื้อ", "เอา X")
+# Returns: package info + bank account + QR code URL → Prae includes in reply
+async def send_payment_info(telegram_id: int, tier_or_amount: str) -> dict:
+    """Get payment instructions for a customer's selected tier.
+
+    Args:
+        telegram_id: customer telegram ID
+        tier_or_amount: '300' / 'VIP' / 'TIER_300' / 'GOD' / '1299' / '2499' / '100' etc.
+
+    Returns: dict with package_name, price, account info, QR url, message_template
+    """
+    from shared.database import get_session
+    from sqlalchemy import text as _t
+
+    # Normalize input to find tier
+    s_raw = (tier_or_amount or "").strip().upper()
+    tier_map = {
+        "100": ("ห้องมีคนชัก 30 วัน", 100, "TIER_100"),
+        "ชัก": ("ห้องมีคนชัก 30 วัน", 100, "TIER_100"),
+        "SHAKER": ("ห้องมีคนชัก 30 วัน", 100, "TIER_100"),
+        "300": ("VIP 30 วัน", 300, "TIER_300"),
+        "VIP": ("VIP 30 วัน", 300, "TIER_300"),
+        "TIER_300": ("VIP 30 วัน", 300, "TIER_300"),
+        "500": ("OnlyFans + VIP 30 วัน", 500, "TIER_500"),
+        "OF": ("OnlyFans + VIP 30 วัน", 500, "TIER_500"),
+        "ONLYFANS": ("OnlyFans + VIP 30 วัน", 500, "TIER_500"),
+        "TIER_500": ("OnlyFans + VIP 30 วัน", 500, "TIER_500"),
+        "1299": ("GOD MODE 90 วัน", 1299, "TIER_1299"),
+        "GOD90": ("GOD MODE 90 วัน", 1299, "TIER_1299"),
+        "TIER_1299": ("GOD MODE 90 วัน", 1299, "TIER_1299"),
+        "2499": ("GOD MODE ถาวร", 2499, "TIER_2499"),
+        "GOD": ("GOD MODE ถาวร", 2499, "TIER_2499"),
+        "GODMODE": ("GOD MODE ถาวร", 2499, "TIER_2499"),
+        "TIER_2499": ("GOD MODE ถาวร", 2499, "TIER_2499"),
+    }
+
+    matched = None
+    for key, val in tier_map.items():
+        if key in s_raw:
+            matched = val
+            break
+
+    if not matched:
+        return {
+            "error": "unknown_tier",
+            "message": f"Could not identify tier from '{tier_or_amount}'. Customer should specify clearly.",
+        }
+
+    pkg_name, price, tier = matched
+
+    # Pick a random enabled receiver account
+    try:
+        from shared.receiver_pool import pick_random
+        account = await pick_random()
+    except Exception as exc:
+        return {"error": f"receiver lookup failed: {exc}"}
+
+    if not account:
+        return {
+            "error": "no_receiver",
+            "message": "No active receiver account. Customer should contact admin.",
+            "admin_url": "https://t.me/sperm6969",
+        }
+
+    bank_name = account.get("bank_name") or "PromptPay"
+    bank_last5 = account.get("bank_account") or account.get("proxy_number") or ""
+    receiver_name = account.get("receiver_name") or "บัญชีรับเงิน"
+    qr_url = account.get("qr_url") or None
+
+    # Construct customer-facing instructions (HTML for sales bot)
+    msg = (
+        f"💰 <b>{pkg_name}</b>\n"
+        f"ราคา {price} บาท\n\n"
+        f"🏦 <b>{bank_name}</b>\n"
+        f"{receiver_name}\n"
+        f"<code>{bank_last5}</code>\n\n"
+        f"📸 โอนแล้วส่งสลิปกลับมาในแชทนี้ ระบบจะตรวจสอบและเปิดสิทธิให้อัตโนมัติค่ะ"
+    )
+
+    return {
+        "ok": True,
+        "package_name": pkg_name,
+        "price": price,
+        "tier": tier,
+        "receiver": {
+            "bank_name": bank_name,
+            "account_number": bank_last5,
+            "name": receiver_name,
+            "qr_url": qr_url,
+        },
+        "instructions_html": msg,
+        "next_step": "โอนเงินตามจำนวน แล้วส่งสลิปกลับมาในแชทนี้",
+    }
+
 TOOLS = {
     "check_my_status": check_my_status,
     "check_recent_payment": check_recent_payment,
@@ -588,6 +684,7 @@ TOOLS = {
     "check_active_promo": check_active_promo,
     "get_my_invite_links": get_my_invite_links,
     "handle_group_access_issue": _handle_group_access_issue_with_sos,
+    "send_payment_info": send_payment_info,
 }
 
 
@@ -646,8 +743,22 @@ TOOL_SCHEMAS = [
             "required": ["telegram_id"],
         },
     },
+    {
+        "name": "send_payment_info",
+        "description": "USE THIS when customer expresses purchase intent: types a price (300/500/1299/2499/100), says they want to buy (อยากซื้อ, สนใจ, เอา), confirms a package choice. Returns bank account + QR + instructions. ALWAYS use this instead of telling them to contact admin.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "telegram_id": {"type": "integer"},
+                "tier_or_amount": {
+                    "type": "string",
+                    "description": "Tier name or price the customer chose. e.g. '300' / 'VIP' / 'GOD' / 'TIER_2499' / '1299'"
+                },
+            },
+            "required": ["telegram_id", "tier_or_amount"],
+        },
+    },
 ]
-
 
 __all__ = ["TOOLS", "TOOL_SCHEMAS", "check_my_status", "check_recent_payment",
            "check_balance", "check_active_promo", "get_my_invite_links", "handle_group_access_issue"]
