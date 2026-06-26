@@ -3,112 +3,94 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>เจริญพร Staging Preview</title>
+<title>เจริญพร Dashboard 2.0 — Staging Preview</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
-  font-family: "IBM Plex Sans Thai", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: "IBM Plex Sans Thai", -apple-system, sans-serif;
   background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
   color: #f1f5f9;
   min-height: 100vh;
   padding: 2rem 1rem;
 }
-.container { max-width: 1100px; margin: 0 auto; }
-.hero {
-  text-align: center;
-  padding: 3rem 1rem 2rem;
-  border-bottom: 1px solid rgba(241,245,249,0.1);
-  margin-bottom: 2rem;
-}
+.container { max-width: 1200px; margin: 0 auto; }
+.hero { text-align: center; padding: 3rem 1rem 2rem; }
 .hero h1 {
-  font-size: 2.5rem;
-  font-weight: 700;
+  font-size: 2.5rem; font-weight: 700;
   background: linear-gradient(135deg, #f472b6 0%, #fbbf24 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
   margin-bottom: 0.5rem;
 }
-.hero .subtitle { color: #94a3b8; font-size: 1.1rem; }
+.hero .subtitle { color: #94a3b8; font-size: 1.1rem; margin-bottom: 1rem; }
 .hero .badge {
-  display: inline-block;
-  margin-top: 1rem;
-  padding: 0.4rem 1rem;
-  background: rgba(251, 191, 36, 0.15);
-  border: 1px solid rgba(251, 191, 36, 0.4);
-  color: #fbbf24;
-  border-radius: 999px;
-  font-size: 0.85rem;
-  font-weight: 500;
+  display: inline-block; padding: 0.4rem 1rem;
+  background: rgba(251, 191, 36, 0.15); border: 1px solid rgba(251, 191, 36, 0.4);
+  color: #fbbf24; border-radius: 999px; font-size: 0.85rem; font-weight: 500;
+}
+.cta-row {
+  display: flex; gap: 1rem; justify-content: center; margin: 2rem 0; flex-wrap: wrap;
+}
+.cta {
+  display: inline-block; padding: 0.9rem 1.5rem;
+  background: linear-gradient(135deg, #f472b6 0%, #fb7185 100%);
+  color: white; font-weight: 600; border-radius: 8px;
+  text-decoration: none; transition: all 0.2s;
+}
+.cta:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(244,114,182,0.3); }
+.cta.secondary { background: rgba(241,245,249,0.08); color: #f1f5f9; border: 1px solid rgba(241,245,249,0.15); }
+.stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem; margin: 2rem 0;
+}
+.stat-card {
+  background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(241,245,249,0.08);
+  border-radius: 12px; padding: 1.5rem; text-align: center;
+}
+.stat-card .val {
+  font-size: 2.2rem; font-weight: 700; color: #f472b6;
+}
+.stat-card .label { color: #94a3b8; font-size: 0.85rem; margin-top: 0.3rem; }
+.section-title {
+  font-size: 1.4rem; font-weight: 600; color: #fbbf24;
+  margin: 2.5rem 0 1rem; padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(251,191,36,0.2);
+}
+.grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;
+}
+.doc {
+  background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(241,245,249,0.08);
+  border-radius: 12px; padding: 1.25rem; transition: all 0.2s;
+  text-decoration: none; color: inherit; display: block;
+}
+.doc:hover { border-color: rgba(244,114,182,0.4); transform: translateY(-2px); }
+.doc .num {
+  display: inline-block; background: rgba(244,114,182,0.2); color: #f472b6;
+  padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+.doc .title { font-size: 1rem; font-weight: 600; margin-bottom: 0.3rem; }
+.doc .desc { font-size: 0.8rem; color: #94a3b8; line-height: 1.5; }
+.doc .status {
+  display: inline-block; margin-top: 0.6rem; padding: 0.2rem 0.5rem;
+  border-radius: 4px; font-size: 0.7rem; font-weight: 500;
+  background: rgba(34,197,94,0.15); color: #22c55e;
 }
 .notice {
-  background: rgba(244, 114, 182, 0.08);
-  border: 1px solid rgba(244, 114, 182, 0.3);
-  border-radius: 12px;
-  padding: 1.25rem 1.5rem;
-  margin-bottom: 2rem;
+  background: rgba(244,114,182,0.08); border: 1px solid rgba(244,114,182,0.3);
+  border-radius: 12px; padding: 1.25rem 1.5rem; margin-bottom: 2rem;
 }
 .notice h3 { color: #f472b6; margin-bottom: 0.5rem; font-weight: 600; }
 .notice p { color: #cbd5e1; line-height: 1.7; }
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1rem;
-  margin-bottom: 2rem;
-}
-.section {
-  background: rgba(30, 41, 59, 0.6);
-  border: 1px solid rgba(241, 245, 249, 0.08);
-  border-radius: 12px;
-  padding: 1.5rem;
-  transition: all 0.2s;
-  text-decoration: none;
-  color: inherit;
-  display: block;
-}
-.section:hover {
-  border-color: rgba(244, 114, 182, 0.4);
-  transform: translateY(-2px);
-  background: rgba(30, 41, 59, 0.9);
-}
-.section .num {
-  display: inline-block;
-  background: rgba(244, 114, 182, 0.2);
-  color: #f472b6;
-  padding: 0.2rem 0.6rem;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  margin-bottom: 0.6rem;
-}
-.section .title { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.4rem; }
-.section .desc { font-size: 0.85rem; color: #94a3b8; line-height: 1.5; }
-.section .status {
-  display: inline-block;
-  margin-top: 0.8rem;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.7rem;
-  font-weight: 500;
-}
-.status.todo { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
-.status.draft { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
-.status.ready { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
 .footer {
-  text-align: center;
-  color: #64748b;
-  font-size: 0.85rem;
-  padding: 2rem 0 1rem;
-  border-top: 1px solid rgba(241,245,249,0.08);
-  margin-top: 2rem;
+  text-align: center; color: #64748b; font-size: 0.85rem;
+  padding: 2rem 0; margin-top: 3rem; border-top: 1px solid rgba(241,245,249,0.08);
 }
 .footer code {
-  background: rgba(241,245,249,0.08);
-  padding: 0.1rem 0.4rem;
-  border-radius: 4px;
-  color: #cbd5e1;
+  background: rgba(241,245,249,0.08); padding: 0.1rem 0.4rem;
+  border-radius: 4px; color: #cbd5e1;
 }
 </style>
 </head>
@@ -116,57 +98,148 @@ body {
 <div class="container">
   <div class="hero">
     <h1>เจริญพร Dashboard 2.0</h1>
-    <div class="subtitle">Staging Preview · สำหรับ review งานก่อน implement</div>
-    <div class="badge">⚠️ STAGING — ไม่กระทบ production (8010)</div>
+    <div class="subtitle">Staging Preview · spec docs สำหรับ review ก่อน implement</div>
+    <div class="badge">✅ All 12 specs drafted — 2026-06-26</div>
+  </div>
+
+  <div class="stats">
+    <div class="stat-card">
+      <div class="val">51</div>
+      <div class="label">รายการที่จะทำ</div>
+    </div>
+    <div class="stat-card">
+      <div class="val">~70</div>
+      <div class="label">วันทำงาน (effort)</div>
+    </div>
+    <div class="stat-card">
+      <div class="val">3-4</div>
+      <div class="label">เดือน (calendar)</div>
+    </div>
+    <div class="stat-card">
+      <div class="val">3</div>
+      <div class="label">Phases (A/B/C)</div>
+    </div>
   </div>
 
   <div class="notice">
     <h3>📋 จุดประสงค์</h3>
-    <p>หน้านี้คือ <strong>สนามทดสอบ</strong> สำหรับ design ใหม่ของ dashboard — เน้นออกแบบให้ลูกน้องที่ไม่ใช่ tech สามารถจัดการธุรกิจได้ทั้งหมดผ่าน UI. ทุก mockup ที่นี่ <strong>คลิกได้แต่ไม่บันทึก</strong> เพื่อให้ดูได้ปลอดภัย.</p>
+    <p>สนามทดสอบสำหรับ design ใหม่ของ dashboard — เน้นออกแบบให้ <strong>ลูกน้องที่ไม่ใช่ tech</strong> สามารถจัดการธุรกิจได้ทั้งหมดผ่าน UI. <strong>คลิกได้แต่ไม่บันทึก</strong> — ดูได้ปลอดภัย ไม่กระทบ production (port 8010).</p>
   </div>
 
-  <h2 style="font-size: 1.5rem; margin-bottom: 1rem; color: #f472b6;">📚 Spec Documents</h2>
+  <div class="cta-row">
+    <a class="cta" href="/spec/README.md">📚 อ่าน Spec ทั้งหมด</a>
+    <a class="cta secondary" href="/spec/00-PRINCIPLES.md">🏛 หลักการ</a>
+    <a class="cta secondary" href="/spec/99-IMPLEMENTATION.md">📅 Roadmap</a>
+  </div>
+
+  <h2 class="section-title">📖 Spec Documents (12 ไฟล์)</h2>
   <div class="grid">
-    <a class="section" href="/spec/">
-      <div class="num">00 → 99</div>
-      <div class="title">📂 ดู spec ทั้งหมด</div>
-      <div class="desc">เปิด folder /spec/ — markdown files</div>
-      <span class="status draft">กำลังเขียน</span>
+    <a class="doc" href="/spec/00-PRINCIPLES.md">
+      <span class="num">00</span>
+      <div class="title">หลักการ + ข้อจำกัด</div>
+      <div class="desc">รัฐธรรมนูญของโปรเจกต์ · safety · Source of Truth</div>
+      <span class="status">✅ Ready</span>
+    </a>
+    <a class="doc" href="/spec/01-pre-sale.md">
+      <span class="num">01</span>
+      <div class="title">ก่อนขาย</div>
+      <div class="desc">/start, menu, packages · 6 items</div>
+      <span class="status">✅ Ready</span>
+    </a>
+    <a class="doc" href="/spec/02-sale.md">
+      <span class="num">02</span>
+      <div class="title">ตอนขาย</div>
+      <div class="desc">สลิป, อนุมัติ, รีเจ็กต์ · 3 items</div>
+      <span class="status">✅ Ready</span>
+    </a>
+    <a class="doc" href="/spec/03-link-delivery.md">
+      <span class="num">03</span>
+      <div class="title">ส่งลิ้ง + Discord</div>
+      <div class="desc">VIP + Discord audit · 3 items</div>
+      <span class="status">✅ Ready</span>
+    </a>
+    <a class="doc" href="/spec/04-after-sale.md">
+      <span class="num">04</span>
+      <div class="title">หลังขาย</div>
+      <div class="desc">SOS, renewal, tier change · 6 items</div>
+      <span class="status">✅ Ready</span>
+    </a>
+    <a class="doc" href="/spec/05-customer-mgmt.md">
+      <span class="num">05</span>
+      <div class="title">จัดการลูกค้า</div>
+      <div class="desc">360, extend, merge, block, tag · 6 items</div>
+      <span class="status">✅ Ready</span>
+    </a>
+    <a class="doc" href="/spec/06-broadcast.md">
+      <span class="num">06</span>
+      <div class="title">บอกข่าว</div>
+      <div class="desc">DM, group, schedule, content · 5 items</div>
+      <span class="status">✅ Ready</span>
+    </a>
+    <a class="doc" href="/spec/07-gacha.md">
+      <span class="num">07</span>
+      <div class="title">กาชา + Promo Wizard ⭐</div>
+      <div class="desc">spin price, prize, events, promo wizard · 6 items</div>
+      <span class="status">✅ Ready</span>
+    </a>
+    <a class="doc" href="/spec/08-finance.md">
+      <span class="num">08</span>
+      <div class="title">การเงิน</div>
+      <div class="desc">receiver, report, fraud · 6 items</div>
+      <span class="status">✅ Ready</span>
+    </a>
+    <a class="doc" href="/spec/09-ai-agent.md">
+      <span class="num">09</span>
+      <div class="title">Prae AI</div>
+      <div class="desc">persona, knowledge, escalation · 6 items</div>
+      <span class="status">✅ Ready</span>
+    </a>
+    <a class="doc" href="/spec/10-system.md">
+      <span class="num">10</span>
+      <div class="title">ตั้งค่าระบบ</div>
+      <div class="desc">admin, group, cron, feature flags · 5 items</div>
+      <span class="status">✅ Ready</span>
+    </a>
+    <a class="doc" href="/spec/99-IMPLEMENTATION.md">
+      <span class="num">99</span>
+      <div class="title">Roadmap + Implementation</div>
+      <div class="desc">ลำดับ + dependency + timeline + risk</div>
+      <span class="status">✅ Ready</span>
     </a>
   </div>
 
-  <h2 style="font-size: 1.5rem; margin: 2rem 0 1rem; color: #f472b6;">🎨 UI Mockups</h2>
+  <h2 class="section-title">🎨 UI Mockups (รอ build)</h2>
   <div class="grid">
-    <div class="section">
-      <div class="num">Phase A</div>
+    <div class="doc">
+      <span class="num">Phase A</span>
       <div class="title">📋 Today Checklist (homepage)</div>
-      <div class="desc">งานประจำวันสำหรับลูกน้อง — Inbox, Customer 360, SOS</div>
-      <span class="status todo">รอ design</span>
+      <div class="desc">งานประจำวันสำหรับลูกน้อง</div>
+      <span class="status" style="background:rgba(148,163,184,0.15);color:#94a3b8;">⏳ Pending</span>
     </div>
-    <div class="section">
-      <div class="num">Phase B</div>
+    <div class="doc">
+      <span class="num">Phase B</span>
       <div class="title">📣 Promo Wizard</div>
-      <div class="desc">สร้างโปรใหม่ — แทน Lucky/Flash/Birthday hardcode</div>
-      <span class="status todo">รอ design</span>
+      <div class="desc">5-step wizard — แทน Lucky/Flash/Birthday</div>
+      <span class="status" style="background:rgba(148,163,184,0.15);color:#94a3b8;">⏳ Pending</span>
     </div>
-    <div class="section">
-      <div class="num">Phase B</div>
+    <div class="doc">
+      <span class="num">Phase B</span>
       <div class="title">💬 Bot Message Library</div>
-      <div class="desc">แก้คำพูดบอททุก surface — preview + version history</div>
-      <span class="status todo">รอ design</span>
+      <div class="desc">แก้คำพูดบอท + preview + version</div>
+      <span class="status" style="background:rgba(148,163,184,0.15);color:#94a3b8;">⏳ Pending</span>
     </div>
-    <div class="section">
-      <div class="num">Phase C</div>
-      <div class="title">🤖 Prae AI Editor</div>
-      <div class="desc">แก้ system prompt + tools + escalation rules</div>
-      <span class="status todo">รอ design</span>
+    <div class="doc">
+      <span class="num">Phase C</span>
+      <div class="title">🤖 Prae Persona Editor</div>
+      <div class="desc">แก้บุคลิก Prae ปลอดภัย</div>
+      <span class="status" style="background:rgba(148,163,184,0.15);color:#94a3b8;">⏳ Pending</span>
     </div>
   </div>
 
   <div class="footer">
-    Staging Server: <code>139.59.123.146:8011</code><br>
-    Production: <code>139.59.123.146:8010</code> (ห้ามแตะ)<br>
-    Started: 2026-06-26 · Maintained by Claude
+    Staging: <code>139.59.123.146:8011</code> · Production: <code>139.59.123.146:8010</code> (ห้ามแตะ)<br>
+    Started: 2026-06-26 · Maintained by Claude<br>
+    <strong>2,671 lines of spec written today</strong>
   </div>
 </div>
 </body>
