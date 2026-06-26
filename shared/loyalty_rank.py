@@ -6,7 +6,7 @@ Rank computation (run every 6 hours by scheduler):
   - DIAMOND : total_spent >= 4000
 
 Rewards on rank-up:
-  - BRONZE  : +3 gacha credits
+  - BRONZE  : +1 gacha credit (lowered 2026-06-26)
   - SILVER  : +5 gacha credits + TIER_1299 sub free 14 days
   - DIAMOND : tag only (boss hands out physical gifts manually)
 
@@ -74,17 +74,17 @@ def rank_higher(a: str, b: str) -> bool:
 # ─── Award rewards (BRONZE/SILVER only — Diamond gets nothing per boss spec) ─
 
 async def _award_bronze(user_id: int, telegram_id: int) -> dict:
-    """+3 gacha credits."""
+    """FIX 2026-06-26 (boss): ลด BRONZE rank reward 3 -> 1 gacha credit."""
     from shared.database import get_session
     async with get_session() as s:
         await s.execute(_t(
             "INSERT INTO gachapon_credits (user_id, telegram_id, credits, total_purchased) "
-            "VALUES (:uid, :tg, 3, 0) "
+            "VALUES (:uid, :tg, 1, 0) "
             "ON CONFLICT (user_id) DO UPDATE SET "
-            "  credits = gachapon_credits.credits + 3, updated_at = NOW()"
+            "  credits = gachapon_credits.credits + 1, updated_at = NOW()"
         ), {"uid": user_id, "tg": telegram_id})
         await s.commit()
-    return {"gacha": 3}
+    return {"gacha": 1}
 
 
 async def _award_silver(user_id: int, telegram_id: int) -> dict:
