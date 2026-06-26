@@ -621,13 +621,15 @@ async def reject_payment(payment_id: int, req: PaymentReject, request: Request, 
 
 @router.get("/summary")
 async def payment_summary(admin=Depends(require_role("admin"))):
-    # FIX 2025-05-21 (Phase D-7-business): ใช้ Asia/Bangkok ทั้งฝั่งซ้าย+ขวาให้สอดคล้องกับ summary อื่น
+    # FIX 2026-06-27 (Phase A.2): align timezone with dashboard/summary
+    # created_at stored as UTC; dashboard.py uses (... AT TIME ZONE UTC AT TIME ZONE Asia/Bangkok)
+    # payments was using only ::date AT TIME ZONE Asia/Bangkok which gave inconsistent results
     row = await pool.fetchrow("""
         SELECT
-            COALESCE(SUM(CASE WHEN (created_at AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date THEN amount END), 0) as today,
-            COALESCE(SUM(CASE WHEN (created_at AT TIME ZONE 'Asia/Bangkok')::date >= date_trunc('week', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN amount END), 0) as week,
-            COALESCE(SUM(CASE WHEN (created_at AT TIME ZONE 'Asia/Bangkok')::date >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN amount END), 0) as month,
-            COALESCE(SUM(CASE WHEN (created_at AT TIME ZONE 'Asia/Bangkok')::date >= date_trunc('year', (NOW() AT TIME ZONE 'Asia/Bangkok')::date) THEN amount END), 0) as year
+            COALESCE(SUM(CASE WHEN (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date THEN amount END), 0) as today,
+            COALESCE(SUM(CASE WHEN (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date >= date_trunc('week', (NOW() AT TIME ZONE 'Asia/Bangkok')::date)::date THEN amount END), 0) as week,
+            COALESCE(SUM(CASE WHEN (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Bangkok')::date)::date THEN amount END), 0) as month,
+            COALESCE(SUM(CASE WHEN (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date >= date_trunc('year', (NOW() AT TIME ZONE 'Asia/Bangkok')::date)::date THEN amount END), 0) as year
         FROM payments WHERE status = 'CONFIRMED' AND amount > 0
     """)
     return {k: float(v) for k, v in dict(row).items()}

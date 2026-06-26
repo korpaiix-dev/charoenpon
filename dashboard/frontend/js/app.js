@@ -245,7 +245,7 @@ function navigate(page) {
     try { localStorage.setItem("dashLastPage", page); } catch {}
     renderSidebar();
     const titles = {
-        dashboard: '📊 ภาพรวม', inbox: '📥 กล่องรอจัดการ', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน', gacha: '🎰 กาชา',
+        dashboard: '📊 ภาพรวม', inbox: '📥 Inbox สลิป', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน', gacha: '🎰 กาชา',
         promotions: '🎁 โปรโมชั่น + ตั้งค่าบอท', content: '📸 Content', groups: '📱 กลุ่ม',
         team: '👨‍💼 ทีมงาน', settings: '⚙️ ตั้งค่า', marketing: '📊 Marketing',
         activity: '📋 Activity Log', prae_logs: '💬 Prae Logs',
@@ -4118,16 +4118,28 @@ async function openPraeConvo(telegramId) {
         const u = data.user || {};
         const msgs = data.messages || [];
 
+        // Phase A.2 fix: render Prae's HTML (assistant only) — user messages still escaped
+        // + tools collapsed into a ⚙️ details element (hidden by default)
+        const renderPraeBody = (content) => {
+            if (typeof content !== 'string') return '';
+            // Strip script/iframe + only allow safe tags
+            const tmp = document.createElement('div');
+            tmp.innerHTML = content;
+            tmp.querySelectorAll('script,iframe,style').forEach(e => e.remove());
+            return tmp.innerHTML;
+        };
         const bubbles = msgs.map(m => {
             const isPrae = m.role === 'assistant';
-            const tools = m.tools_used && Object.keys(m.tools_used).length > 0
-                ? `<div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.25rem;">🔧 ${esc(JSON.stringify(m.tools_used).slice(0,200))}</div>` : '';
+            const toolsObj = m.tools_used && Object.keys(m.tools_used).length > 0 ? m.tools_used : null;
+            const tools = toolsObj
+                ? `<details style="margin-top:0.3rem;"><summary style="font-size:0.7rem;color:var(--text-muted);cursor:pointer;">⚙️ tools (${Object.keys(toolsObj).length})</summary><div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.25rem;font-family:var(--font-mono);">${esc(JSON.stringify(toolsObj).slice(0,400))}</div></details>` : '';
             const cost = m.cost_usd > 0 ? `<span style="font-size:0.65rem;color:var(--text-muted);margin-left:0.5rem;">$${m.cost_usd.toFixed(5)}</span>` : '';
+            const bodyHtml = isPrae ? renderPraeBody(m.content) : esc(m.content);
             return `
                 <div style="display:flex;${isPrae?'justify-content:flex-start':'justify-content:flex-end'};margin-bottom:0.5rem;">
                     <div style="max-width:75%;padding:0.5rem 0.75rem;border-radius:12px;background:${isPrae?'var(--surface-2)':'var(--accent)'};color:${isPrae?'var(--text)':'#fff'};font-size:0.875rem;">
                         <div style="font-size:0.7rem;opacity:0.7;margin-bottom:0.2rem;">${isPrae?'🤖 Prae':'👤 ' + esc(u.first_name || 'User')} <span style="opacity:0.6;">${fmtDateTime(m.created_at)}</span>${cost}</div>
-                        <div style="white-space:pre-wrap;word-break:break-word;">${esc(m.content)}</div>
+                        <div style="white-space:pre-wrap;word-break:break-word;">${bodyHtml}</div>
                         ${tools}
                     </div>
                 </div>
@@ -5912,10 +5924,19 @@ async function editBotMessage(key) {
                 <button class="btn btn-sm btn-outline" onclick="restoreVersion('${esc(key)}', ${v.id})" style="margin-top:0.3rem;">⏮ ย้อนกลับ version นี้</button>
             </div>
         `).join('');
+        // Phase A.2 fix: live preview integrated into editBotMessage modal
         openModal('✏️ แก้คำพูด: ' + key, `
             <div class="form-group"><label>คำอธิบาย</label><input id="bm-desc-edit" value="${esc(m.description || '')}"></div>
             <div class="form-group"><label>เนื้อหา HTML</label>
-                <textarea id="bm-content-edit" style="min-height:200px;font-family:var(--font-mono);font-size:0.85rem;">${esc(m.content_html || '')}</textarea>
+                <textarea id="bm-content-edit" oninput="document.getElementById('bm-preview-${esc(key)}').innerHTML = (this.value || '').replace(/<script[\\s\\S]*?<\\/script>/gi, '').replace(/<iframe[\\s\\S]*?<\\/iframe>/gi, '')" style="min-height:160px;font-family:var(--font-mono);font-size:0.85rem;">${esc(m.content_html || '')}</textarea>
+            </div>
+            <div class="form-group">
+                <label>👀 Preview ใน Telegram</label>
+                <div style="background:#cad3df;padding:0.85rem;border-radius:8px;">
+                    <div style="background:white;padding:0.65rem 0.85rem;border-radius:14px 14px 14px 4px;max-width:90%;font-size:0.875rem;line-height:1.55;box-shadow:0 1px 2px rgba(0,0,0,0.08);">
+                        <div id="bm-preview-${esc(key)}">${m.content_html || '<i style=color:#999;>พิมพ์ข้อความใน textarea ด้านบน</i>'}</div>
+                    </div>
+                </div>
             </div>
             <div class="form-group"><label>หมายเหตุการแก้ (optional)</label><input id="bm-note-edit" placeholder="เช่น เพิ่ม emoji หัวข้อ"></div>
             <button class="btn btn-primary btn-full" onclick="saveBotMessage('${esc(key)}')">💾 บันทึก + เก็บ version</button>
