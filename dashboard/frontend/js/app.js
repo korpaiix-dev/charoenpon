@@ -4938,3 +4938,146 @@ async function openSlipImage(paymentId) {
     }
 }
 
+// ===== Boss view: who bought today/yesterday + details =====
+let _purchasesPeriod = 'today';
+
+async function openPurchasesModal(period) {
+    _purchasesPeriod = period || _purchasesPeriod || 'today';
+    openModal('🛒 รายการออเดอร์', `
+        <div id="purchases-body" style="text-align:center;padding:1rem;">
+            <div class="spinner"></div>
+            <div style="margin-top:0.5rem;color:var(--text-muted);font-size:0.875rem;">กำลังโหลด...</div>
+        </div>
+    `);
+    await loadPurchases();
+}
+
+async function setPurchasesPeriod(period) {
+    _purchasesPeriod = period;
+    await loadPurchases();
+}
+
+async function loadPurchases() {
+    const body = document.getElementById('purchases-body');
+    if (!body) return;
+    try {
+        const r = await api(`/daily-report/purchases?period=${_purchasesPeriod}`);
+        const s = r.summary;
+        const items = r.items || [];
+
+        const periodLabels = { today: 'วันนี้', yesterday: 'เมื่อวาน', week: '7 วัน', month: 'เดือนนี้' };
+
+        // Filter chips
+        const chips = ['today', 'yesterday', 'week', 'month'].map(p => `
+            <button class="filter-btn ${_purchasesPeriod === p ? 'active' : ''}" onclick="setPurchasesPeriod('${p}')">${periodLabels[p]}</button>
+        `).join('');
+
+        // Summary cards
+        const summaryHtml = `
+            <div class="mini-cards" style="margin-bottom:0.75rem;">
+                <div class="mini-card">
+                    <div class="mini-card-label">รายได้</div>
+                    <div class="mini-card-value" style="color:var(--primary);">${fmtBaht(s.revenue)}</div>
+                </div>
+                <div class="mini-card">
+                    <div class="mini-card-label">สำเร็จ</div>
+                    <div class="mini-card-value" style="color:var(--success);">${fmt(s.confirmed)}</div>
+                </div>
+                <div class="mini-card">
+                    <div class="mini-card-label">รอตรวจ</div>
+                    <div class="mini-card-value" style="color:var(--warning);">${fmt(s.pending)}</div>
+                </div>
+                <div class="mini-card">
+                    <div class="mini-card-label">ลูกค้าซื้อ</div>
+                    <div class="mini-card-value">${fmt(s.unique_buyers)} คน</div>
+                </div>
+            </div>
+        `;
+
+        if (items.length === 0) {
+            body.innerHTML = `
+                <div style="display:flex;gap:0.4rem;margin-bottom:0.75rem;flex-wrap:wrap;">${chips}</div>
+                ${summaryHtml}
+                <div style="text-align:center;padding:2rem;color:var(--text-muted);">ยังไม่มีออเดอร์ในช่วงนี้</div>
+            `;
+            return;
+        }
+
+        // Status icon
+        const statusIcon = (st) => {
+            if (st === 'CONFIRMED') return '<span style="color:var(--success);">✅</span>';
+            if (st === 'PENDING') return '<span style="color:var(--warning);">⏳</span>';
+            if (st === 'REJECTED') return '<span style="color:var(--error);">❌</span>';
+            return st;
+        };
+
+        const rows = items.map(it => {
+            const c = it.customer || {};
+            const name = `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.username || `tg:${c.telegram_id}`;
+            const handle = c.username ? `@${esc(c.username)}` : `<code style="font-size:0.7rem;">tg:${c.telegram_id}</code>`;
+
+            const badges = [];
+            if (c.is_returning) badges.push(`<span style="background:rgba(16,185,129,0.12);color:var(--success);padding:0.1rem 0.4rem;border-radius:4px;font-size:0.65rem;">🔁 ${c.past_confirmed_count}</span>`);
+            else badges.push(`<span style="background:rgba(59,130,246,0.12);color:var(--accent);padding:0.1rem 0.4rem;border-radius:4px;font-size:0.65rem;">🆕</span>`);
+            if (c.loyalty_rank && c.loyalty_rank !== 'NONE') badges.push(`<span style="background:var(--surface-2);color:var(--text-muted);padding:0.1rem 0.4rem;border-radius:4px;font-size:0.65rem;">${esc(c.loyalty_rank)}</span>`);
+            if (c.is_banned) badges.push(`<span style="background:rgba(239,68,68,0.15);color:var(--error);padding:0.1rem 0.4rem;border-radius:4px;font-size:0.65rem;">🚫</span>`);
+
+            const promoInfo = it.promo_name ? ` <span style="color:var(--warning);font-size:0.7rem;">🎁 ${esc(it.promo_name)}</span>` : '';
+            const discountInfo = it.discount > 0 ? ` <span style="color:var(--success);font-size:0.7rem;">-฿${fmt(it.discount)}</span>` : '';
+            const autoTag = it.auto_approved ? ' <span style="font-size:0.65rem;color:var(--text-muted);">🤖 auto</span>' : '';
+
+            return `
+                <tr style="border-top:1px solid var(--border);" onclick="closeModal();openSlipImage(${it.id})" title="คลิกดูสลิป" class="purchase-row" style="cursor:pointer;">
+                    <td style="padding:0.5rem;font-size:0.75rem;color:var(--text-muted);font-family:var(--font-mono);">${fmtTime(it.created_at)}</td>
+                    <td style="padding:0.5rem;font-size:0.65rem;">${statusIcon(it.status)}</td>
+                    <td style="padding:0.5rem;">
+                        <div style="font-weight:500;">${esc(name)}</div>
+                        <div style="font-size:0.7rem;color:var(--text-muted);">${handle} ${badges.join(' ')}</div>
+                    </td>
+                    <td style="padding:0.5rem;font-size:0.78rem;">
+                        <div>${esc(it.package_name || '?')}</div>
+                        <div style="font-size:0.68rem;color:var(--text-muted);">${esc(it.package_tier || '')} · ${it.duration_days || 0} วัน${promoInfo}</div>
+                    </td>
+                    <td style="padding:0.5rem;text-align:right;font-variant-numeric:tabular-nums;">
+                        <div style="font-weight:600;">${fmtBaht(it.amount)}${discountInfo}</div>
+                        <div style="font-size:0.65rem;color:var(--text-muted);">${esc(it.method)}${autoTag}</div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        body.innerHTML = `
+            <div style="display:flex;gap:0.4rem;margin-bottom:0.75rem;flex-wrap:wrap;">${chips}</div>
+            ${summaryHtml}
+            <div class="table-wrap" style="max-height:60vh;overflow:auto;">
+                <table style="width:100%;font-size:0.85rem;">
+                    <thead style="background:var(--surface-2);position:sticky;top:0;">
+                        <tr>
+                            <th style="padding:0.5rem;text-align:left;width:60px;">เวลา</th>
+                            <th style="padding:0.5rem;text-align:center;width:36px;"></th>
+                            <th style="padding:0.5rem;text-align:left;">ลูกค้า</th>
+                            <th style="padding:0.5rem;text-align:left;">แพ็กเกจ</th>
+                            <th style="padding:0.5rem;text-align:right;">ยอด</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+            <div style="margin-top:0.75rem;font-size:0.7rem;color:var(--text-muted);text-align:center;">
+                💡 คลิกแถวเพื่อเปิดสลิป + รายละเอียดเต็ม · เฉลี่ย ฿${fmt(Math.round(s.avg_order))}/ออเดอร์
+            </div>
+        `;
+    } catch (err) {
+        body.innerHTML = `<div style="color:var(--error);padding:1rem;">❌ ${esc(err.message || 'load failed')}</div>`;
+    }
+}
+
+// fmtTime helper (HH:MM only)
+function fmtTime(iso) {
+    if (!iso) return '';
+    try {
+        const d = new Date(iso);
+        return d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false });
+    } catch { return iso.slice(11, 16); }
+}
+

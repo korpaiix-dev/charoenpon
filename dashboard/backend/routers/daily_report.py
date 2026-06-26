@@ -99,3 +99,104 @@ async def daily_report_today(admin=Depends(require_role('admin'))):
         'new_users': int(new_users or 0),
         'sos_open': int(sos_open or 0),
     }
+
+
+@router.get("/purchases")
+async def daily_purchases(period: str = "today", admin=Depends(require_role("admin"))):
+    """List of who bought what today/yesterday/this-week — for boss to scan.
+
+    period: today / yesterday / week / month
+    """
+    BKK = "((NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date"
+    BKK_CREATED = "((p.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date"
+
+    if period == "today":
+        where = f"{BKK_CREATED} = {BKK}"
+    elif period == "yesterday":
+        where = f"{BKK_CREATED} = {BKK} - INTERVAL '1 day'"
+    elif period == "week":
+        where = f"{BKK_CREATED} >= {BKK} - INTERVAL '6 days'"
+    elif period == "month":
+        where = f"{BKK_CREATED} >= date_trunc('month', {BKK})"
+    else:
+        where = f"{BKK_CREATED} = {BKK}"
+
+    rows = await pool.fetch(f"""
+        SELECT
+            p.id, p.amount::float AS amount, p.status::text AS status, p.method::text AS method,
+            p.created_at, p.verified_at, p.auto_approved,
+            p.sender_name, p.slip_trans_ref,
+            pk.id AS package_id, pk.name AS package_name, pk.tier::text AS package_tier,
+            pk.price::float AS package_price, pk.duration_days,
+            u.id AS user_id, u.telegram_id, u.username, u.first_name, u.last_name,
+            u.total_spent::float AS total_spent, u.loyalty_rank,
+            u.is_banned, u.is_blocked_bot,
+            (SELECT name FROM promotion_campaigns WHERE id = p.promotion_campaign_id) AS promo_name,
+            (SELECT COUNT(*) FROM payments p2 WHERE p2.user_id = u.id AND p2.status='CONFIRMED' AND p2.id != p.id) AS past_count
+        FROM payments p
+        LEFT JOIN users u ON u.id = p.user_id
+        LEFT JOIN packages pk ON pk.id = p.package_id
+        WHERE p.status IN ('CONFIRMED', 'PENDING', 'REJECTED')
+          AND {where}
+          AND (u.telegram_id IS NULL OR u.telegram_id < 9000000000)
+        ORDER BY p.created_at DESC
+    """)
+
+    items = []
+    for r in rows:
+        pkg_price = float(r["package_price"] or 0)
+        amount_paid = float(r["amount"] or 0)
+        discount = max(0, pkg_price - amount_paid) if pkg_price > 0 else 0
+        past = int(r["past_count"] or 0)
+        items.append({
+            "id": r["id"],
+            "status": r["status"],
+            "method": r["method"],
+            "amount": amount_paid,
+            "auto_approved": r["auto_approved"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "verified_at": r["verified_at"].isoformat() if r["verified_at"] else None,
+            "package_name": r["package_name"],
+            "package_tier": r["package_tier"],
+            "package_price": pkg_price,
+            "duration_days": r["duration_days"],
+            "discount": discount,
+            "promo_name": r["promo_name"],
+            "sender_name": r["sender_name"],
+            "trans_ref": r["slip_trans_ref"],
+            "customer": {
+                "user_id": r["user_id"],
+                "telegram_id": r["telegram_id"],
+                "username": r["username"],
+                "first_name": r["first_name"],
+                "last_name": r["last_name"],
+                "total_spent": float(r["total_spent"] or 0),
+                "loyalty_rank": r["loyalty_rank"],
+                "is_banned": r["is_banned"],
+                "is_blocked_bot": r["is_blocked_bot"],
+                "past_confirmed_count": past,
+                "is_returning": past > 0,
+            },
+        })
+
+    # Summary
+    confirmed = [it for it in items if it["status"] == "CONFIRMED" and it["amount"] > 0]
+    pending = [it for it in items if it["status"] == "PENDING"]
+    rejected = [it for it in items if it["status"] == "REJECTED"]
+    total_rev = sum(it["amount"] for it in confirmed)
+    unique_buyers = len({it["customer"]["user_id"] for it in confirmed})
+
+    return {
+        "period": period,
+        "summary": {
+            "total_orders": len(items),
+            "confirmed": len(confirmed),
+            "pending": len(pending),
+            "rejected": len(rejected),
+            "revenue": total_rev,
+            "unique_buyers": unique_buyers,
+            "avg_order": total_rev / len(confirmed) if confirmed else 0,
+        },
+        "items": items,
+    }
+
