@@ -3132,8 +3132,6 @@ async function syncRelayBot(force) {
 var _groupsTab = 'all';
 async function renderGroups() {
     setTimeout(() => { try { renderRelaySync(); } catch (e) {} }, 200);
-    // Also load relay widget
-    setTimeout(() => { try { renderRelayWidget('relay-widget'); } catch (e) {} }, 100);
 
     const content = document.getElementById('page-content');
     try {
@@ -3185,6 +3183,8 @@ async function renderGroups() {
         if (_groupsTab === 'all' || _groupsTab === 'chat') groupsHtml += groupTable(data.chat, '💬', 'กลุ่มพูดคุย', 'chat');
 
         content.innerHTML = relayWidget + `<div class="tabs" style="margin-bottom:1rem;">${tabHtml}</div>` + groupsHtml;
+        // Load relay widget now that DOM exists
+        renderRelayWidget('relay-widget');
         
     } catch (e) { content.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`; }
 }
@@ -6438,6 +6438,54 @@ async function renderMarketingHeatmap(containerId, days = 30) {
         el.innerHTML = html;
     } catch (e) {
         el.innerHTML = '<div class="empty-state" style="padding:1rem;color:var(--error);">' + e.message + '</div>';
+    }
+}
+
+// ==================================================================
+// Phase A.3 (2026-06-27): Relay-bot sync status widget
+// ==================================================================
+async function renderRelayWidget(containerId) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    try {
+        const r = await api('/groups/relay-status');
+        if (!r.available) {
+            el.innerHTML = '<div style="padding:0.75rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text-muted);font-size:0.85rem;">⚠️ Relay status unavailable: ' + (r.reason || '?') + '</div>';
+            return;
+        }
+        const ago = (ts) => {
+            if (!ts) return '-';
+            const sec = Math.floor((Date.now() - ts) / 1000);
+            if (sec < 60) return sec + ' วินาทีที่แล้ว';
+            if (sec < 3600) return Math.floor(sec/60) + ' นาทีที่แล้ว';
+            if (sec < 86400) return Math.floor(sec/3600) + ' ชม.ที่แล้ว';
+            return Math.floor(sec/86400) + ' วันที่แล้ว';
+        };
+        const status = r.paused ? '⏸ PAUSED' : '✅ ทำงาน';
+        const statusColor = r.paused ? 'var(--warning)' : 'var(--success)';
+        const disabledHtml = (r.disabled_destinations || []).length
+            ? '<span style="color:var(--error);font-size:0.75rem;">⚠️ ' + r.disabled_destinations.length + ' กลุ่ม disabled</span>'
+            : '<span style="color:var(--success);font-size:0.75rem;">ทุกกลุ่ม OK</span>';
+
+        el.innerHTML = `
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0.85rem 1rem;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                    <div style="font-weight:600;font-size:0.9rem;">🔄 Relay-bot sync</div>
+                    <span style="color:${statusColor};font-weight:600;font-size:0.85rem;">${status}</span>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.5rem;font-size:0.8rem;">
+                    <div><div style="color:var(--text-dim);font-size:0.7rem;">forward ทั้งหมด</div><div style="font-weight:600;">${(r.total_forwarded || 0).toLocaleString()}</div></div>
+                    <div><div style="color:var(--text-dim);font-size:0.7rem;">fail ทั้งหมด</div><div style="font-weight:600;color:${r.total_failed>0?'var(--error)':'inherit'};">${r.total_failed || 0}</div></div>
+                    <div><div style="color:var(--text-dim);font-size:0.7rem;">closings ส่ง</div><div style="font-weight:600;">${(r.closings_sent || 0).toLocaleString()}</div></div>
+                    <div><div style="color:var(--text-dim);font-size:0.7rem;">กลุ่ม active</div><div style="font-weight:600;">${r.active_groups || 0}</div></div>
+                </div>
+                <div style="margin-top:0.5rem;font-size:0.75rem;color:var(--text-muted);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+                    <span>⏰ forward ล่าสุด: <b>${ago(r.last_forward_at)}</b></span>
+                    ${disabledHtml}
+                </div>
+            </div>`;
+    } catch (e) {
+        el.innerHTML = '<div style="padding:0.5rem;color:var(--error);font-size:0.85rem;">' + e.message + '</div>';
     }
 }
 
