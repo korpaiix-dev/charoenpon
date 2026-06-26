@@ -44,6 +44,24 @@ DM_DELAY_SECONDS = 3
 PROMO_EXPIRY_HOURS = 48
 BASE_PRICE = Decimal("300")  # VIP 30 วัน ราคาปกติ
 
+
+# Phase B.1 (2026-06-27): DB-backed config with feature flag
+async def _cfg(key: str, default):
+    """Read promo_config from DB if flag comeback_config_from_db is ON.
+
+    Errors / flag OFF -> return hardcoded default.
+    """
+    try:
+        from shared.feature_flags import is_flag_enabled
+        if not await is_flag_enabled("comeback_config_from_db"):
+            return default
+        from shared.promo_config import get_promo_config
+        v = await get_promo_config(key, default=default)
+        return v if v is not None else default
+    except Exception:
+        return default
+
+
 ADMIN_GROUP_ID = _admin_group_id()
 
 # ─── DB Migration ────────────────────────────────────────────────────────────
@@ -426,9 +444,9 @@ async def get_expired_customers(days_since_expire: int = 3) -> list[dict]:
     return customers
 
 
-async def get_round2_customers() -> list[dict]:
-    """ดึงลูกค้าที่ DM รอบ 1 แล้ว 7 วัน + ยังไม่ซื้อ + ยังไม่เคย DM รอบ 2."""
-    cutoff = datetime.utcnow() - timedelta(days=7)
+async def get_round2_customers(days_after_r1: int = 7) -> list[dict]:
+    """ดึงลูกค้าที่ DM รอบ 1 แล้ว X วัน + ยังไม่ซื้อ + ยังไม่เคย DM รอบ 2."""
+    cutoff = datetime.utcnow() - timedelta(days=days_after_r1)
 
     async with get_session() as session:
         # User ที่เคย DM รอบ 2 แล้ว
@@ -649,8 +667,10 @@ async def run_comeback_dm_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     dm_budget = MAX_DM_PER_DAY
     variant_counts: dict[str, int] = {}
 
-    # ---- รอบ 1: ลูกค้าหมดอายุ > 3 วัน, ลด 30% (฿210) ----
-    round1_customers = await get_expired_customers(days_since_expire=3)
+    # ---- รอบ 1: ลูกค้าหมดอายุ > X วัน, ลด Y% ----
+    r1_days = int(await _cfg("comeback_r1_days_after_expiry", 3))
+    r1_pct = int(await _cfg("comeback_r1_discount_pct", 30))
+    round1_customers = await get_expired_customers(days_since_expire=r1_days)
     round1_sent = 0
     round1_failed = 0
 
@@ -659,7 +679,7 @@ async def run_comeback_dm_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             break
         v_name, v_func = _pick_variant(MESSAGE_VARIANTS_ROUND1, r1_weights)
         success = await send_comeback_dm(
-            bot, customer, discount_pct=30, dm_round=1, new_clips=new_clips,
+            bot, customer, discount_pct=r1_pct, dm_round=1, new_clips=new_clips,
             variant_name=v_name, variant_func=v_func,
         )
         if success:
@@ -672,18 +692,20 @@ async def run_comeback_dm_job(context: ContextTypes.DEFAULT_TYPE) -> None:
             total_failed += 1
         await asyncio.sleep(DM_DELAY_SECONDS)
 
-    # ---- รอบ 2: DM รอบ 1 แล้ว 7 วัน + ยังไม่ซื้อ, ลด 40% (฿180) ----
+    # ---- รอบ 2: DM รอบ 1 แล้ว X วัน + ยังไม่ซื้อ, ลด Y% ----
+    r2_days = int(await _cfg("comeback_r2_days_after_r1", 7))
+    r2_pct = int(await _cfg("comeback_r2_discount_pct", 40))
     round2_sent = 0
     round2_failed = 0
 
     if dm_budget > 0:
-        round2_customers = await get_round2_customers()
+        round2_customers = await get_round2_customers(days_after_r1=r2_days)
         for customer in round2_customers:
             if dm_budget <= 0:
                 break
             v_name, v_func = _pick_variant(MESSAGE_VARIANTS_ROUND2, r2_weights)
             success = await send_comeback_dm(
-                bot, customer, discount_pct=40, dm_round=2, new_clips=new_clips,
+                bot, customer, discount_pct=r2_pct, dm_round=2, new_clips=new_clips,
                 variant_name=v_name, variant_func=v_func,
             )
             if success:

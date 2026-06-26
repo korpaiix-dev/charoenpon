@@ -115,7 +115,7 @@ const NAV_ITEMS = [
     { id: 'customers', icon: '👥', label: 'ลูกค้า', minRole: 'moderator' },
     { id: 'finance', icon: '💰', label: 'การเงิน', minRole: 'moderator' },
     { id: 'receivers', icon: '💳', label: 'บัญชีรับเงิน', minRole: 'admin' },
-    { id: 'promotions', icon: '📢', label: 'โปรโมชั่น', minRole: 'admin' },
+    { id: 'promotions', icon: '🎁', label: 'โปรโมชั่น + บอท', minRole: 'admin' },
     { id: 'content', icon: '📸', label: 'Content', minRole: 'moderator' },
     { id: 'gacha', icon: '🎰', label: 'กาชา', minRole: 'admin' },
     { id: 'prae_logs', icon: '💬', label: 'Prae Logs', minRole: 'admin' },
@@ -224,7 +224,7 @@ function navigate(page) {
     renderSidebar();
     const titles = {
         dashboard: '📊 ภาพรวม', inbox: '📥 กล่องรอจัดการ', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน', gacha: '🎰 กาชา',
-        promotions: '📢 โปรโมชั่น', content: '📸 Content', groups: '📱 กลุ่ม',
+        promotions: '🎁 โปรโมชั่น + ตั้งค่าบอท', content: '📸 Content', groups: '📱 กลุ่ม',
         team: '👨‍💼 ทีมงาน', settings: '⚙️ ตั้งค่า', marketing: '📊 Marketing',
         activity: '📋 Activity Log', prae_logs: '💬 Prae Logs',
     };
@@ -240,7 +240,7 @@ function navigate(page) {
     
     const pages = {
         today: renderToday, dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance, receivers: renderReceivers, gacha: renderGacha,
-        promotions: renderPromotions, content: renderContent, groups: renderGroups,
+        promotions: renderPromoManager, content: renderContent, groups: renderGroups,
         team: renderTeam, settings: renderSettings, marketing: renderMarketing,
         activity: renderActivityLog, prae_logs: renderPraeLogs,
     };
@@ -5907,5 +5907,160 @@ async function deleteBotMessage(key) {
         toast('✅ ลบแล้ว', 'success');
         loadBotMessages();
     } catch (e) { toast('❌ ' + e.message, 'error'); }
+}
+
+// ==================================================================
+// Phase B.1 (2026-06-27): Promo Manager
+// Replaces renderPromotions in dispatcher. Old renderPromotions kept
+// as "📜 Campaign เก่า" tab for legacy access.
+// ==================================================================
+let promoTab = 'comeback';
+
+async function renderPromoManager() {
+    const content = document.getElementById('page-content');
+    content.innerHTML = `
+        <div class="tabs">
+            <div class="tab ${promoTab==='comeback'?'active':''}" onclick="promoTab='comeback';renderPromoManager()">📩 Comeback DM</div>
+            <div class="tab ${promoTab==='quickbuy'?'active':''}" onclick="promoTab='quickbuy';renderPromoManager()">⚡ ซื้อเร็ว /start</div>
+            <div class="tab ${promoTab==='gacha_discount'?'active':''}" onclick="promoTab='gacha_discount';renderPromoManager()">💰 ส่วนลดกาชา</div>
+            <div class="tab ${promoTab==='group_bot'?'active':''}" onclick="promoTab='group_bot';renderPromoManager()">🏛 บอทในกลุ่ม</div>
+            <div class="tab ${promoTab==='old_campaigns'?'active':''}" onclick="promoTab='old_campaigns';renderPromoManager()">📜 Campaign เก่า</div>
+        </div>
+        <div id="promo-area"><div class="loading"><div class="spinner"></div></div></div>
+    `;
+    if (promoTab === 'comeback') loadComebackConfig();
+    else if (promoTab === 'quickbuy') loadQuickBuyConfig();
+    else if (promoTab === 'gacha_discount') loadGachaDiscountConfig();
+    else if (promoTab === 'group_bot') loadGroupBotConfig();
+    else if (promoTab === 'old_campaigns') {
+        document.getElementById('promo-area').innerHTML = '<div style="padding:1rem;">โหลด UI campaign เก่า...</div>';
+        try {
+            if (typeof renderPromotions === 'function') {
+                // Switch to old promotions UI
+                await renderPromotions();
+            } else {
+                document.getElementById('promo-area').innerHTML = '<div class="empty-state"><div class="icon">📜</div><p>ระบบเก่า — เก็บไว้ดูเฉยๆ ไม่ได้ใช้แล้ว</p></div>';
+            }
+        } catch(e) {
+            document.getElementById('promo-area').innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><p>' + e.message + '</p></div>';
+        }
+    }
+}
+
+function _renderConfigRow(c) {
+    const isBool = typeof c.value_json === 'boolean';
+    const isNumber = typeof c.value_json === 'number';
+    const isDict = typeof c.value_json === 'object' && c.value_json !== null && !Array.isArray(c.value_json);
+    let inputHtml = '';
+    if (isBool) {
+        inputHtml = `<label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+            <input type="checkbox" id="cfg-${esc(c.config_key)}" ${c.value_json?'checked':''}>
+            <span>${c.value_json?'เปิด':'ปิด'}</span>
+        </label>`;
+    } else if (isNumber) {
+        inputHtml = `<input type="number" id="cfg-${esc(c.config_key)}" value="${c.value_json}" style="width:120px;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:6px;">`;
+    } else if (isDict) {
+        inputHtml = `<textarea id="cfg-${esc(c.config_key)}" style="width:100%;min-height:80px;padding:0.5rem;font-family:var(--font-mono);font-size:0.8rem;border:1px solid var(--border);border-radius:6px;">${esc(JSON.stringify(c.value_json, null, 2))}</textarea>`;
+    } else {
+        inputHtml = `<input type="text" id="cfg-${esc(c.config_key)}" value="${esc(c.value_json)}" style="width:240px;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:6px;">`;
+    }
+    return `<tr>
+        <td style="vertical-align:top;">
+            <code style="font-family:var(--font-mono);font-size:0.75rem;">${esc(c.config_key)}</code>
+            <div style="color:var(--text-dim);font-size:0.75rem;margin-top:0.2rem;">${esc(c.description||'')}</div>
+        </td>
+        <td style="vertical-align:top;">${inputHtml}</td>
+        <td style="vertical-align:top;">
+            <button class="btn btn-sm btn-primary" onclick="savePromoConfig('${esc(c.config_key)}', '${isBool?'bool':isNumber?'number':isDict?'dict':'string'}')">💾 บันทึก</button>
+        </td>
+    </tr>`;
+}
+
+async function _loadConfigCategory(category, titleHtml, helpHtml) {
+    const area = document.getElementById('promo-area');
+    try {
+        const items = await api('/promo-manager?category=' + category);
+        let html = titleHtml;
+        if (helpHtml) html += helpHtml;
+        if (!items.length) {
+            html += '<div class="empty-state"><div class="icon">⚙️</div><p>ยังไม่มี config ในหมวด ' + category + '</p></div>';
+        } else {
+            html += '<div class="table-wrap"><table><thead><tr><th>Setting</th><th>ค่าปัจจุบัน</th><th></th></tr></thead><tbody>';
+            items.forEach(c => { html += _renderConfigRow(c); });
+            html += '</tbody></table></div>';
+        }
+        area.innerHTML = html;
+    } catch (e) {
+        area.innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><p>' + esc(e.message) + '</p></div>';
+    }
+}
+
+async function savePromoConfig(key, dtype) {
+    const el = document.getElementById('cfg-' + key);
+    let value;
+    if (dtype === 'bool') value = el.checked;
+    else if (dtype === 'number') value = parseFloat(el.value);
+    else if (dtype === 'dict') {
+        try { value = JSON.parse(el.value); } catch (e) { toast('❌ JSON ผิด format', 'error'); return; }
+    } else value = el.value;
+    try {
+        await api('/promo-manager/' + key, { method: 'PATCH', body: JSON.stringify({ value_json: value }) });
+        toast('✅ บันทึก ' + key, 'success');
+        await api('/promo-manager/cache-clear', { method: 'POST' }).catch(()=>{});
+    } catch (e) {
+        toast('❌ ' + e.message, 'error');
+    }
+}
+
+async function loadComebackConfig() {
+    const helpHtml = `
+    <div style="background:rgba(0,112,243,0.06);border:1px solid rgba(0,112,243,0.2);border-radius:10px;padding:0.9rem 1.1rem;margin-bottom:1rem;font-size:0.85rem;">
+        <div style="font-weight:600;color:var(--accent);margin-bottom:0.3rem;">📩 Comeback DM</div>
+        <div style="color:var(--text-muted);line-height:1.7;">
+            ระบบส่ง DM ลูกค้าที่หมดอายุ → ลด% ดึงกลับมา<br>
+            <b>รอบ 1:</b> หลังหมดอายุ X วัน → ส่งลด Y%<br>
+            <b>รอบ 2:</b> หลังรอบ 1 ผ่าน X วัน + ลูกค้ายังไม่ซื้อ → ส่งลด Y%<br>
+            <br>⚠️ ต้องเปิด flag <code>comeback_config_from_db</code> ในแท็บ ฟีเจอร์ใหม่ ก่อนถึงจะใช้งาน
+        </div>
+    </div>`;
+    await _loadConfigCategory('comeback', '<h3 style="margin-bottom:1rem;">⚙️ ตั้งค่า Comeback DM</h3>', helpHtml);
+}
+
+async function loadQuickBuyConfig() {
+    const helpHtml = `
+    <div style="background:rgba(247,176,69,0.08);border:1px solid rgba(247,176,69,0.3);border-radius:10px;padding:0.9rem 1.1rem;margin-bottom:1rem;font-size:0.85rem;">
+        <div style="font-weight:600;color:var(--warning);margin-bottom:0.3rem;">⚡ ซื้อเร็วตอน /start</div>
+        <div style="color:var(--text-muted);line-height:1.7;">
+            เมื่อลูกค้าเก่ากลับมา (ผ่าน Comeback DM) แล้วกด /start จากลิงก์ → แสดงปุ่มซื้อทันที + ส่วนลด<br>
+            <b>ใช้ %ลด:</b> ที่กำหนดไว้ใน promo code ของ Comeback (หรือใช้ default ถ้าไม่ระบุ)
+        </div>
+    </div>`;
+    await _loadConfigCategory('quickbuy', '<h3 style="margin-bottom:1rem;">⚙️ ตั้งค่า Quick Buy</h3>', helpHtml);
+}
+
+async function loadGachaDiscountConfig() {
+    const helpHtml = `
+    <div style="background:rgba(244,114,182,0.08);border:1px solid rgba(244,114,182,0.3);border-radius:10px;padding:0.9rem 1.1rem;margin-bottom:1rem;font-size:0.85rem;">
+        <div style="font-weight:600;color:#9D174D;margin-bottom:0.3rem;">💰 ส่วนลดจากกาชา</div>
+        <div style="color:var(--text-muted);line-height:1.7;">
+            ลูกค้าหมุนกาชา → ลุ้นได้ส่วนลด ฿50/หมุน เก็บไว้ใช้ตอนซื้อแพ็กเกจ<br>
+            <b>เพดาน:</b> แต่ละแพ็กเกจใช้ส่วนลดได้สูงสุด (JSON)<br>
+            <br>⚠️ <b>การจัดการรางวัลรายตัว</b> อยู่ที่ 🎰 กาชา · ที่นี่เป็นกฎรวม
+        </div>
+    </div>`;
+    await _loadConfigCategory('gacha_discount', '<h3 style="margin-bottom:1rem;">⚙️ ตั้งค่ารางวัลกาชา</h3>', helpHtml);
+}
+
+async function loadGroupBotConfig() {
+    const helpHtml = `
+    <div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:10px;padding:0.9rem 1.1rem;margin-bottom:1rem;font-size:0.85rem;">
+        <div style="font-weight:600;color:#065F46;margin-bottom:0.3rem;">🏛 บอทในกลุ่ม Telegram</div>
+        <div style="color:var(--text-muted);line-height:1.7;">
+            พฤติกรรมของ Guardian + Content bot ในกลุ่ม VIP/ฟรี<br>
+            <b>Welcome:</b> ทักทายสมาชิกใหม่ที่เข้ากลุ่ม<br>
+            <b>Daily Content:</b> โพสต์รูปประจำวันตามตาราง
+        </div>
+    </div>`;
+    await _loadConfigCategory('group_bot', '<h3 style="margin-bottom:1rem;">⚙️ ตั้งค่าบอทในกลุ่ม</h3>', helpHtml);
 }
 
