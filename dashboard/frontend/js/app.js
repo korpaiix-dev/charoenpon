@@ -1262,7 +1262,12 @@ async function renderGacha() {
                     <td style="font-variant-numeric:tabular-nums;">฿${parseFloat(p.value_thb || 0).toLocaleString()}</td>
                     <td style="font-variant-numeric:tabular-nums; font-weight:600;">${parseFloat(p.probability_pct).toFixed(5)}%</td>
                     <td>${p.enabled ? '<span class="status-badge status-active">✅</span>' : '<span class="status-badge status-rejected">⛔</span>'}</td>
-                    <td><button class="btn btn-sm btn-outline" onclick="gachaTogglePool(${p.id}, ${!p.enabled})">${p.enabled ? '⛔ ปิด' : '✅ เปิด'}</button></td>
+                    <td>
+                        <div style="display:flex;gap:0.3rem;">
+                            <button class="btn btn-sm btn-outline" onclick="gachaTogglePool(${p.id}, ${!p.enabled})">${p.enabled ? '⛔ ปิด' : '✅ เปิด'}</button>
+                            <button class="btn btn-sm btn-danger" onclick="deletePrize(${p.id}, '${esc(p.name || '')}')" title="ลบรางวัล">🗑</button>
+                        </div>
+                    </td>
                 </tr>`;
         }
 
@@ -1361,7 +1366,11 @@ async function renderGacha() {
                         ดูสถิติ + จัดการรางวัล + ติดตามกิจกรรม
                     </p>
                 </div>
-                <button class="btn btn-outline btn-sm" onclick="renderGacha()">🔄 รีโหลด</button>
+                <div style="display:flex;gap:0.4rem;">
+                    <button class="btn btn-outline btn-sm" onclick="showGachaPricingModal()">💰 ราคา/หมุน</button>
+                    <button class="btn btn-outline btn-sm" onclick="showAddPrizeModal()">🎁 เพิ่มรางวัล</button>
+                    <button class="btn btn-outline btn-sm" onclick="renderGacha()">🔄 รีโหลด</button>
+                </div>
             </div>
 
             <div class="filters" style="margin-bottom:1.25rem;">
