@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inbox สลิป — เจริญพร 2.0</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/mockups/style.css">
+
+</head>
+<body>
+<div class="preview-bar">
+  <div>🟡 STAGING MOCKUP — Inbox · ตรวจสลิปจริงจะใช้หน้านี้</div>
+  <a href="/mockups/today.html" style="color:inherit;text-decoration:none;">← กลับงานวันนี้</a>
+</div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo"><div class="logo-mark">เพ</div><div><div>เจริญพร 2.0</div><div class="subtitle" style="padding-left:0;">Admin Dashboard</div></div></div>
+    </div>
+    <a class="nav-item " href="/mockups/today.html"><span class="icon">📋</span> งานวันนี้</a>
+    <a class="nav-item active" href="/mockups/inbox.html"><span class="icon">📥</span> Inbox สลิป <span class="badge">5</span></a>
+    <a class="nav-item " href="/mockups/sos.html"><span class="icon">🛟</span> SOS <span class="badge">2</span></a>
+    <a class="nav-item " href="/mockups/customers.html"><span class="icon">👤</span> ลูกค้า</a>
+    <div class="nav-divider">บอกข่าว + โปร</div>
+    <a class="nav-item " href="/mockups/broadcast.html"><span class="icon">📣</span> บอกข่าว DM/กลุ่ม</a>
+    <a class="nav-item " href="/mockups/promo-wizard.html"><span class="icon">🎁</span> จัดโปร</a>
+    <a class="nav-item " href="/mockups/bot-messages.html"><span class="icon">💬</span> คำพูดบอท</a>
+    <a class="nav-item " href="/mockups/gacha.html"><span class="icon">🎰</span> กาชา</a>
+    <div class="nav-divider">การเงิน + รายงาน</div>
+    <a class="nav-item " href="/mockups/finance.html"><span class="icon">💰</span> การเงิน</a>
+    <a class="nav-item " href="/mockups/reports.html"><span class="icon">📊</span> รายงาน</a>
+    <div class="nav-divider">ตั้งค่า</div>
+    <a class="nav-item " href="/mockups/prae.html"><span class="icon">🤖</span> Prae AI</a>
+    <a class="nav-item " href="/mockups/settings.html"><span class="icon">⚙️</span> ตั้งค่าระบบ</a>
+  </aside>
+  <main class="main">
+
+    <div class="page-header">
+      <div>
+        <h1>📥 Inbox — สลิปรอตรวจ</h1>
+        <div class="date">รอตรวจ 5 ใบ · รอที่สุด 2 ชม. 3 นาที</div>
+      </div>
+      <div style="display:flex;gap:0.5rem;">
+        <button class="btn btn-outline btn-sm">📥 รับเข้า all</button>
+        <button class="btn btn-outline btn-sm">🔄 รีโหลด</button>
+      </div>
+    </div>
+
+    <div class="banner" style="background:rgba(247,176,69,0.08);border-color:rgba(247,176,69,0.3);">
+      <span style="font-size:1.5rem;">⚠️</span>
+      <div>
+        <div class="title" style="color:var(--warning);">บอสลูกน้องอย่าลืม</div>
+        <div class="desc" style="color:var(--text-muted);">ดูสลิปเต็มก่อนกดอนุมัติทุกครั้ง · กดผิด = ยอด/สมาชิกหายตามกัน</div>
+      </div>
+    </div>
+
+    <div class="table-card">
+      <div class="table-header"><h3>5 รายการ</h3><span style="font-size:0.8rem;color:var(--text-dim);">เรียงจากรอนานที่สุด</span></div>
+      <table class="table">
+        <thead><tr><th>เวลา</th><th>ลูกค้า</th><th>แพ็กเกจ</th><th>ราคา</th><th>รับเข้า</th><th>AI ตรวจ</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>14:32</b><br><span style="color:var(--text-dim);font-size:0.75rem;">รอ 2 ชม.</span></td>
+            <td>@user123<br><span style="color:var(--text-dim);font-size:0.75rem;">นาย ก</span></td>
+            <td>VIP 30 วัน<br><span class="tag vip">฿300</span></td>
+            <td>฿299</td>
+            <td>KBank 964-2</td>
+            <td><span class="tag" style="background:#FEE2E2;color:#991B1B;">จำนวนไม่ตรง</span></td>
+            <td>
+              <button class="btn btn-outline btn-sm" onclick="alert(\"จะเปิด popup ดูสลิป\")">👀</button>
+              <button class="btn btn-success btn-sm" onclick="alert(\"จะ confirm ก่อนอนุมัติ\")">✅</button>
+              <button class="btn btn-outline btn-sm" onclick="alert(\"จะเปิด popup เลือกเหตุผล\")">❌</button>
+            </td>
+          </tr>
+          <tr>
+            <td><b>14:28</b><br><span style="color:var(--text-dim);font-size:0.75rem;">รอ 2 ชม.</span></td>
+            <td>@user456<br><span style="color:var(--text-dim);font-size:0.75rem;">นาง ข</span></td>
+            <td>GOD 90 วัน<br><span class="tag god">฿1,299</span></td>
+            <td>฿1,299</td>
+            <td>SCB 1234</td>
+            <td><span class="tag" style="background:#FEF3C7;color:#92400E;">รอตรวจมือ</span></td>
+            <td>
+              <button class="btn btn-outline btn-sm">👀</button>
+              <button class="btn btn-success btn-sm">✅</button>
+              <button class="btn btn-outline btn-sm">❌</button>
+            </td>
+          </tr>
+          <tr>
+            <td><b>13:51</b><br><span style="color:var(--text-dim);font-size:0.75rem;">รอ 2 ชม.</span></td>
+            <td>@user789<br><span class="tag new" style="margin-left:0.3rem;">ใหม่</span></td>
+            <td>OF+VIP<br><span class="tag vip">฿500</span></td>
+            <td>฿500</td>
+            <td>KBank 964-2</td>
+            <td><span class="tag" style="background:#FEE2E2;color:#991B1B;">⚠️ ปลายทางผิด</span></td>
+            <td>
+              <button class="btn btn-outline btn-sm">👀</button>
+              <button class="btn btn-success btn-sm">✅</button>
+              <button class="btn btn-outline btn-sm">❌</button>
+            </td>
+          </tr>
+          <tr>
+            <td><b>12:14</b></td>
+            <td>@scammy</td>
+            <td>VIP 30 วัน</td>
+            <td>฿300</td>
+            <td>KBank 964-2</td>
+            <td><span class="tag" style="background:#FEE2E2;color:#991B1B;">🚨 สลิปซ้ำ</span></td>
+            <td>
+              <button class="btn btn-outline btn-sm">👀</button>
+              <button class="btn btn-danger btn-sm">🚫 Block</button>
+            </td>
+          </tr>
+          <tr>
+            <td><b>11:42</b></td>
+            <td>@user_x</td>
+            <td>กาชา 3 หมุน<br><span class="tag">฿270</span></td>
+            <td>฿270</td>
+            <td>SCB 1234</td>
+            <td><span class="tag" style="background:#FEF3C7;color:#92400E;">รอตรวจมือ</span></td>
+            <td>
+              <button class="btn btn-outline btn-sm">👀</button>
+              <button class="btn btn-success btn-sm">✅</button>
+              <button class="btn btn-outline btn-sm">❌</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="margin-top:2rem;padding:1.5rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);">
+      <h3 style="font-size:0.95rem;font-weight:600;margin-bottom:0.75rem;">📜 สลิปที่อนุมัติไปแล้ววันนี้</h3>
+      <div style="display:flex;gap:1rem;color:var(--text-muted);font-size:0.85rem;">
+        <div>✅ Auto: 42 ใบ · ฿15,400</div>
+        <div>👤 ลูกน้องตรวจ: 18 ใบ · ฿8,200</div>
+        <div>❌ ปฏิเสธ: 3 ใบ</div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+</body>
+</html>

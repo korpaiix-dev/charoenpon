@@ -3,94 +3,78 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>เจริญพร Dashboard 2.0 — Staging Preview</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<title>เจริญพร 2.0 — Staging Preview</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
-  font-family: "IBM Plex Sans Thai", -apple-system, sans-serif;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-  color: #f1f5f9;
-  min-height: 100vh;
-  padding: 2rem 1rem;
+  font-family: "Inter", "Noto Sans Thai", sans-serif;
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  color: #0a0a0a; min-height: 100vh; padding: 2rem 1rem;
 }
-.container { max-width: 1200px; margin: 0 auto; }
-.hero { text-align: center; padding: 3rem 1rem 2rem; }
+.container { max-width: 1100px; margin: 0 auto; }
+.hero { text-align: center; padding: 2rem 1rem 1rem; }
 .hero h1 {
-  font-size: 2.5rem; font-weight: 700;
-  background: linear-gradient(135deg, #f472b6 0%, #fbbf24 100%);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  margin-bottom: 0.5rem;
+  font-size: 2.5rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.5rem;
 }
-.hero .subtitle { color: #94a3b8; font-size: 1.1rem; margin-bottom: 1rem; }
+.hero .subtitle { color: #525252; font-size: 1.1rem; margin-bottom: 1rem; }
 .hero .badge {
   display: inline-block; padding: 0.4rem 1rem;
-  background: rgba(251, 191, 36, 0.15); border: 1px solid rgba(251, 191, 36, 0.4);
-  color: #fbbf24; border-radius: 999px; font-size: 0.85rem; font-weight: 500;
+  background: rgba(247, 176, 69, 0.15); border: 1px solid rgba(247, 176, 69, 0.4);
+  color: #b45309; border-radius: 999px; font-size: 0.85rem; font-weight: 500;
 }
 .cta-row {
   display: flex; gap: 1rem; justify-content: center; margin: 2rem 0; flex-wrap: wrap;
 }
 .cta {
-  display: inline-block; padding: 0.9rem 1.5rem;
-  background: linear-gradient(135deg, #f472b6 0%, #fb7185 100%);
-  color: white; font-weight: 600; border-radius: 8px;
-  text-decoration: none; transition: all 0.2s;
+  display: inline-block; padding: 1rem 2rem;
+  background: #0a0a0a; color: white; font-weight: 600; border-radius: 8px;
+  text-decoration: none; transition: all 0.2s; font-size: 1.05rem;
 }
-.cta:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(244,114,182,0.3); }
-.cta.secondary { background: rgba(241,245,249,0.08); color: #f1f5f9; border: 1px solid rgba(241,245,249,0.15); }
-.stats {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 1rem; margin: 2rem 0;
-}
-.stat-card {
-  background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(241,245,249,0.08);
-  border-radius: 12px; padding: 1.5rem; text-align: center;
-}
-.stat-card .val {
-  font-size: 2.2rem; font-weight: 700; color: #f472b6;
-}
-.stat-card .label { color: #94a3b8; font-size: 0.85rem; margin-top: 0.3rem; }
-.section-title {
-  font-size: 1.4rem; font-weight: 600; color: #fbbf24;
-  margin: 2.5rem 0 1rem; padding-bottom: 0.5rem;
-  border-bottom: 1px solid rgba(251,191,36,0.2);
-}
-.grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;
-}
-.doc {
-  background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(241,245,249,0.08);
-  border-radius: 12px; padding: 1.25rem; transition: all 0.2s;
-  text-decoration: none; color: inherit; display: block;
-}
-.doc:hover { border-color: rgba(244,114,182,0.4); transform: translateY(-2px); }
-.doc .num {
-  display: inline-block; background: rgba(244,114,182,0.2); color: #f472b6;
-  padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600;
-  margin-bottom: 0.5rem;
-}
-.doc .title { font-size: 1rem; font-weight: 600; margin-bottom: 0.3rem; }
-.doc .desc { font-size: 0.8rem; color: #94a3b8; line-height: 1.5; }
-.doc .status {
-  display: inline-block; margin-top: 0.6rem; padding: 0.2rem 0.5rem;
-  border-radius: 4px; font-size: 0.7rem; font-weight: 500;
-  background: rgba(34,197,94,0.15); color: #22c55e;
+.cta:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.15); }
+.cta.primary {
+  background: linear-gradient(135deg, #F7B045 0%, #F59E0B 100%);
 }
 .notice {
-  background: rgba(244,114,182,0.08); border: 1px solid rgba(244,114,182,0.3);
-  border-radius: 12px; padding: 1.25rem 1.5rem; margin-bottom: 2rem;
+  background: white; border: 1px solid #eaeaea; border-radius: 12px;
+  padding: 1.5rem; margin-bottom: 1.5rem;
 }
-.notice h3 { color: #f472b6; margin-bottom: 0.5rem; font-weight: 600; }
-.notice p { color: #cbd5e1; line-height: 1.7; }
+.notice .title { font-weight: 600; margin-bottom: 0.5rem; color: #b45309; }
+.notice .desc { color: #525252; line-height: 1.7; font-size: 0.95rem; }
+.section-title { font-size: 1.25rem; font-weight: 700; margin: 2.5rem 0 1rem; }
+.mockup-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;
+}
+.mockup {
+  background: white; border: 1px solid #eaeaea; border-radius: 12px;
+  padding: 1.5rem; text-decoration: none; color: inherit; transition: all 0.2s;
+  position: relative;
+}
+.mockup:hover { transform: translateY(-3px); border-color: #F7B045; box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
+.mockup .badge {
+  position: absolute; top: 1rem; right: 1rem;
+  font-size: 0.7rem; font-weight: 600; padding: 0.2rem 0.5rem; border-radius: 4px;
+}
+.badge.ready { background: #D1FAE5; color: #065F46; }
+.badge.pending { background: #E5E7EB; color: #525252; }
+.mockup .ico { font-size: 2rem; margin-bottom: 0.5rem; }
+.mockup .title { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.4rem; }
+.mockup .desc { font-size: 0.85rem; color: #525252; line-height: 1.5; }
+.spec-link {
+  background: #f4f4f5; border: 1px solid #eaeaea; border-radius: 8px;
+  padding: 0.75rem 1rem; text-decoration: none; color: inherit;
+  display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem;
+}
+.spec-link:hover { background: white; border-color: #F7B045; }
+.spec-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.5rem;
+}
 .footer {
-  text-align: center; color: #64748b; font-size: 0.85rem;
-  padding: 2rem 0; margin-top: 3rem; border-top: 1px solid rgba(241,245,249,0.08);
+  text-align: center; color: #8F8F8F; font-size: 0.85rem;
+  padding: 2rem 0; margin-top: 3rem; border-top: 1px solid #eaeaea;
 }
 .footer code {
-  background: rgba(241,245,249,0.08); padding: 0.1rem 0.4rem;
-  border-radius: 4px; color: #cbd5e1;
+  background: #f4f4f5; padding: 0.1rem 0.4rem; border-radius: 4px; color: #525252;
 }
 </style>
 </head>
@@ -98,148 +82,113 @@ body {
 <div class="container">
   <div class="hero">
     <h1>เจริญพร Dashboard 2.0</h1>
-    <div class="subtitle">Staging Preview · spec docs สำหรับ review ก่อน implement</div>
-    <div class="badge">✅ All 12 specs drafted — 2026-06-26</div>
-  </div>
-
-  <div class="stats">
-    <div class="stat-card">
-      <div class="val">51</div>
-      <div class="label">รายการที่จะทำ</div>
-    </div>
-    <div class="stat-card">
-      <div class="val">~70</div>
-      <div class="label">วันทำงาน (effort)</div>
-    </div>
-    <div class="stat-card">
-      <div class="val">3-4</div>
-      <div class="label">เดือน (calendar)</div>
-    </div>
-    <div class="stat-card">
-      <div class="val">3</div>
-      <div class="label">Phases (A/B/C)</div>
-    </div>
-  </div>
-
-  <div class="notice">
-    <h3>📋 จุดประสงค์</h3>
-    <p>สนามทดสอบสำหรับ design ใหม่ของ dashboard — เน้นออกแบบให้ <strong>ลูกน้องที่ไม่ใช่ tech</strong> สามารถจัดการธุรกิจได้ทั้งหมดผ่าน UI. <strong>คลิกได้แต่ไม่บันทึก</strong> — ดูได้ปลอดภัย ไม่กระทบ production (port 8010).</p>
+    <div class="subtitle">Staging — คลิกดูตัวอย่าง UI ใหม่ที่จะให้ลูกน้องใช้</div>
+    <div class="badge">🟡 Mockup เริ่มต้น · กดเล่นได้ ไม่กระทบ production</div>
   </div>
 
   <div class="cta-row">
-    <a class="cta" href="/spec/README.md">📚 อ่าน Spec ทั้งหมด</a>
-    <a class="cta secondary" href="/spec/00-PRINCIPLES.md">🏛 หลักการ</a>
-    <a class="cta secondary" href="/spec/99-IMPLEMENTATION.md">📅 Roadmap</a>
+    <a class="cta primary" href="/mockups/today.html">🚀 เริ่มกดดูที่นี่ — "งานวันนี้"</a>
   </div>
 
-  <h2 class="section-title">📖 Spec Documents (12 ไฟล์)</h2>
-  <div class="grid">
-    <a class="doc" href="/spec/00-PRINCIPLES.md">
-      <span class="num">00</span>
-      <div class="title">หลักการ + ข้อจำกัด</div>
-      <div class="desc">รัฐธรรมนูญของโปรเจกต์ · safety · Source of Truth</div>
-      <span class="status">✅ Ready</span>
+  <div class="notice">
+    <div class="title">💡 บอสกดดูได้ทุกหน้า — เลือกหน้าไหนก่อนก็ได้</div>
+    <div class="desc">
+      ทุกหน้าใช้สีและตัวอักษรเหมือนของจริง · มี mock data ที่ดูสมจริง · ปุ่มกดได้แต่ <strong>ไม่เก็บข้อมูล</strong> · ลูกน้องคนที่ไม่ใช่ tech น่าจะใช้ได้คนเดียว
+    </div>
+  </div>
+
+  <h2 class="section-title">🎨 หน้าที่ลูกน้องใช้ทุกวัน</h2>
+  <div class="mockup-grid">
+    <a class="mockup" href="/mockups/today.html">
+      <span class="badge ready">✅ Ready</span>
+      <div class="ico">📋</div>
+      <div class="title">งานวันนี้ (Homepage)</div>
+      <div class="desc">เปิด dashboard ขึ้นมาเห็นหน้านี้ — แสดงงานที่ต้องทำตอนนี้ + สถิติวันนี้ + Quick Actions</div>
     </a>
-    <a class="doc" href="/spec/01-pre-sale.md">
-      <span class="num">01</span>
-      <div class="title">ก่อนขาย</div>
-      <div class="desc">/start, menu, packages · 6 items</div>
-      <span class="status">✅ Ready</span>
+    <a class="mockup" href="/mockups/inbox.html">
+      <span class="badge ready">✅ Ready</span>
+      <div class="ico">📥</div>
+      <div class="title">Inbox สลิป</div>
+      <div class="desc">รายการสลิปรอตรวจ · ดู AI verdict + popup ดูสลิป + กด ✅/❌ ทีละใบ</div>
     </a>
-    <a class="doc" href="/spec/02-sale.md">
-      <span class="num">02</span>
-      <div class="title">ตอนขาย</div>
-      <div class="desc">สลิป, อนุมัติ, รีเจ็กต์ · 3 items</div>
-      <span class="status">✅ Ready</span>
+    <a class="mockup" href="/mockups/sos.html">
+      <span class="badge ready">✅ Ready</span>
+      <div class="ico">🛟</div>
+      <div class="title">SOS Console</div>
+      <div class="desc">ลูกค้าทักว่ามีปัญหา · ระบบช่วยแนะนำการแก้ + 1-click action</div>
     </a>
-    <a class="doc" href="/spec/03-link-delivery.md">
-      <span class="num">03</span>
-      <div class="title">ส่งลิ้ง + Discord</div>
-      <div class="desc">VIP + Discord audit · 3 items</div>
-      <span class="status">✅ Ready</span>
+    <a class="mockup" href="/mockups/customers.html">
+      <span class="badge ready">✅ Ready</span>
+      <div class="ico">👤</div>
+      <div class="title">ลูกค้า</div>
+      <div class="desc">รายการ + ค้นหา + filter ตาม tier/tag/status · Excel export</div>
     </a>
-    <a class="doc" href="/spec/04-after-sale.md">
-      <span class="num">04</span>
-      <div class="title">หลังขาย</div>
-      <div class="desc">SOS, renewal, tier change · 6 items</div>
-      <span class="status">✅ Ready</span>
+  </div>
+
+  <h2 class="section-title">⭐ Big Features (Promo + Bot Messages)</h2>
+  <div class="mockup-grid">
+    <a class="mockup" href="/mockups/promo-wizard.html">
+      <span class="badge ready">✅ Step 1 พร้อม</span>
+      <div class="ico">🎁</div>
+      <div class="title">Promo Wizard ⭐</div>
+      <div class="desc">5-step wizard แทน Lucky 6 / Flash / Birthday hardcode · ลูกน้องตั้งโปรเองได้</div>
     </a>
-    <a class="doc" href="/spec/05-customer-mgmt.md">
-      <span class="num">05</span>
-      <div class="title">จัดการลูกค้า</div>
-      <div class="desc">360, extend, merge, block, tag · 6 items</div>
-      <span class="status">✅ Ready</span>
+    <a class="mockup" href="/mockups/bot-messages.html">
+      <span class="badge ready">✅ Ready</span>
+      <div class="ico">💬</div>
+      <div class="title">Bot Message Library</div>
+      <div class="desc">แก้คำพูดบอททุก surface — /start, /packages, welcome VIP, renewal reminder ฯลฯ · preview + undo</div>
     </a>
-    <a class="doc" href="/spec/06-broadcast.md">
-      <span class="num">06</span>
-      <div class="title">บอกข่าว</div>
-      <div class="desc">DM, group, schedule, content · 5 items</div>
-      <span class="status">✅ Ready</span>
-    </a>
-    <a class="doc" href="/spec/07-gacha.md">
-      <span class="num">07</span>
-      <div class="title">กาชา + Promo Wizard ⭐</div>
-      <div class="desc">spin price, prize, events, promo wizard · 6 items</div>
-      <span class="status">✅ Ready</span>
-    </a>
-    <a class="doc" href="/spec/08-finance.md">
-      <span class="num">08</span>
+  </div>
+
+  <h2 class="section-title">⏳ ยังไม่ได้ทำ (Coming next)</h2>
+  <div class="mockup-grid">
+    <div class="mockup">
+      <span class="badge pending">Pending</span>
+      <div class="ico">📣</div>
+      <div class="title">Broadcast</div>
+      <div class="desc">DM ลูกค้า + โพสต์ในกลุ่ม + schedule + preview</div>
+    </div>
+    <div class="mockup">
+      <span class="badge pending">Pending</span>
+      <div class="ico">🎰</div>
+      <div class="title">Gacha Admin</div>
+      <div class="desc">prize pool, spin price, probability calculator, events</div>
+    </div>
+    <div class="mockup">
+      <span class="badge pending">Pending</span>
+      <div class="ico">💰</div>
       <div class="title">การเงิน</div>
-      <div class="desc">receiver, report, fraud · 6 items</div>
-      <span class="status">✅ Ready</span>
-    </a>
-    <a class="doc" href="/spec/09-ai-agent.md">
-      <span class="num">09</span>
-      <div class="title">Prae AI</div>
-      <div class="desc">persona, knowledge, escalation · 6 items</div>
-      <span class="status">✅ Ready</span>
-    </a>
-    <a class="doc" href="/spec/10-system.md">
-      <span class="num">10</span>
-      <div class="title">ตั้งค่าระบบ</div>
-      <div class="desc">admin, group, cron, feature flags · 5 items</div>
-      <span class="status">✅ Ready</span>
-    </a>
-    <a class="doc" href="/spec/99-IMPLEMENTATION.md">
-      <span class="num">99</span>
-      <div class="title">Roadmap + Implementation</div>
-      <div class="desc">ลำดับ + dependency + timeline + risk</div>
-      <span class="status">✅ Ready</span>
-    </a>
+      <div class="desc">receivers, daily/weekly reports, fraud alerts</div>
+    </div>
+    <div class="mockup">
+      <span class="badge pending">Pending</span>
+      <div class="ico">🤖</div>
+      <div class="title">Prae AI Editor</div>
+      <div class="desc">แก้บุคลิก Prae · knowledge base · escalation rules</div>
+    </div>
   </div>
 
-  <h2 class="section-title">🎨 UI Mockups (รอ build)</h2>
-  <div class="grid">
-    <div class="doc">
-      <span class="num">Phase A</span>
-      <div class="title">📋 Today Checklist (homepage)</div>
-      <div class="desc">งานประจำวันสำหรับลูกน้อง</div>
-      <span class="status" style="background:rgba(148,163,184,0.15);color:#94a3b8;">⏳ Pending</span>
-    </div>
-    <div class="doc">
-      <span class="num">Phase B</span>
-      <div class="title">📣 Promo Wizard</div>
-      <div class="desc">5-step wizard — แทน Lucky/Flash/Birthday</div>
-      <span class="status" style="background:rgba(148,163,184,0.15);color:#94a3b8;">⏳ Pending</span>
-    </div>
-    <div class="doc">
-      <span class="num">Phase B</span>
-      <div class="title">💬 Bot Message Library</div>
-      <div class="desc">แก้คำพูดบอท + preview + version</div>
-      <span class="status" style="background:rgba(148,163,184,0.15);color:#94a3b8;">⏳ Pending</span>
-    </div>
-    <div class="doc">
-      <span class="num">Phase C</span>
-      <div class="title">🤖 Prae Persona Editor</div>
-      <div class="desc">แก้บุคลิก Prae ปลอดภัย</div>
-      <span class="status" style="background:rgba(148,163,184,0.15);color:#94a3b8;">⏳ Pending</span>
-    </div>
+  <h2 class="section-title">📚 Spec Documents (สำหรับ Claude อ้างอิงตอน implement)</h2>
+  <div class="spec-grid">
+    <a class="spec-link" href="/spec/README.md">📂 README</a>
+    <a class="spec-link" href="/spec/00-PRINCIPLES.md">🏛 หลักการ</a>
+    <a class="spec-link" href="/spec/01-pre-sale.md">01 ก่อนขาย</a>
+    <a class="spec-link" href="/spec/02-sale.md">02 ตอนขาย</a>
+    <a class="spec-link" href="/spec/03-link-delivery.md">03 ส่งลิ้ง</a>
+    <a class="spec-link" href="/spec/04-after-sale.md">04 หลังขาย</a>
+    <a class="spec-link" href="/spec/05-customer-mgmt.md">05 ลูกค้า</a>
+    <a class="spec-link" href="/spec/06-broadcast.md">06 บอกข่าว</a>
+    <a class="spec-link" href="/spec/07-gacha.md">07 กาชา</a>
+    <a class="spec-link" href="/spec/08-finance.md">08 การเงิน</a>
+    <a class="spec-link" href="/spec/09-ai-agent.md">09 Prae AI</a>
+    <a class="spec-link" href="/spec/10-system.md">10 ระบบ</a>
+    <a class="spec-link" href="/spec/99-IMPLEMENTATION.md">99 Roadmap</a>
   </div>
 
   <div class="footer">
     Staging: <code>139.59.123.146:8011</code> · Production: <code>139.59.123.146:8010</code> (ห้ามแตะ)<br>
-    Started: 2026-06-26 · Maintained by Claude<br>
-    <strong>2,671 lines of spec written today</strong>
+    Updated: 2026-06-26 17:00
   </div>
 </div>
 </body>
