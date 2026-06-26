@@ -271,11 +271,14 @@ async def sync_relay_bot(admin=Depends(require_role("admin"))):
 
 @router.get("/relay-status")
 async def relay_status(admin=Depends(require_role("admin"))):
-    """Read relay-bot state.json to show sync stats in dashboard."""
+    """Read relay-bot state.json + env config to show full sync stats with group names."""
     import json as _json
     import os as _os
+    import re as _re
 
     state_path = '/app/bots/relay_bot/data/state.json'
+    log_path = '/app/bots/relay_bot/data/relay.log'
+
     try:
         if not _os.path.exists(state_path):
             return {"available": False, "reason": "state.json not found"}
@@ -285,6 +288,103 @@ async def relay_status(admin=Depends(require_role("admin"))):
         stats = state.get('stats', {})
         disabled = state.get('destDisabled', {})
         failures = state.get('destFailures', {})
+
+        # Read SOURCE_CHAT_ID + DEST_CHAT_IDS from /app/host.env
+        source_id = None
+        dest_ids = []
+        try:
+            with open('/app/host.env') as f:
+                for line in f:
+                    if line.startswith('SOURCE_CHAT_ID='):
+                        source_id = line.split('=', 1)[1].strip().strip('"').strip("'")
+                    elif line.startswith('DEST_CHAT_IDS='):
+                        raw = line.split('=', 1)[1].strip().strip('"').strip("'")
+                        dest_ids = [d.strip() for d in raw.split(',') if d.strip()]
+        except Exception:
+            pass
+
+        # Lookup names for source + dests + disabled
+        all_ids = set()
+        if source_id: all_ids.add(int(source_id))
+        for d in dest_ids:
+            try: all_ids.add(int(d))
+            except: pass
+        for k in disabled.keys():
+            try: all_ids.add(int(k))
+            except: pass
+
+        name_map = {}
+        if all_ids:
+            rows = await pool.fetch(
+                "SELECT chat_id, slug::text AS slug, title FROM group_registry WHERE chat_id = ANY($1::bigint[])",
+                list(all_ids)
+            )
+            for r in rows:
+                name_map[str(r['chat_id'])] = {"slug": r['slug'], "title": r['title']}
+
+        def _lookup(cid):
+            return name_map.get(str(cid), {"slug": "?", "title": "(ไม่อยู่ใน registry)"})
+
+        source = None
+        if source_id:
+            info = _lookup(source_id)
+            source = {"chat_id": source_id, "slug": info['slug'], "title": info['title']}
+
+        dest_list = []
+        for d in dest_ids:
+            info = _lookup(d)
+            dest_list.append({
+                "chat_id": d,
+                "slug": info['slug'],
+                "title": info['title'],
+                "failures": failures.get(d, 0),
+                "disabled": d in disabled,
+            })
+
+        disabled_list = []
+        for k in disabled.keys():
+            info = _lookup(k)
+            disabled_list.append({
+                "chat_id": k,
+                "slug": info['slug'],
+                "title": info['title'],
+                "failures": failures.get(k, 0),
+                "in_current_dests": k in dest_ids,
+            })
+
+        # Parse last 50 lines of relay.log for failed entries
+        recent_fails = []
+        try:
+            if _os.path.exists(log_path):
+                with open(log_path, 'rb') as f:
+                    # Read last ~50KB to get recent lines
+                    f.seek(0, 2)
+                    size = f.tell()
+                    f.seek(max(0, size - 50000))
+                    tail = f.read().decode('utf-8', errors='ignore')
+                lines = tail.split('\n')
+                # Match lines like: [TS] ❌ ... → CHAT_ID  OR contains "error", "fail", "blocked"
+                pat = _re.compile(r'\[([^\]]+)\]\s*(?:❌|⚠️|🚫|💥)\s*(.+?)(?:→\s*(-?\d+))?$')
+                for line in lines[-200:]:
+                    line = line.strip()
+                    if not line: continue
+                    # Quick filter: look for fail/error/❌/⚠️/blocked indicators
+                    if not any(tok in line.lower() for tok in ['❌', '⚠️', '🚫', '💥', 'error', 'fail', 'blocked', 'forbidden']):
+                        continue
+                    m = pat.search(line)
+                    if m:
+                        ts, desc, cid = m.group(1), m.group(2), m.group(3)
+                        info = _lookup(cid) if cid else {"slug": "?", "title": ""}
+                        recent_fails.append({
+                            "ts": ts,
+                            "chat_id": cid,
+                            "slug": info['slug'],
+                            "title": info['title'],
+                            "reason": desc[:120],
+                        })
+                recent_fails = recent_fails[-20:]
+        except Exception as exc:
+            recent_fails = [{"ts": "", "reason": f"log parse error: {exc}", "slug": "", "title": ""}]
 
         # Compute synced groups count from group_registry (active groups that match)
         active_groups = await pool.fetchval("SELECT COUNT(*) FROM group_registry WHERE is_active = TRUE")
@@ -298,7 +398,10 @@ async def relay_status(admin=Depends(require_role("admin"))):
             "total_forwarded": stats.get('forwarded', 0),
             "total_failed": stats.get('failed', 0),
             "closings_sent": stats.get('closingsSent', 0),
-            "disabled_destinations": [{"chat_id": k, "failures": failures.get(k, 0)} for k in disabled.keys()],
+            "source": source,
+            "destinations": dest_list,
+            "disabled_destinations": disabled_list,
+            "recent_fails": recent_fails,
             "active_groups": active_groups,
         }
     except Exception as exc:

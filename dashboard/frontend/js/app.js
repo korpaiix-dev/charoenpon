@@ -6442,7 +6442,7 @@ async function renderMarketingHeatmap(containerId, days = 30) {
 }
 
 // ==================================================================
-// Phase A.3 (2026-06-27): Relay-bot sync status widget
+// Phase A.3 (2026-06-27): Relay-bot sync status widget (v2: with names)
 // ==================================================================
 async function renderRelayWidget(containerId) {
     const el = document.getElementById(containerId);
@@ -6461,11 +6461,60 @@ async function renderRelayWidget(containerId) {
             if (sec < 86400) return Math.floor(sec/3600) + ' ชม.ที่แล้ว';
             return Math.floor(sec/86400) + ' วันที่แล้ว';
         };
+        const fmtTs = (iso) => {
+            if (!iso) return '-';
+            try {
+                const d = new Date(iso);
+                return d.toLocaleString('th-TH', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+            } catch (e) { return iso; }
+        };
         const status = r.paused ? '⏸ PAUSED' : '✅ ทำงาน';
         const statusColor = r.paused ? 'var(--warning)' : 'var(--success)';
-        const disabledHtml = (r.disabled_destinations || []).length
-            ? '<span style="color:var(--error);font-size:0.75rem;">⚠️ ' + r.disabled_destinations.length + ' กลุ่ม disabled</span>'
-            : '<span style="color:var(--success);font-size:0.75rem;">ทุกกลุ่ม OK</span>';
+
+        const src = r.source;
+        const srcHtml = src
+            ? `<b>👑 ${esc(src.slug)}</b> — ${esc(src.title)} <span style="color:var(--text-dim);font-size:0.7rem;">(${src.chat_id})</span>`
+            : '<span style="color:var(--text-muted);">ไม่ทราบ</span>';
+
+        // Dest list — compact chip layout
+        const dests = r.destinations || [];
+        const destChips = dests.map(d => {
+            const color = d.disabled ? 'var(--error)' : 'var(--success)';
+            const failBadge = d.failures > 0 ? ` <span style="color:var(--warning);font-size:0.65rem;">⚠️${d.failures}</span>` : '';
+            return `<span title="${esc(d.title)} (${d.chat_id})" style="display:inline-block;padding:0.15rem 0.5rem;margin:0.15rem;border:1px solid ${color};border-radius:4px;font-size:0.72rem;color:${color};">${esc(d.slug)}${failBadge}</span>`;
+        }).join('');
+
+        // Disabled groups — full row
+        const disabled = r.disabled_destinations || [];
+        const disabledHtml = disabled.length
+            ? `<div style="margin-top:0.6rem;padding:0.6rem;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:6px;">
+                <div style="font-size:0.75rem;font-weight:600;color:var(--error);margin-bottom:0.3rem;">⚠️ ${disabled.length} กลุ่ม disabled (บอตเลิกส่ง):</div>
+                ${disabled.map(d => `<div style="font-size:0.78rem;margin-left:0.5rem;">
+                    • <b>${esc(d.slug)}</b> — ${esc(d.title)}
+                    <span style="color:var(--text-dim);font-size:0.7rem;">(fail ${d.failures} ครั้ง · ${d.in_current_dests ? 'ยังอยู่ใน config' : 'ลบจาก config แล้ว — state เก่า'})</span>
+                </div>`).join('')}
+              </div>`
+            : '';
+
+        // Recent fails table
+        const fails = r.recent_fails || [];
+        const failsHtml = fails.length
+            ? `<details style="margin-top:0.6rem;"><summary style="cursor:pointer;font-size:0.78rem;color:var(--text-muted);">📋 ดู ${fails.length} fail log ล่าสุด</summary>
+                <div style="max-height:200px;overflow-y:auto;margin-top:0.4rem;border:1px solid var(--border);border-radius:4px;">
+                <table style="width:100%;font-size:0.72rem;border-collapse:collapse;">
+                    <thead style="background:rgba(0,0,0,0.2);position:sticky;top:0;">
+                        <tr><th style="padding:0.3rem;text-align:left;">เวลา</th><th style="padding:0.3rem;text-align:left;">กลุ่ม</th><th style="padding:0.3rem;text-align:left;">สาเหตุ</th></tr>
+                    </thead>
+                    <tbody>
+                        ${fails.slice().reverse().map(f => `<tr style="border-top:1px solid var(--border);">
+                            <td style="padding:0.3rem;color:var(--text-dim);white-space:nowrap;">${esc(fmtTs(f.ts))}</td>
+                            <td style="padding:0.3rem;"><b>${esc(f.slug || '-')}</b> ${f.title ? '— ' + esc(f.title) : ''}</td>
+                            <td style="padding:0.3rem;color:var(--text-muted);">${esc(f.reason || '')}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+                </div></details>`
+            : '<div style="margin-top:0.5rem;font-size:0.75rem;color:var(--text-muted);">✅ ไม่มี fail ล่าสุดใน log</div>';
 
         el.innerHTML = `
             <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0.85rem 1rem;">
@@ -6473,16 +6522,26 @@ async function renderRelayWidget(containerId) {
                     <div style="font-weight:600;font-size:0.9rem;">🔄 Relay-bot sync</div>
                     <span style="color:${statusColor};font-weight:600;font-size:0.85rem;">${status}</span>
                 </div>
-                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.5rem;font-size:0.8rem;">
-                    <div><div style="color:var(--text-dim);font-size:0.7rem;">forward ทั้งหมด</div><div style="font-weight:600;">${(r.total_forwarded || 0).toLocaleString()}</div></div>
-                    <div><div style="color:var(--text-dim);font-size:0.7rem;">fail ทั้งหมด</div><div style="font-weight:600;color:${r.total_failed>0?'var(--error)':'inherit'};">${r.total_failed || 0}</div></div>
-                    <div><div style="color:var(--text-dim);font-size:0.7rem;">closings ส่ง</div><div style="font-weight:600;">${(r.closings_sent || 0).toLocaleString()}</div></div>
-                    <div><div style="color:var(--text-dim);font-size:0.7rem;">กลุ่ม active</div><div style="font-weight:600;">${r.active_groups || 0}</div></div>
+
+                <div style="font-size:0.78rem;margin-bottom:0.5rem;">
+                    <div style="color:var(--text-dim);font-size:0.7rem;">📤 ต้นทาง (โพสต์ที่นี่ → ส่งต่อทุกกลุ่มปลายทาง):</div>
+                    <div style="padding:0.2rem 0;">${srcHtml}</div>
                 </div>
-                <div style="margin-top:0.5rem;font-size:0.75rem;color:var(--text-muted);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
-                    <span>⏰ forward ล่าสุด: <b>${ago(r.last_forward_at)}</b></span>
-                    ${disabledHtml}
+
+                <div style="font-size:0.78rem;margin-bottom:0.5rem;">
+                    <div style="color:var(--text-dim);font-size:0.7rem;margin-bottom:0.2rem;">📥 ปลายทาง ${dests.length} กลุ่ม:</div>
+                    <div>${destChips}</div>
                 </div>
+
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:0.4rem;font-size:0.78rem;padding:0.4rem 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:0.5rem 0;">
+                    <div><div style="color:var(--text-dim);font-size:0.7rem;">forward สำเร็จ</div><div style="font-weight:600;">${(r.total_forwarded || 0).toLocaleString()}</div></div>
+                    <div><div style="color:var(--text-dim);font-size:0.7rem;">fail สะสม</div><div style="font-weight:600;color:${r.total_failed>0?'var(--error)':'inherit'};">${r.total_failed || 0}</div></div>
+                    <div><div style="color:var(--text-dim);font-size:0.7rem;">ส่งปิดรอบ</div><div style="font-weight:600;">${(r.closings_sent || 0).toLocaleString()}</div></div>
+                    <div><div style="color:var(--text-dim);font-size:0.7rem;">forward ล่าสุด</div><div style="font-weight:600;">${ago(r.last_forward_at)}</div></div>
+                </div>
+
+                ${disabledHtml}
+                ${failsHtml}
             </div>`;
     } catch (e) {
         el.innerHTML = '<div style="padding:0.5rem;color:var(--error);font-size:0.85rem;">' + e.message + '</div>';
