@@ -28,7 +28,7 @@ from shared.tz import TH_TZ
 CONTENT_BOT_TOKEN = os.environ.get("CONTENT_BOT_TOKEN", "")
 
 # 11 กลุ่มฟรี (same as content_bot/flash_sale_scheduler)
-FREE_GROUPS = [
+_FALLBACK_FREE_GROUPS = [
     -1003733093219,
     -1003772512123,
     -1003706880995,
@@ -38,6 +38,43 @@ FREE_GROUPS = [
     -1003723154612,
     -1003805660760,
 ]
+
+# FIX 2026-06-26: query DB instead of hardcoded chat_id list
+# Why: dashboard CRUD changes group_registry — schedulers must pick up immediately
+async def _get_active_free_groups() -> list[int]:
+    """Return list of active FREE group chat_ids from group_registry."""
+    try:
+        from shared.database import get_session
+        from sqlalchemy import text as _t_sql
+        async with get_session() as s:
+            r = await s.execute(_t_sql(
+                "SELECT chat_id FROM group_registry "
+                "WHERE min_tier = 'FREE' AND is_active = TRUE ORDER BY id"
+            ))
+            return [int(row[0]) for row in r.fetchall()]
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("DB query for free groups failed: %s — using fallback", exc)
+        # Fallback to hardcoded (safety net for DB failures)
+        return _FALLBACK_FREE_GROUPS
+
+
+async def _get_active_vip_groups() -> list[int]:
+    """Return list of active VIP group chat_ids (non-FREE)."""
+    try:
+        from shared.database import get_session
+        from sqlalchemy import text as _t_sql
+        async with get_session() as s:
+            r = await s.execute(_t_sql(
+                "SELECT chat_id FROM group_registry "
+                "WHERE min_tier != 'FREE' AND is_active = TRUE ORDER BY id"
+            ))
+            return [int(row[0]) for row in r.fetchall()]
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("DB query for VIP groups failed: %s", exc)
+        return []
+
 
 TRIAL_PROMO_TEXT = (
     '🆕 <b>VIP เจริญพร — ทดลอง 24 ชม.</b>\n'
@@ -206,7 +243,8 @@ async def _broadcast_to_free_groups(bot: Bot, text: str, image: io.BytesIO | Non
     """Broadcast ข้อความไปยัง 11 กลุ่มฟรี. Returns (success, failed)."""
     success = 0
     failed = 0
-    for group_id in FREE_GROUPS:
+    _free_groups_dynamic = await _get_active_free_groups()
+    for group_id in _free_groups_dynamic:
         try:
             if image:
                 image.seek(0)
