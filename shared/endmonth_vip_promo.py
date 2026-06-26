@@ -32,8 +32,51 @@ def now_th() -> datetime:
     return datetime.now(TH_TZ)
 
 
+
+
+# Phase B.2 (2026-06-27): kill-switch from feature_flags (sync, psycopg2)
+_KS_CACHE = {"value": None, "expires": 0.0}
+_KS_TTL = 60.0
+def _legacy_promos_disabled() -> bool:
+    """Sync check of feature_flags.legacy_promos_disabled (cached 60s).
+
+    Returns True if ALL hardcoded promos should be force-disabled.
+    Errors -> False (= old behavior, promos active by date).
+    """
+    import time
+    if _KS_CACHE["expires"] > time.time() and _KS_CACHE["value"] is not None:
+        return _KS_CACHE["value"]
+    try:
+        import os
+        try:
+            import psycopg2
+        except ImportError:
+            return False
+        url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
+        if not url:
+            host = os.getenv("POSTGRES_HOST", "charoenpon-postgres")
+            user = os.getenv("POSTGRES_USER", "postgres")
+            pwd = os.getenv("POSTGRES_PASSWORD", "")
+            db = os.getenv("POSTGRES_DB", "charoenpon")
+            url = f"postgresql://{user}:{pwd}@{host}:5432/{db}"
+        conn = psycopg2.connect(url, connect_timeout=2)
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT enabled FROM feature_flags WHERE flag_key = 'legacy_promos_disabled'")
+            row = cur.fetchone()
+            value = bool(row[0]) if row else False
+        finally:
+            conn.close()
+        _KS_CACHE["value"] = value
+        _KS_CACHE["expires"] = time.time() + _KS_TTL
+        return value
+    except Exception:
+        return False
+
 def is_endmonth_vip_promo_active(at: datetime | None = None) -> bool:
     """Return True while the G300 end-month promo should be shown/used."""
+    if _legacy_promos_disabled():
+        return False
     current = at or now_th()
     if current.tzinfo is None:
         current = current.replace(tzinfo=TH_TZ)
@@ -136,6 +179,8 @@ def get_may_promo_badge(tier: str) -> str:
 # MID_MONTH_FLASH — 15-17 มิ.ย. 2026 (BKK)
 def is_mid_month_flash_active() -> bool:
     """Mid-Month Flash Sale window: 15-17 มิ.ย. 2026 BKK."""
+    if _legacy_promos_disabled():
+        return False
     from datetime import datetime, timezone, timedelta
     now = datetime.now(timezone(timedelta(hours=7)))
     return (now.year == 2026 and now.month == 6 and 15 <= now.day <= 17)
@@ -148,6 +193,8 @@ MID_FLASH_GOD3M_PRICE = 999
 # LUCKY_6.6 SALE — 6 มิ.ย. 2026 BKK (24h)
 def is_lucky_6_active() -> bool:
     """Lucky 6 Day window: 6 มิ.ย. 2026 BKK (1 day)."""
+    if _legacy_promos_disabled():
+        return False
     from datetime import datetime, timezone, timedelta
     now = datetime.now(timezone(timedelta(hours=7)))
     return now.year == 2026 and now.month == 6 and now.day == 6
@@ -162,6 +209,8 @@ LUCKY_6_GOD_LIFETIME_PRICE = 2266
 def is_birthday_promo_active() -> bool:
     """Birthday promo (เดือนเกิดเฮียตั๋ง) window: 7-10 มิ.ย. 2026 BKK.
     Customers who buy TIER_500 (OF+VIP 30d) during this window are auto-entered into a draw for 1 GOD lifetime."""
+    if _legacy_promos_disabled():
+        return False
     from datetime import datetime, timezone, timedelta
     now = datetime.now(timezone(timedelta(hours=7)))
     return now.year == 2026 and now.month == 6 and 7 <= now.day <= 10

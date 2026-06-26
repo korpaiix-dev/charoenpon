@@ -43,9 +43,13 @@ async def get_balance(telegram_id: int) -> Decimal:
     return Decimal(row[0]) if row else Decimal("0")
 
 
-def compute_use(balance: Decimal, tier_str: str, base_price: Decimal) -> Decimal:
-    """How much discount we should apply, given balance + tier."""
-    cap = DISCOUNT_CAP.get(str(tier_str))
+def compute_use(balance: Decimal, tier_str: str, base_price: Decimal, *, cap_override: Decimal | None = None) -> Decimal:
+    """How much discount we should apply, given balance + tier.
+
+    Phase B.3 (2026-06-27): caller may pass cap_override loaded from
+    promo_config (when flag gacha_discount_from_db is ON).
+    """
+    cap = cap_override if cap_override is not None else DISCOUNT_CAP.get(str(tier_str))
     if cap is None or balance <= 0 or base_price <= 0:
         return Decimal("0")
     use = min(balance, cap, base_price - Decimal("1"))  # never make slip = 0
@@ -53,6 +57,22 @@ def compute_use(balance: Decimal, tier_str: str, base_price: Decimal) -> Decimal
         return Decimal("0")
     # Round down to nearest integer THB (avoid fractional slips)
     return Decimal(int(use))
+
+
+async def get_cap_for_tier(tier_str: str) -> Decimal | None:
+    """Get cap from DB (if flag ON) or fallback to hardcoded DISCOUNT_CAP."""
+    try:
+        from shared.feature_flags import is_flag_enabled
+        if await is_flag_enabled("gacha_discount_from_db"):
+            from shared.promo_config import get_promo_config
+            caps = await get_promo_config("gacha_discount_cap_per_tier", default={})
+            if isinstance(caps, dict):
+                v = caps.get(str(tier_str))
+                if v is not None:
+                    return Decimal(str(v))
+    except Exception:
+        pass
+    return DISCOUNT_CAP.get(str(tier_str))
 
 
 async def reserve_in_context(
