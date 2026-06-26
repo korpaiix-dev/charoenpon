@@ -5314,3 +5314,221 @@ async function loadCustomerGroups(uid) {
     }
 }
 
+// ===== Group Broadcast — admin self-serve via dashboard =====
+let _gbSelectedSlugs = new Set();
+let _gbImageFile = null;
+
+async function openGroupBroadcastModal() {
+    openModal('📣 บรอดแคสต์ลงกลุ่ม', `
+        <div id="gb-body" style="text-align:center;padding:1rem;">
+            <div class="spinner"></div>
+        </div>
+    `, { wide: true });
+
+    try {
+        const data = await api('/group-broadcast/groups');
+        const free = data.free || [];
+        const vip = data.vip || [];
+
+        _gbSelectedSlugs = new Set();
+        _gbImageFile = null;
+
+        const renderGroup = (g) => `
+            <label style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.5rem;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:var(--surface-2);">
+                <input type="checkbox" class="gb-cb" data-slug="${esc(g.slug)}" data-title="${esc(g.title || g.slug)}" style="width:16px;height:16px;" onchange="gbToggle('${esc(g.slug)}')">
+                <div style="flex:1;min-width:0;">
+                    <div style="font-weight:500;font-size:0.78rem;line-height:1.2;">${esc(g.title || g.slug)}</div>
+                    <div style="font-size:0.65rem;color:var(--text-muted);">${esc(g.slug)}</div>
+                </div>
+            </label>
+        `;
+
+        document.getElementById('gb-body').innerHTML = `
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(min(100%, 380px), 1fr));gap:1rem;">
+
+                <!-- LEFT: Group picker -->
+                <div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                        <strong style="font-size:0.85rem;">เลือกกลุ่มเป้าหมาย <span id="gb-count" style="color:var(--text-muted);font-weight:normal;">(0)</span></strong>
+                    </div>
+                    <div style="display:flex;gap:0.3rem;margin-bottom:0.5rem;flex-wrap:wrap;">
+                        <button class="btn btn-sm btn-outline" onclick="gbSelectAll('all')" style="font-size:0.7rem;">เลือกทั้งหมด</button>
+                        <button class="btn btn-sm btn-outline" onclick="gbSelectAll('free')" style="font-size:0.7rem;">เลือกฟรีทั้งหมด (${free.length})</button>
+                        <button class="btn btn-sm btn-outline" onclick="gbSelectAll('vip')" style="font-size:0.7rem;">เลือก VIP (${vip.length})</button>
+                        <button class="btn btn-sm btn-outline" onclick="gbSelectAll('none')" style="font-size:0.7rem;">ล้าง</button>
+                    </div>
+
+                    ${vip.length > 0 ? `
+                    <div style="font-size:0.72rem;color:var(--warning);font-weight:600;margin:0.5rem 0 0.25rem;">👑 VIP (${vip.length})</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem;margin-bottom:0.5rem;">
+                        ${vip.map(renderGroup).join('')}
+                    </div>
+                    ` : ''}
+
+                    ${free.length > 0 ? `
+                    <div style="font-size:0.72rem;color:var(--accent);font-weight:600;margin:0.5rem 0 0.25rem;">🆓 ฟรี (${free.length})</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem;max-height:35vh;overflow:auto;">
+                        ${free.map(renderGroup).join('')}
+                    </div>
+                    ` : ''}
+                </div>
+
+                <!-- RIGHT: Compose -->
+                <div>
+                    <strong style="font-size:0.85rem;">เขียนข้อความ</strong>
+                    <textarea id="gb-msg" rows="14" placeholder="พิมพ์ข้อความที่จะส่ง... รองรับ HTML เช่น <b>หนา</b>, <i>เอียง</i>, <a href='url'>ลิงก์</a>" style="width:100%;font-family:var(--font-sans);font-size:0.85rem;padding:0.625rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);line-height:1.5;resize:vertical;margin-top:0.3rem;" oninput="gbUpdatePreview()"></textarea>
+
+                    <div style="display:flex;gap:0.4rem;align-items:center;margin-top:0.5rem;flex-wrap:wrap;">
+                        <label style="font-size:0.72rem;display:flex;align-items:center;gap:0.3rem;cursor:pointer;">
+                            <input type="file" id="gb-image" accept="image/*" style="display:none;" onchange="gbImageChange(this)">
+                            <span class="btn btn-sm btn-outline" onclick="document.getElementById('gb-image').click()">🖼 เลือกรูป</span>
+                        </label>
+                        <span id="gb-image-name" style="font-size:0.7rem;color:var(--text-muted);"></span>
+                        <span id="gb-image-clear" style="display:none;font-size:0.7rem;color:var(--error);cursor:pointer;" onclick="gbClearImage()">✕ ลบรูป</span>
+                    </div>
+
+                    <div style="margin-top:1rem;font-size:0.72rem;color:var(--text-muted);">📱 ตัวอย่าง</div>
+                    <div id="gb-preview" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0.625rem;font-size:0.85rem;line-height:1.5;min-height:80px;max-height:25vh;overflow:auto;white-space:pre-wrap;word-break:break-word;color:var(--text-muted);">— ยังไม่มีข้อความ —</div>
+
+                    <div style="margin-top:1rem;display:flex;gap:0.5rem;justify-content:flex-end;border-top:1px solid var(--border);padding-top:0.75rem;">
+                        <button class="btn btn-outline" onclick="closeModal()">ยกเลิก</button>
+                        <button class="btn btn-primary" onclick="doGroupBroadcast()" id="gb-send-btn">📣 ส่งบรอดแคสต์</button>
+                    </div>
+                </div>
+            </div>
+
+            <div style="margin-top:1rem;padding-top:0.75rem;border-top:1px solid var(--border);">
+                <button class="btn btn-sm btn-outline" onclick="showGbHistory()">📜 ดูประวัติบรอดแคสต์</button>
+            </div>
+        `;
+        gbUpdatePreview();
+    } catch (err) {
+        document.getElementById('gb-body').innerHTML = `<div style="color:var(--error);padding:1rem;">❌ ${esc(err.message || 'load failed')}</div>`;
+    }
+}
+
+function gbToggle(slug) {
+    if (_gbSelectedSlugs.has(slug)) _gbSelectedSlugs.delete(slug);
+    else _gbSelectedSlugs.add(slug);
+    document.getElementById('gb-count').textContent = `(${_gbSelectedSlugs.size})`;
+}
+
+function gbSelectAll(mode) {
+    _gbSelectedSlugs = new Set();
+    document.querySelectorAll('.gb-cb').forEach(cb => {
+        const slug = cb.dataset.slug;
+        const isFree = slug.startsWith('FREE');
+        const shouldCheck = (mode === 'all') || (mode === 'free' && isFree) || (mode === 'vip' && !isFree);
+        cb.checked = shouldCheck;
+        if (shouldCheck) _gbSelectedSlugs.add(slug);
+    });
+    document.getElementById('gb-count').textContent = `(${_gbSelectedSlugs.size})`;
+}
+
+function gbImageChange(input) {
+    if (input.files && input.files[0]) {
+        _gbImageFile = input.files[0];
+        document.getElementById('gb-image-name').textContent = _gbImageFile.name + ` (${Math.round(_gbImageFile.size/1024)}KB)`;
+        document.getElementById('gb-image-clear').style.display = 'inline';
+    }
+}
+
+function gbClearImage() {
+    _gbImageFile = null;
+    document.getElementById('gb-image').value = '';
+    document.getElementById('gb-image-name').textContent = '';
+    document.getElementById('gb-image-clear').style.display = 'none';
+}
+
+function gbUpdatePreview() {
+    const msg = document.getElementById('gb-msg')?.value || '';
+    const el = document.getElementById('gb-preview');
+    if (!el) return;
+    if (!msg.trim()) {
+        el.innerHTML = '<span style="color:var(--text-dim);">— ยังไม่มีข้อความ —</span>';
+        el.style.color = 'var(--text-muted)';
+    } else {
+        el.innerHTML = msg;
+        el.style.color = 'var(--text)';
+    }
+}
+
+async function doGroupBroadcast() {
+    const slugs = Array.from(_gbSelectedSlugs);
+    const msg = document.getElementById('gb-msg').value.trim();
+
+    if (slugs.length === 0) { toast('เลือกอย่างน้อย 1 กลุ่ม', 'error'); return; }
+    if (!msg && !_gbImageFile) { toast('ใส่ข้อความหรือรูป', 'error'); return; }
+    if (!confirm(`ส่งบรอดแคสต์ไปยัง ${slugs.length} กลุ่ม?\n\nอาจใช้เวลา ${Math.round(slugs.length * 0.6)} วินาที`)) return;
+
+    const btn = document.getElementById('gb-send-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ กำลังส่ง...'; }
+
+    try {
+        const form = new FormData();
+        form.append('slugs', JSON.stringify(slugs));
+        form.append('message', msg);
+        form.append('parse_mode', 'HTML');
+        if (_gbImageFile) form.append('image', _gbImageFile);
+
+        const resp = await fetch('/api/group-broadcast/send', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: form,
+        });
+        const r = await resp.json();
+        if (!resp.ok) {
+            throw new Error(r.detail || 'send failed');
+        }
+
+        if (r.failed === 0) {
+            toast(`✅ ส่งสำเร็จทุกกลุ่ม (${r.sent}/${r.total})`, 'success');
+            closeModal();
+        } else {
+            const errLines = (r.errors || []).map(e => `• ${e.slug}: ${e.error}`).join('\n');
+            toast(`⚠️ ส่งสำเร็จ ${r.sent} / ล้มเหลว ${r.failed}\n${errLines}`.slice(0, 300), 'error', 15000);
+            // Re-enable button
+            if (btn) { btn.disabled = false; btn.textContent = '📣 ส่งบรอดแคสต์'; }
+        }
+    } catch (err) {
+        toast(`❌ ${err.message || 'failed'}`, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '📣 ส่งบรอดแคสต์'; }
+    }
+}
+
+async function showGbHistory() {
+    try {
+        const items = await api('/group-broadcast/history?limit=30');
+        const rows = items.map(it => {
+            const slugs = (Array.isArray(it.target_slugs) ? it.target_slugs : JSON.parse(it.target_slugs || '[]')).join(', ');
+            const okIcon = it.failed_count === 0 ? '✅' : '⚠️';
+            return `
+                <tr style="border-top:1px solid var(--border);">
+                    <td style="padding:0.4rem;font-size:0.7rem;color:var(--text-muted);">${fmtDateTime(it.sent_at)}</td>
+                    <td style="padding:0.4rem;font-size:0.72rem;">${esc(it.admin_name || '?')}</td>
+                    <td style="padding:0.4rem;font-size:0.7rem;color:var(--text-muted);">${esc(slugs.slice(0,80))}${slugs.length>80?'…':''}</td>
+                    <td style="padding:0.4rem;text-align:right;">${okIcon} ${it.sent_count}${it.failed_count>0?'/'+it.failed_count+' ❌':''}</td>
+                    <td style="padding:0.4rem;font-size:0.7rem;">${it.has_image ? '🖼' : ''} ${esc(it.preview).slice(0,60)}…</td>
+                </tr>`;
+        }).join('');
+        openModal('📜 ประวัติบรอดแคสต์', `
+            <div style="max-height:70vh;overflow:auto;">
+                <table style="width:100%;font-size:0.78rem;">
+                    <thead style="background:var(--surface-2);">
+                        <tr>
+                            <th style="padding:0.4rem;text-align:left;">เวลา</th>
+                            <th style="padding:0.4rem;text-align:left;">โดย</th>
+                            <th style="padding:0.4rem;text-align:left;">กลุ่ม</th>
+                            <th style="padding:0.4rem;text-align:right;">ผล</th>
+                            <th style="padding:0.4rem;text-align:left;">ข้อความ</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows || '<tr><td colspan="5" style="text-align:center;padding:1rem;color:var(--text-muted);">ยังไม่มีประวัติ</td></tr>'}</tbody>
+                </table>
+            </div>
+        `, { wide: true });
+    } catch (err) {
+        toast(`❌ ${err.message || 'load failed'}`, 'error');
+    }
+}
+
