@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>บทสนทนา Prae — เจริญพร 2.0</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/mockups/style.css">
+
+</head>
+<body>
+<div class="preview-bar">
+  <div>🟡 STAGING MOCKUP — Prae Conversation Log</div>
+  <a href="/mockups/today.html" style="color:inherit;text-decoration:none;">← กลับงานวันนี้</a>
+</div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo"><div class="logo-mark">เพ</div><div><div>เจริญพร 2.0</div><div class="subtitle" style="padding-left:0;">Admin Dashboard</div></div></div>
+    </div>
+
+    <div class="nav-divider">งานประจำวัน</div>
+    <a class="nav-item " href="/mockups/today.html"><span class="icon">📋</span> งานวันนี้</a>
+    <a class="nav-item " href="/mockups/inbox.html"><span class="icon">📥</span> Inbox สลิป <span class="badge">5</span></a>
+    <a class="nav-item " href="/mockups/sos.html"><span class="icon">🛟</span> SOS <span class="badge">2</span></a>
+    <a class="nav-item " href="/mockups/customers.html"><span class="icon">👤</span> ลูกค้า</a>
+
+    <div class="nav-divider">สื่อสาร + โปร</div>
+    <a class="nav-item active" href="/mockups/prae-logs.html"><span class="icon">💭</span> บทสนทนา Prae</a>
+    <a class="nav-item " href="/mockups/broadcast.html"><span class="icon">📣</span> บอกข่าว DM/กลุ่ม</a>
+    <a class="nav-item " href="/mockups/promo-wizard.html"><span class="icon">🎁</span> จัดโปร</a>
+    <a class="nav-item " href="/mockups/gacha.html"><span class="icon">🎰</span> กาชา</a>
+
+    <div class="nav-divider">ปรับแต่งบอท</div>
+    <a class="nav-item " href="/mockups/bot-messages.html"><span class="icon">💬</span> คำพูดบอท</a>
+    <a class="nav-item " href="/mockups/prae.html"><span class="icon">🤖</span> Prae AI</a>
+
+    <div class="nav-divider">เงิน + รายงาน</div>
+    <a class="nav-item " href="/mockups/finance.html"><span class="icon">💰</span> การเงิน + Receivers</a>
+    <a class="nav-item " href="/mockups/reports.html"><span class="icon">📊</span> รายงาน</a>
+    <a class="nav-item " href="/mockups/marketing.html"><span class="icon">📈</span> Marketing ROI</a>
+
+    <div class="nav-divider">ดูแลระบบ</div>
+    <a class="nav-item " href="/mockups/team.html"><span class="icon">👥</span> ทีม</a>
+    <a class="nav-item " href="/mockups/groups.html"><span class="icon">🏛</span> กลุ่ม VIP</a>
+    <a class="nav-item " href="/mockups/settings.html"><span class="icon">⚙️</span> ตั้งค่าระบบ</a>
+    <a class="nav-item " href="/mockups/activity.html"><span class="icon">📜</span> Activity Log</a>
+  </aside>
+  <main class="main">
+
+    <div class="page-header">
+      <div>
+        <h1>💭 บทสนทนา Prae</h1>
+        <div class="date">ดูข้อความที่ Prae คุยกับลูกค้าทั้งหมด · ค้นหา + filter</div>
+      </div>
+      <div style="display:flex;gap:0.5rem;">
+        <input type="text" placeholder="🔍 ค้นหาในบทสนทนา" style="padding:0.55rem 0.85rem;border:1px solid var(--border);border-radius:var(--radius-sm);width:240px;">
+        <button class="btn btn-outline btn-sm">📥 Excel</button>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:300px 1fr;gap:1.5rem;">
+      <div class="table-card">
+        <div class="table-header"><h3>ล่าสุด (47)</h3></div>
+        <div style="max-height:600px;overflow-y:auto;">
+          <div style="padding:0.85rem 1rem;border-bottom:1px solid var(--border);cursor:pointer;background:var(--surface-2);">
+            <div style="font-weight:600;font-size:0.9rem;">@user789 · นาย ก</div>
+            <div style="color:var(--text-muted);font-size:0.8rem;margin-top:0.15rem;">เปิด VIP กี่บาท?</div>
+            <div style="display:flex;justify-content:space-between;margin-top:0.3rem;">
+              <span style="color:var(--text-dim);font-size:0.7rem;">5 นาทีที่แล้ว</span>
+              <span class="tag" style="background:#D1FAE5;color:#065F46;">resolved</span>
+            </div>
+          </div>
+          <div style="padding:0.85rem 1rem;border-bottom:1px solid var(--border);cursor:pointer;">
+            <div style="font-weight:600;font-size:0.9rem;">@user456</div>
+            <div style="color:var(--text-muted);font-size:0.8rem;margin-top:0.15rem;">ลิ้งหายค่ะ</div>
+            <div style="display:flex;justify-content:space-between;margin-top:0.3rem;">
+              <span style="color:var(--text-dim);font-size:0.7rem;">12 นาที</span>
+              <span class="tag" style="background:#FEE2E2;color:#991B1B;">SOS</span>
+            </div>
+          </div>
+          <div style="padding:0.85rem 1rem;border-bottom:1px solid var(--border);cursor:pointer;">
+            <div style="font-weight:600;font-size:0.9rem;">@vvip_user</div>
+            <div style="color:var(--text-muted);font-size:0.8rem;margin-top:0.15rem;">เลือก GOD MODE ครับ</div>
+            <div style="display:flex;justify-content:space-between;margin-top:0.3rem;">
+              <span style="color:var(--text-dim);font-size:0.7rem;">28 นาที</span>
+              <span class="tag" style="background:#D1FAE5;color:#065F46;">บอตขายสำเร็จ</span>
+            </div>
+          </div>
+          <div style="padding:0.85rem 1rem;border-bottom:1px solid var(--border);cursor:pointer;">
+            <div style="font-weight:600;font-size:0.9rem;">@new_user</div>
+            <div style="color:var(--text-muted);font-size:0.8rem;margin-top:0.15rem;">ขอดูตัวอย่างคลิป</div>
+            <div style="display:flex;justify-content:space-between;margin-top:0.3rem;">
+              <span style="color:var(--text-dim);font-size:0.7rem;">42 นาที</span>
+              <span class="tag" style="background:#DBEAFE;color:#1E40AF;">in progress</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-header">
+          <div>
+            <h3>💬 @user789 · นาย ก</h3>
+            <div style="color:var(--text-dim);font-size:0.75rem;">VIP active 25 วัน · เพิ่ม chat: 5 นาที</div>
+          </div>
+          <a class="btn btn-outline btn-sm" href="/mockups/customer-360.html">👤 ดู profile</a>
+        </div>
+
+        <div style="padding:1.5rem;background:#cad3df;min-height:400px;">
+          <div style="display:flex;justify-content:flex-end;margin-bottom:0.75rem;">
+            <div style="background:#0084ff;color:white;padding:0.55rem 0.85rem;border-radius:14px 14px 4px 14px;max-width:70%;font-size:0.85rem;">
+              เปิด VIP กี่บาท?
+              <div style="font-size:0.65rem;color:rgba(255,255,255,0.7);text-align:right;margin-top:0.1rem;">14:32</div>
+            </div>
+          </div>
+
+          <div style="margin-bottom:0.75rem;">
+            <div style="background:white;padding:0.55rem 0.85rem;border-radius:14px 14px 14px 4px;max-width:70%;font-size:0.85rem;">
+              VIP 30 วัน 300 บาทค่า~ คุ้มมากเลย กดดูแพ็กเกจที่ปุ่มล่างได้เลยนะคะ 💕
+              <div style="font-size:0.65rem;color:#999;margin-top:0.2rem;">14:32 · Prae AI</div>
+            </div>
+          </div>
+
+          <div style="display:flex;justify-content:flex-end;margin-bottom:0.75rem;">
+            <div style="background:#0084ff;color:white;padding:0.55rem 0.85rem;border-radius:14px 14px 4px 14px;max-width:70%;font-size:0.85rem;">
+              GOD ถาวรเท่าไหร่?
+              <div style="font-size:0.65rem;color:rgba(255,255,255,0.7);text-align:right;margin-top:0.1rem;">14:33</div>
+            </div>
+          </div>
+
+          <div style="margin-bottom:0.75rem;">
+            <div style="background:white;padding:0.55rem 0.85rem;border-radius:14px 14px 14px 4px;max-width:70%;font-size:0.85rem;">
+              GOD ถาวร <b>2,499 บาท</b> ค่า~ จ่ายครั้งเดียวดูได้ตลอดชีพเลยค่ะ คุ้มสุดในชอป 🔥
+              <div style="font-size:0.65rem;color:#999;margin-top:0.2rem;">14:33 · Prae AI</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="padding:1rem 1.5rem;background:var(--surface-2);border-top:1px solid var(--border);">
+          <div style="display:flex;gap:0.5rem;">
+            <button class="btn btn-outline btn-sm">💬 พิมพ์ตอบเอง</button>
+            <button class="btn btn-outline btn-sm">🔄 ส่งลิ้งใหม่</button>
+            <button class="btn btn-outline btn-sm">🏷 Tag VVIP</button>
+            <button class="btn btn-outline btn-sm">📌 บันทึก note</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+</body>
+</html>

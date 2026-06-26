@@ -7,169 +7,100 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body {
-  font-family: "Inter", "Noto Sans Thai", sans-serif;
-  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-  color: #0a0a0a; min-height: 100vh; padding: 2rem 1rem;
-}
-.container { max-width: 1100px; margin: 0 auto; }
+body { font-family: "Inter", "Noto Sans Thai", sans-serif; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #0a0a0a; min-height: 100vh; padding: 2rem 1rem; }
+.container { max-width: 1200px; margin: 0 auto; }
 .hero { text-align: center; padding: 2rem 1rem 1rem; }
-.hero h1 {
-  font-size: 2.5rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.5rem;
-}
+.hero h1 { font-size: 2.5rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.5rem; }
 .hero .subtitle { color: #525252; font-size: 1.1rem; margin-bottom: 1rem; }
-.hero .badge {
-  display: inline-block; padding: 0.4rem 1rem;
-  background: rgba(247, 176, 69, 0.15); border: 1px solid rgba(247, 176, 69, 0.4);
-  color: #b45309; border-radius: 999px; font-size: 0.85rem; font-weight: 500;
-}
-.cta-row {
-  display: flex; gap: 1rem; justify-content: center; margin: 2rem 0; flex-wrap: wrap;
-}
-.cta {
-  display: inline-block; padding: 1rem 2rem;
-  background: #0a0a0a; color: white; font-weight: 600; border-radius: 8px;
-  text-decoration: none; transition: all 0.2s; font-size: 1.05rem;
-}
+.hero .badge { display: inline-block; padding: 0.4rem 1rem; background: rgba(247, 176, 69, 0.15); border: 1px solid rgba(247, 176, 69, 0.4); color: #b45309; border-radius: 999px; font-size: 0.85rem; font-weight: 500; }
+.cta-row { display: flex; gap: 1rem; justify-content: center; margin: 2rem 0; flex-wrap: wrap; }
+.cta { display: inline-block; padding: 1rem 2rem; background: #0a0a0a; color: white; font-weight: 600; border-radius: 8px; text-decoration: none; transition: all 0.2s; font-size: 1.05rem; }
 .cta:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.15); }
-.cta.primary {
-  background: linear-gradient(135deg, #F7B045 0%, #F59E0B 100%);
-}
-.notice {
-  background: white; border: 1px solid #eaeaea; border-radius: 12px;
-  padding: 1.5rem; margin-bottom: 1.5rem;
-}
+.cta.primary { background: linear-gradient(135deg, #F7B045 0%, #F59E0B 100%); }
+.notice { background: white; border: 1px solid #eaeaea; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
 .notice .title { font-weight: 600; margin-bottom: 0.5rem; color: #b45309; }
 .notice .desc { color: #525252; line-height: 1.7; font-size: 0.95rem; }
-.section-title { font-size: 1.25rem; font-weight: 700; margin: 2.5rem 0 1rem; }
-.mockup-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;
-}
-.mockup {
-  background: white; border: 1px solid #eaeaea; border-radius: 12px;
-  padding: 1.5rem; text-decoration: none; color: inherit; transition: all 0.2s;
-  position: relative;
-}
+.section-title { font-size: 1.1rem; font-weight: 700; margin: 2rem 0 0.8rem; color: #525252; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.85rem; }
+.mockup-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+.mockup { background: white; border: 1px solid #eaeaea; border-radius: 12px; padding: 1.3rem; text-decoration: none; color: inherit; transition: all 0.2s; }
 .mockup:hover { transform: translateY(-3px); border-color: #F7B045; box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
-.mockup .badge {
-  position: absolute; top: 1rem; right: 1rem;
-  font-size: 0.7rem; font-weight: 600; padding: 0.2rem 0.5rem; border-radius: 4px;
-}
-.badge.ready { background: #D1FAE5; color: #065F46; }
-.badge.pending { background: #E5E7EB; color: #525252; }
-.mockup .ico { font-size: 2rem; margin-bottom: 0.5rem; }
-.mockup .title { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.4rem; }
-.mockup .desc { font-size: 0.85rem; color: #525252; line-height: 1.5; }
-.spec-link {
-  background: #f4f4f5; border: 1px solid #eaeaea; border-radius: 8px;
-  padding: 0.75rem 1rem; text-decoration: none; color: inherit;
-  display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem;
-}
+.mockup .ico { font-size: 1.8rem; margin-bottom: 0.4rem; }
+.mockup .title { font-size: 1rem; font-weight: 600; margin-bottom: 0.3rem; }
+.mockup .desc { font-size: 0.8rem; color: #525252; line-height: 1.5; }
+.spec-link { background: #f4f4f5; border: 1px solid #eaeaea; border-radius: 8px; padding: 0.6rem 0.9rem; text-decoration: none; color: inherit; display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; }
 .spec-link:hover { background: white; border-color: #F7B045; }
-.spec-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.5rem;
-}
-.footer {
-  text-align: center; color: #8F8F8F; font-size: 0.85rem;
-  padding: 2rem 0; margin-top: 3rem; border-top: 1px solid #eaeaea;
-}
-.footer code {
-  background: #f4f4f5; padding: 0.1rem 0.4rem; border-radius: 4px; color: #525252;
-}
+.spec-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.5rem; }
+.footer { text-align: center; color: #8F8F8F; font-size: 0.85rem; padding: 2rem 0; margin-top: 3rem; border-top: 1px solid #eaeaea; }
+.footer code { background: #f4f4f5; padding: 0.1rem 0.4rem; border-radius: 4px; color: #525252; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.75rem; margin: 1.5rem 0; }
+.stat-card { background: white; border: 1px solid #eaeaea; border-radius: 12px; padding: 1rem 1.2rem; text-align: center; }
+.stat-card .val { font-size: 1.8rem; font-weight: 700; color: #F7B045; }
+.stat-card .label { color: #525252; font-size: 0.75rem; margin-top: 0.2rem; }
 </style>
 </head>
 <body>
 <div class="container">
   <div class="hero">
     <h1>เจริญพร Dashboard 2.0</h1>
-    <div class="subtitle">Staging — คลิกดูตัวอย่าง UI ใหม่ที่จะให้ลูกน้องใช้</div>
-    <div class="badge">🟡 Mockup เริ่มต้น · กดเล่นได้ ไม่กระทบ production</div>
+    <div class="subtitle">Staging — 18 หน้า · จัดเป็น 5 หมวด · เริ่มที่ \"งานวันนี้\"</div>
+    <div class="badge">🟡 Mockup · กดเล่นได้ ไม่กระทบ production 8010</div>
+  </div>
+
+  <div class="stats">
+    <div class="stat-card"><div class="val">18</div><div class="label">หน้าทั้งหมด</div></div>
+    <div class="stat-card"><div class="val">5</div><div class="label">หมวด</div></div>
+    <div class="stat-card"><div class="val">100%</div><div class="label">คลิกได้ทุกหน้า</div></div>
+    <div class="stat-card"><div class="val">0</div><div class="label">กระทบลูกค้า</div></div>
   </div>
 
   <div class="cta-row">
-    <a class="cta primary" href="/mockups/today.html">🚀 เริ่มกดดูที่นี่ — "งานวันนี้"</a>
+    <a class="cta primary" href="/mockups/today.html">🚀 เริ่มที่นี่ — งานวันนี้</a>
   </div>
 
   <div class="notice">
-    <div class="title">💡 บอสกดดูได้ทุกหน้า — เลือกหน้าไหนก่อนก็ได้</div>
-    <div class="desc">
-      ทุกหน้าใช้สีและตัวอักษรเหมือนของจริง · มี mock data ที่ดูสมจริง · ปุ่มกดได้แต่ <strong>ไม่เก็บข้อมูล</strong> · ลูกน้องคนที่ไม่ใช่ tech น่าจะใช้ได้คนเดียว
-    </div>
+    <div class="title">📋 สำหรับลูกน้องที่ไม่ใช่ tech</div>
+    <div class="desc">Dashboard ใหม่จัด nav เป็น <strong>5 หมวด</strong> ตามงานที่ทำ — เปิดมาที่ \"งานวันนี้\" แล้วเดินไปทำงานทีละหมวด ลูกค้าไม่เห็นการเปลี่ยนแปลงใดๆ จนกว่าจะเปิด flag</div>
   </div>
 
-  <h2 class="section-title">🎨 หน้าที่ลูกน้องใช้ทุกวัน</h2>
+  <h2 class="section-title">📋 งานประจำวัน (เปิดมาเจอที่นี่)</h2>
   <div class="mockup-grid">
-    <a class="mockup" href="/mockups/today.html">
-      <span class="badge ready">✅ Ready</span>
-      <div class="ico">📋</div>
-      <div class="title">งานวันนี้ (Homepage)</div>
-      <div class="desc">เปิด dashboard ขึ้นมาเห็นหน้านี้ — แสดงงานที่ต้องทำตอนนี้ + สถิติวันนี้ + Quick Actions</div>
-    </a>
-    <a class="mockup" href="/mockups/inbox.html">
-      <span class="badge ready">✅ Ready</span>
-      <div class="ico">📥</div>
-      <div class="title">Inbox สลิป</div>
-      <div class="desc">รายการสลิปรอตรวจ · ดู AI verdict + popup ดูสลิป + กด ✅/❌ ทีละใบ</div>
-    </a>
-    <a class="mockup" href="/mockups/sos.html">
-      <span class="badge ready">✅ Ready</span>
-      <div class="ico">🛟</div>
-      <div class="title">SOS Console</div>
-      <div class="desc">ลูกค้าทักว่ามีปัญหา · ระบบช่วยแนะนำการแก้ + 1-click action</div>
-    </a>
-    <a class="mockup" href="/mockups/customers.html">
-      <span class="badge ready">✅ Ready</span>
-      <div class="ico">👤</div>
-      <div class="title">ลูกค้า</div>
-      <div class="desc">รายการ + ค้นหา + filter ตาม tier/tag/status · Excel export</div>
-    </a>
+    <a class="mockup" href="/mockups/today.html"><div class="ico">📋</div><div class="title">งานวันนี้</div><div class="desc">homepage · งานเร่งด่วน + สถิติวันนี้ + quick actions</div></a>
+    <a class="mockup" href="/mockups/inbox.html"><div class="ico">📥</div><div class="title">Inbox สลิป</div><div class="desc">รายการสลิปรอตรวจ + AI verdict + 1-click ✅/❌</div></a>
+    <a class="mockup" href="/mockups/sos.html"><div class="ico">🛟</div><div class="title">SOS Console</div><div class="desc">ลูกค้ามีปัญหา · smart suggestions + DM</div></a>
+    <a class="mockup" href="/mockups/customers.html"><div class="ico">👤</div><div class="title">ลูกค้า</div><div class="desc">รายการ + filter + ค้นหา + drill-down</div></a>
+    <a class="mockup" href="/mockups/customer-360.html"><div class="ico">🔍</div><div class="title">Customer 360 (drill-down)</div><div class="desc">timeline ประวัติทั้งหมด + notes ทีม</div></a>
   </div>
 
-  <h2 class="section-title">⭐ Big Features (Promo + Bot Messages)</h2>
+  <h2 class="section-title">💬 สื่อสาร + โปร</h2>
   <div class="mockup-grid">
-    <a class="mockup" href="/mockups/promo-wizard.html">
-      <span class="badge ready">✅ Step 1 พร้อม</span>
-      <div class="ico">🎁</div>
-      <div class="title">Promo Wizard ⭐</div>
-      <div class="desc">5-step wizard แทน Lucky 6 / Flash / Birthday hardcode · ลูกน้องตั้งโปรเองได้</div>
-    </a>
-    <a class="mockup" href="/mockups/bot-messages.html">
-      <span class="badge ready">✅ Ready</span>
-      <div class="ico">💬</div>
-      <div class="title">Bot Message Library</div>
-      <div class="desc">แก้คำพูดบอททุก surface — /start, /packages, welcome VIP, renewal reminder ฯลฯ · preview + undo</div>
-    </a>
+    <a class="mockup" href="/mockups/prae-logs.html"><div class="ico">💭</div><div class="title">บทสนทนา Prae</div><div class="desc">ดูข้อความที่ Prae คุยกับลูกค้า · ค้นหา + filter</div></a>
+    <a class="mockup" href="/mockups/broadcast.html"><div class="ico">📣</div><div class="title">บอกข่าว</div><div class="desc">DM ลูกค้า + โพสต์กลุ่ม + schedule + preview</div></a>
+    <a class="mockup" href="/mockups/promo-wizard.html"><div class="ico">🎁</div><div class="title">จัดโปร ⭐</div><div class="desc">5-step wizard แทน Lucky/Flash/Birthday hardcode</div></a>
+    <a class="mockup" href="/mockups/gacha.html"><div class="ico">🎰</div><div class="title">กาชา</div><div class="desc">prize pool + spin price + probability + events</div></a>
   </div>
 
-  <h2 class="section-title">⏳ ยังไม่ได้ทำ (Coming next)</h2>
+  <h2 class="section-title">🤖 ปรับแต่งบอท</h2>
   <div class="mockup-grid">
-    <div class="mockup">
-      <span class="badge pending">Pending</span>
-      <div class="ico">📣</div>
-      <div class="title">Broadcast</div>
-      <div class="desc">DM ลูกค้า + โพสต์ในกลุ่ม + schedule + preview</div>
-    </div>
-    <div class="mockup">
-      <span class="badge pending">Pending</span>
-      <div class="ico">🎰</div>
-      <div class="title">Gacha Admin</div>
-      <div class="desc">prize pool, spin price, probability calculator, events</div>
-    </div>
-    <div class="mockup">
-      <span class="badge pending">Pending</span>
-      <div class="ico">💰</div>
-      <div class="title">การเงิน</div>
-      <div class="desc">receivers, daily/weekly reports, fraud alerts</div>
-    </div>
-    <div class="mockup">
-      <span class="badge pending">Pending</span>
-      <div class="ico">🤖</div>
-      <div class="title">Prae AI Editor</div>
-      <div class="desc">แก้บุคลิก Prae · knowledge base · escalation rules</div>
-    </div>
+    <a class="mockup" href="/mockups/bot-messages.html"><div class="ico">💬</div><div class="title">คำพูดบอท</div><div class="desc">แก้ข้อความ /start, แพ็กเกจ, ขอสลิป, welcome · undo</div></a>
+    <a class="mockup" href="/mockups/prae.html"><div class="ico">🤖</div><div class="title">Prae AI Editor</div><div class="desc">บุคลิก + knowledge base + escalation rules</div></a>
   </div>
 
-  <h2 class="section-title">📚 Spec Documents (สำหรับ Claude อ้างอิงตอน implement)</h2>
+  <h2 class="section-title">💰 เงิน + รายงาน</h2>
+  <div class="mockup-grid">
+    <a class="mockup" href="/mockups/finance.html"><div class="ico">💰</div><div class="title">การเงิน + Receivers</div><div class="desc">บัญชีรับ · cumulative · fraud alerts</div></a>
+    <a class="mockup" href="/mockups/reports.html"><div class="ico">📊</div><div class="title">รายงาน</div><div class="desc">daily / weekly / monthly · tier breakdown · Excel</div></a>
+    <a class="mockup" href="/mockups/marketing.html"><div class="ico">📈</div><div class="title">Marketing ROI</div><div class="desc">leaderboard · ลิ้ง CRUD · conversion · ROI</div></a>
+  </div>
+
+  <h2 class="section-title">⚙️ ดูแลระบบ</h2>
+  <div class="mockup-grid">
+    <a class="mockup" href="/mockups/team.html"><div class="ico">👥</div><div class="title">ทีม</div><div class="desc">partners + staff · Discord channels · permissions</div></a>
+    <a class="mockup" href="/mockups/groups.html"><div class="ico">🏛</div><div class="title">กลุ่ม VIP</div><div class="desc">registry · members · relay-bot sync</div></a>
+    <a class="mockup" href="/mockups/settings.html"><div class="ico">⚙️</div><div class="title">ตั้งค่าระบบ</div><div class="desc">admin IDs · feature flags · cron jobs</div></a>
+    <a class="mockup" href="/mockups/activity.html"><div class="ico">📜</div><div class="title">Activity Log</div><div class="desc">ทุก action ที่ admin ทำ · undo + audit</div></a>
+  </div>
+
+  <h2 class="section-title">📚 Spec Documents (เผื่อบอสอยากดู)</h2>
   <div class="spec-grid">
     <a class="spec-link" href="/spec/README.md">📂 README</a>
     <a class="spec-link" href="/spec/00-PRINCIPLES.md">🏛 หลักการ</a>
@@ -187,8 +118,8 @@ body {
   </div>
 
   <div class="footer">
-    Staging: <code>139.59.123.146:8011</code> · Production: <code>139.59.123.146:8010</code> (ห้ามแตะ)<br>
-    Updated: 2026-06-26 17:00
+    Staging: <code>139.59.123.146:8011</code> · Production: <code>139.59.123.146:8010</code> (มี feature ใหม่ deploy แล้ว)<br>
+    Updated: 2026-06-27
   </div>
 </div>
 </body>

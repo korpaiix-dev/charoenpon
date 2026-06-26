@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Activity Log — เจริญพร 2.0</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/mockups/style.css">
+
+</head>
+<body>
+<div class="preview-bar">
+  <div>🟡 STAGING MOCKUP — Audit log + undo</div>
+  <a href="/mockups/today.html" style="color:inherit;text-decoration:none;">← กลับงานวันนี้</a>
+</div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo"><div class="logo-mark">เพ</div><div><div>เจริญพร 2.0</div><div class="subtitle" style="padding-left:0;">Admin Dashboard</div></div></div>
+    </div>
+
+    <div class="nav-divider">งานประจำวัน</div>
+    <a class="nav-item " href="/mockups/today.html"><span class="icon">📋</span> งานวันนี้</a>
+    <a class="nav-item " href="/mockups/inbox.html"><span class="icon">📥</span> Inbox สลิป <span class="badge">5</span></a>
+    <a class="nav-item " href="/mockups/sos.html"><span class="icon">🛟</span> SOS <span class="badge">2</span></a>
+    <a class="nav-item " href="/mockups/customers.html"><span class="icon">👤</span> ลูกค้า</a>
+
+    <div class="nav-divider">สื่อสาร + โปร</div>
+    <a class="nav-item " href="/mockups/prae-logs.html"><span class="icon">💭</span> บทสนทนา Prae</a>
+    <a class="nav-item " href="/mockups/broadcast.html"><span class="icon">📣</span> บอกข่าว DM/กลุ่ม</a>
+    <a class="nav-item " href="/mockups/promo-wizard.html"><span class="icon">🎁</span> จัดโปร</a>
+    <a class="nav-item " href="/mockups/gacha.html"><span class="icon">🎰</span> กาชา</a>
+
+    <div class="nav-divider">ปรับแต่งบอท</div>
+    <a class="nav-item " href="/mockups/bot-messages.html"><span class="icon">💬</span> คำพูดบอท</a>
+    <a class="nav-item " href="/mockups/prae.html"><span class="icon">🤖</span> Prae AI</a>
+
+    <div class="nav-divider">เงิน + รายงาน</div>
+    <a class="nav-item " href="/mockups/finance.html"><span class="icon">💰</span> การเงิน + Receivers</a>
+    <a class="nav-item " href="/mockups/reports.html"><span class="icon">📊</span> รายงาน</a>
+    <a class="nav-item " href="/mockups/marketing.html"><span class="icon">📈</span> Marketing ROI</a>
+
+    <div class="nav-divider">ดูแลระบบ</div>
+    <a class="nav-item " href="/mockups/team.html"><span class="icon">👥</span> ทีม</a>
+    <a class="nav-item " href="/mockups/groups.html"><span class="icon">🏛</span> กลุ่ม VIP</a>
+    <a class="nav-item " href="/mockups/settings.html"><span class="icon">⚙️</span> ตั้งค่าระบบ</a>
+    <a class="nav-item active" href="/mockups/activity.html"><span class="icon">📜</span> Activity Log</a>
+  </aside>
+  <main class="main">
+
+    <div class="page-header">
+      <div>
+        <h1>📜 Activity Log</h1>
+        <div class="date">ทุก action ที่ admin/ลูกน้องทำในระบบ · audit + undo</div>
+      </div>
+      <div style="display:flex;gap:0.5rem;">
+        <input type="text" placeholder="🔍 ค้นหา admin/action" style="padding:0.55rem;border:1px solid var(--border);border-radius:var(--radius-sm);">
+        <button class="btn btn-outline btn-sm">📥 Excel</button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;">
+      <button class="btn btn-primary btn-sm">ทั้งหมด</button>
+      <button class="btn btn-outline btn-sm">การจ่ายเงิน</button>
+      <button class="btn btn-outline btn-sm">แก้คำพูดบอท</button>
+      <button class="btn btn-outline btn-sm">Feature flag</button>
+      <button class="btn btn-outline btn-sm">Receiver</button>
+      <button class="btn btn-outline btn-sm">วันนี้</button>
+      <button class="btn btn-outline btn-sm">เมื่อวาน</button>
+    </div>
+
+    <div class="table-card">
+      <div class="table-header"><h3>247 actions วันนี้</h3></div>
+      <table class="table">
+        <thead><tr><th>เวลา</th><th>Admin</th><th>Action</th><th>Target</th><th>รายละเอียด</th><th></th></tr></thead>
+        <tbody>
+          <tr><td><span style="font-family:var(--font-mono);font-size:0.75rem;">17:15:42</span></td><td>บอส</td><td>feature_flag_update</td><td><code>bot_messages_enabled</code></td><td>scope=canary, ids=[8502597269]</td><td><button class="btn btn-sm btn-outline">↩️ undo</button></td></tr>
+          <tr><td><span style="font-family:var(--font-mono);font-size:0.75rem;">17:14:21</span></td><td>บอส</td><td>bot_message_update</td><td><code>welcome_new</code></td><td>note="เพิ่ม emoji"</td><td><button class="btn btn-sm btn-outline">↩️ undo</button></td></tr>
+          <tr><td><span style="font-family:var(--font-mono);font-size:0.75rem;">17:02:18</span></td><td>system</td><td>gacha_reward_delivered</td><td>gacha_pull #350</td><td>tg=5036584785 sub TIER_100</td><td></td></tr>
+          <tr><td><span style="font-family:var(--font-mono);font-size:0.75rem;">17:01:42</span></td><td>system</td><td>payment_approved_gacha</td><td>payment #968</td><td>amt=฿270 tier=GACHA_3</td><td></td></tr>
+          <tr><td><span style="font-family:var(--font-mono);font-size:0.75rem;">14:32:11</span></td><td>Ivy</td><td>slip_approved</td><td>payment #964</td><td>VIP 30 วัน ฿300</td><td></td></tr>
+          <tr><td><span style="font-family:var(--font-mono);font-size:0.75rem;">14:28:55</span></td><td>Ivy</td><td>regen_invite_link</td><td>user #16645</td><td>VIP_1 + VIP_2</td><td></td></tr>
+          <tr><td><span style="font-family:var(--font-mono);font-size:0.75rem;">13:51:02</span></td><td>Pai</td><td>broadcast_sent</td><td>group VIP_1</td><td>456 recipients</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </main>
+</div>
+
+</body>
+</html>
