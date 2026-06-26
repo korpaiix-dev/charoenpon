@@ -4215,10 +4215,20 @@ async function openPraeConvo(telegramId) {
                 <small style="color:var(--text-muted);">${msgs.length} ข้อความ</small>
                 ${u.id ? `<button class="btn btn-sm btn-outline" onclick="closeModal();showCustomer360(${u.id})">👤 Customer 360</button>` : ''}
             </div>
-            <div style="max-height:65vh;overflow:auto;padding:0.5rem;background:var(--surface);border-radius:8px;">
+            <div id="prae-bubbles-${telegramId}" style="max-height:55vh;overflow:auto;padding:0.5rem;background:var(--surface);border-radius:8px;margin-bottom:0.5rem;">
                 ${bubbles || '<div style="text-align:center;padding:2rem;color:var(--text-muted);">ไม่มีข้อความ</div>'}
             </div>
-        `);
+            ${u.id ? `
+            <div style="border-top:1px solid var(--border);padding-top:0.5rem;">
+                <div style="display:flex;gap:0.4rem;align-items:flex-end;">
+                    <textarea id="prae-dm-input-${u.id}" placeholder="พิมพ์ข้อความส่งหาลูกค้า... (รองรับ HTML <b>, <i>, <a>)" rows="2" style="flex:1;font-size:0.85rem;padding:0.5rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);line-height:1.4;resize:vertical;"></textarea>
+                    <button class="btn btn-primary btn-sm" onclick="sendPraeDM(${u.id}, ${telegramId})" id="prae-dm-send-${u.id}" style="white-space:nowrap;">📤 ส่ง</button>
+                </div>
+                <div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.25rem;">
+                    ⚠️ ส่งจาก @NamwarnJarern_bot · ไม่ผ่าน Prae AI · ข้อความจะถูกบันทึกใน timeline
+                </div>
+            </div>` : ''}
+        `, { wide: true });
     } catch (err) {
         toast('❌ ' + (err.message || 'load failed'), 'error');
     }
@@ -5529,6 +5539,51 @@ async function showGbHistory() {
         `, { wide: true });
     } catch (err) {
         toast(`❌ ${err.message || 'load failed'}`, 'error');
+    }
+}
+
+// ===== Send DM directly from Prae Log modal =====
+async function sendPraeDM(uid, telegramId) {
+    const input = document.getElementById(`prae-dm-input-${uid}`);
+    const btn = document.getElementById(`prae-dm-send-${uid}`);
+    if (!input) return;
+    const msg = input.value.trim();
+    if (!msg) { toast('พิมพ์ข้อความก่อน', 'error'); return; }
+    if (msg.length > 4000) { toast('ข้อความยาวเกิน 4000 ตัว', 'error'); return; }
+
+    btn.disabled = true;
+    btn.textContent = '⏳';
+    try {
+        const r = await api(`/customers/${uid}/dm`, {
+            method: 'POST',
+            body: JSON.stringify({ message: msg }),
+        });
+        if (r.ok) {
+            toast('✅ ส่ง DM แล้ว', 'success');
+            input.value = '';
+            // Append the new admin message to bubble area visually
+            const bubbleArea = document.getElementById(`prae-bubbles-${telegramId}`);
+            if (bubbleArea) {
+                const ts = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false });
+                const bubbleHtml = `
+                    <div style="display:flex;justify-content:flex-end;margin-bottom:0.5rem;">
+                        <div style="max-width:75%;padding:0.5rem 0.75rem;border-radius:12px;background:var(--warning);color:#fff;font-size:0.875rem;">
+                            <div style="font-size:0.7rem;opacity:0.85;margin-bottom:0.2rem;">👮 Admin · ${ts}</div>
+                            <div style="white-space:pre-wrap;word-break:break-word;">${esc(msg)}</div>
+                        </div>
+                    </div>
+                `;
+                bubbleArea.insertAdjacentHTML('beforeend', bubbleHtml);
+                bubbleArea.scrollTop = bubbleArea.scrollHeight;
+            }
+        } else {
+            toast('❌ ส่งไม่สำเร็จ', 'error');
+        }
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ส่งไม่สำเร็จ'), 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '📤 ส่ง';
     }
 }
 
