@@ -136,6 +136,7 @@ class PackageUpdate(BaseModel):
 # --- Payment ---
 class PaymentReject(BaseModel):
     reason: str = ""
+    customer_message: str | None = None
 
 # --- Promotion Campaign Center ---
 class PromotionCampaignCreate(BaseModel):

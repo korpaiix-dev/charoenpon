@@ -1638,6 +1638,10 @@ async function showCustomer360(userId) {
                         <div style="font-size:0.6875rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.5rem;">🏠 กลุ่ม (${activeGroups.length})</div>
                         ${groupsHtml}
                     </div>
+                    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1rem;">
+                        <div style="font-size:0.6875rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.5rem;">📝 Notes ทีม</div>
+                        <div id="notes-${u.id}"><div style="text-align:center;color:var(--text-dim);font-size:0.8rem;padding:0.5rem;">กำลังโหลด...</div></div>
+                    </div>
                 </div>
 
             </div>
@@ -1649,6 +1653,9 @@ async function showCustomer360(userId) {
                 }
             </style>
         `;
+
+        // Phase A.2: load team notes
+        try { renderCustomerNotes(u.id, "notes-" + u.id); } catch(_e) {}
 
         window.c360Filter = (key) => {
             _c360State.filter = key;
@@ -1858,11 +1865,8 @@ async function inboxAction(action, id) {
             toast('✅ Approve เรียบร้อย', 'success');
             renderInbox();
         } else if (action === 'reject_payment') {
-            const reason = prompt('เหตุผลที่ reject:');
-            if (!reason) return;
-            await api(`/payments/${id}/reject`, { method: 'POST', body: JSON.stringify({reason}) });
-            toast('❌ Reject เรียบร้อย', 'success');
-            renderInbox();
+            await showRejectReasonModal(id);
+            return;
         } else if (action === 'resolve_sos') {
             if (!confirm('จบ SOS ticket #' + id + '?')) return;
             await api(`/dashboard/sos/${id}/resolve`, { method: 'POST' });
@@ -6106,5 +6110,123 @@ async function loadExitSurveyConfig() {
         </div>
     </div>`;
     await _loadConfigCategory('exit_survey', '<h3 style="margin-bottom:1rem;">⚙️ ตั้งค่า Exit Survey</h3>', helpHtml);
+}
+
+// ==================================================================
+// Phase A.2 (2026-06-27): Customer Notes + Rejection Reasons preset
+// ==================================================================
+
+async function showRejectReasonModal(paymentId) {
+    let reasons = [];
+    try { reasons = await api('/rejection-reasons'); } catch(e) { reasons = []; }
+    const opts = reasons.map(r => `
+        <label style="display:block;padding:0.65rem 0.85rem;border:1px solid var(--border);border-radius:8px;margin-bottom:0.4rem;cursor:pointer;font-size:0.9rem;">
+            <input type="radio" name="rej-reason" value="${r.id}" data-msg="${esc((r.customer_message||'').replace(/"/g,'&quot;'))}" data-label="${esc(r.label)}"
+                   onchange="document.getElementById('rej-custom').value = this.dataset.msg || ''">
+            <b style="margin-left:0.4rem;">${esc(r.label)}</b>
+            ${r.customer_message ? `<div style="color:var(--text-muted);font-size:0.78rem;margin-top:0.2rem;margin-left:1.4rem;">${esc(r.customer_message.substring(0, 80))}${r.customer_message.length > 80 ? '...' : ''}</div>` : ''}
+        </label>
+    `).join('');
+    openModal('❌ Reject สลิป #' + paymentId, `
+        <div style="margin-bottom:0.8rem;font-size:0.85rem;color:var(--text-muted);">เลือกเหตุผล (ลูกค้าจะได้รับข้อความ DM):</div>
+        ${opts}
+        <div class="form-group" style="margin-top:1rem;">
+            <label>ข้อความที่ลูกค้าจะได้รับ (แก้ได้)</label>
+            <textarea id="rej-custom" style="width:100%;min-height:80px;padding:0.55rem;font-family:inherit;font-size:0.85rem;border:1px solid var(--border);border-radius:6px;" placeholder="เลือกเหตุผลด้านบน หรือพิมพ์เอง..."></textarea>
+        </div>
+        <button class="btn btn-danger btn-full" onclick="confirmRejectPayment(${paymentId})">❌ Reject + ส่ง DM</button>
+    `);
+}
+
+async function confirmRejectPayment(paymentId) {
+    const radio = document.querySelector('input[name="rej-reason"]:checked');
+    const customMsg = document.getElementById('rej-custom').value.trim();
+    if (!radio && !customMsg) { toast('เลือกเหตุผลหรือพิมพ์ข้อความ', 'error'); return; }
+    const label = radio ? radio.dataset.label : 'อื่นๆ';
+    const message = customMsg || (radio ? radio.dataset.msg : '');
+    try {
+        await api('/payments/' + paymentId + '/reject', {
+            method: 'POST',
+            body: JSON.stringify({ reason: label, customer_message: message })
+        });
+        toast('❌ Reject + DM ส่งแล้ว', 'success');
+        closeModal();
+        renderInbox();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'ทำไม่สำเร็จ'), 'error');
+    }
+}
+
+async function renderCustomerNotes(userId, containerId) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    try {
+        const notes = await api('/customers/' + userId + '/notes');
+        let html = `<div style="margin-bottom:0.6rem;">
+            <textarea id="note-new-${userId}" style="width:100%;padding:0.55rem;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:0.85rem;min-height:60px;" placeholder="เขียนโน้ตให้ทีม (เช่น: ลูกค้าพิเศษ ทักตอนเย็น)..."></textarea>
+            <div style="margin-top:0.4rem;display:flex;gap:0.4rem;">
+                <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.8rem;cursor:pointer;">
+                    <input type="checkbox" id="note-pin-${userId}"> 📌 ปักหมุด
+                </label>
+                <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="saveCustomerNote(${userId})">💾 บันทึก</button>
+            </div>
+        </div>`;
+        if (!notes.length) {
+            html += '<div style="text-align:center;color:var(--text-dim);font-size:0.85rem;padding:1rem;">ยังไม่มีโน้ต</div>';
+        } else {
+            notes.forEach(n => {
+                html += `<div style="padding:0.7rem 0.85rem;background:${n.is_pinned ? 'rgba(247,176,69,0.08)' : 'var(--surface-2)'};border-radius:6px;margin-bottom:0.5rem;border-left:${n.is_pinned ? '3px solid var(--primary)' : 'none'};">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem;">
+                        <span style="font-size:0.72rem;color:var(--text-dim);">
+                            ${n.is_pinned ? '📌 ' : ''}${fmtDateTime(n.created_at)} · by ${n.created_by || 'admin'}
+                        </span>
+                        <div style="display:flex;gap:0.3rem;">
+                            <button class="btn btn-sm btn-outline" onclick="toggleNotePin(${userId}, ${n.id}, ${!n.is_pinned})" title="${n.is_pinned ? 'ถอนหมุด' : 'ปักหมุด'}">${n.is_pinned ? '📍' : '📌'}</button>
+                            <button class="btn btn-sm btn-outline" onclick="deleteCustomerNote(${userId}, ${n.id})" title="ลบ">🗑</button>
+                        </div>
+                    </div>
+                    <div style="font-size:0.88rem;white-space:pre-wrap;">${esc(n.content)}</div>
+                </div>`;
+            });
+        }
+        el.innerHTML = html;
+    } catch (e) {
+        el.innerHTML = '<div style="color:var(--error);font-size:0.85rem;">โหลดโน้ตไม่สำเร็จ: ' + esc(e.message) + '</div>';
+    }
+}
+
+async function saveCustomerNote(userId) {
+    const content = document.getElementById('note-new-' + userId).value.trim();
+    if (!content) { toast('พิมพ์โน้ตก่อน', 'error'); return; }
+    const isPinned = document.getElementById('note-pin-' + userId).checked;
+    try {
+        await api('/customers/' + userId + '/notes', {
+            method: 'POST',
+            body: JSON.stringify({ content: content, is_pinned: isPinned })
+        });
+        toast('✅ บันทึกโน้ตแล้ว', 'success');
+        renderCustomerNotes(userId, 'notes-' + userId);
+    } catch (err) {
+        toast('❌ ' + err.message, 'error');
+    }
+}
+
+async function toggleNotePin(userId, noteId, newPinState) {
+    try {
+        await api('/customers/' + userId + '/notes/' + noteId, {
+            method: 'PATCH',
+            body: JSON.stringify({ is_pinned: newPinState })
+        });
+        renderCustomerNotes(userId, 'notes-' + userId);
+    } catch (err) { toast('❌ ' + err.message, 'error'); }
+}
+
+async function deleteCustomerNote(userId, noteId) {
+    if (!confirm('ลบโน้ตนี้?')) return;
+    try {
+        await api('/customers/' + userId + '/notes/' + noteId, { method: 'DELETE' });
+        toast('✅ ลบแล้ว', 'success');
+        renderCustomerNotes(userId, 'notes-' + userId);
+    } catch (err) { toast('❌ ' + err.message, 'error'); }
 }
 

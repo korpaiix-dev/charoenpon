@@ -594,12 +594,18 @@ async def reject_payment(payment_id: int, req: PaymentReject, request: Request, 
     dm_sent = False
     try:
         if SALES_BOT_TOKEN and pay["customer_telegram_id"]:
-            msg = (
-                f"❌ <b>สลิปไม่ผ่านการตรวจสอบ</b>\n"
-                f"💰 ยอด: {int(pay['amount'])} บาท\n"
-                f"📝 เหตุผล: {req.reason}\n\n"
-                f"กรุณาตรวจสอบและส่งสลิปใหม่ หรือทักแอดมินถ้าต้องการสอบถาม"
-            )
+            # Phase A.2 (2026-06-27): if admin chose a custom message → use it.
+            # Otherwise fallback to default templated message.
+            custom = (req.customer_message or "").strip()
+            if custom:
+                msg = custom
+            else:
+                msg = (
+                    f"❌ <b>สลิปไม่ผ่านการตรวจสอบ</b>\n"
+                    f"💰 ยอด: {int(pay['amount'])} บาท\n"
+                    f"📝 เหตุผล: {req.reason}\n\n"
+                    f"กรุณาตรวจสอบและส่งสลิปใหม่ หรือทักแอดมินถ้าต้องการสอบถาม"
+                )
             result = await _telegram_api(SALES_BOT_TOKEN, "sendMessage", {
                 "chat_id": pay["customer_telegram_id"],
                 "text": msg, "parse_mode": "HTML",

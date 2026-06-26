@@ -33,6 +33,7 @@ from .routers.prae_prompt import router as prae_prompt_router
 from .routers.feature_flags import router as feature_flags_router
 from .routers.bot_messages_admin import router as bot_messages_admin_router
 from .routers.promo_manager import router as promo_manager_router
+from .routers.customer_notes import router as customer_notes_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -82,6 +83,7 @@ app.include_router(prae_prompt_router, prefix="/api")
 app.include_router(feature_flags_router, prefix="/api")
 app.include_router(bot_messages_admin_router, prefix="/api")
 app.include_router(promo_manager_router, prefix="/api")
+app.include_router(customer_notes_router, prefix="/api")
 
 # Serve frontend static files
 frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
