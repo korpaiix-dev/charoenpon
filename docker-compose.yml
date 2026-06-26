@@ -216,6 +216,22 @@ services:
     ports:
       - '127.0.0.1:8001:8001'
 
+  dashboard-staging:
+    # Added 2026-06-26: lightweight nginx serving static UI mockups + spec docs
+    # for boss to preview the new dashboard design before implementation.
+    # NO production code, NO DB access. Pure static HTML + markdown.
+    image: nginx:alpine
+    container_name: charoenpon-dashboard-staging
+    restart: unless-stopped
+    ports:
+      - "8011:80"
+    volumes:
+      - ./dashboard-staging/public:/usr/share/nginx/html:ro
+      - ./dashboard-staging/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./dashboard-staging/nginx/.htpasswd:/etc/nginx/.htpasswd:ro
+      - ./dashboard-staging/docs:/usr/share/nginx/spec:ro
+
+
 volumes:
   postgres_data:
     driver: local
