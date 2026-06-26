@@ -35,6 +35,40 @@ TIER_DISCOUNT = {
     "2499": (20, 1997, "GOD"),
 }
 
+
+# Phase B.6 (2026-06-27): DB-backed config
+async def _es_cfg(key: str, default):
+    """Read promo_config if flag exit_survey_config_from_db is ON. Errors -> default."""
+    try:
+        from shared.feature_flags import is_flag_enabled
+        if not await is_flag_enabled("exit_survey_config_from_db"):
+            return default
+        from shared.promo_config import get_promo_config
+        v = await get_promo_config(key, default=default)
+        return v if v is not None else default
+    except Exception:
+        return default
+
+
+async def is_exit_survey_enabled() -> bool:
+    return bool(await _es_cfg("exit_survey_enabled", True))
+
+
+async def get_tier_discount(tier_str: str) -> tuple[int, int, str] | None:
+    """Get (discount_pct, final_amount, label) for tier. DB if flag ON else hardcoded."""
+    default = TIER_DISCOUNT.get(str(tier_str))
+    if default is None:
+        return None
+    key_map = {"300": "exit_survey_tier_300_pct", "500": "exit_survey_tier_500_pct",
+               "1299": "exit_survey_tier_1299_pct", "2499": "exit_survey_tier_2499_pct"}
+    k = key_map.get(str(tier_str))
+    if not k:
+        return default
+    pct = int(await _es_cfg(k, default[0]))
+    base = int(tier_str)
+    final_amount = int(base * (100 - pct) / 100)
+    return (pct, final_amount, default[2])
+
 REASON_LABELS = {
     "content":   "🎬 ของไม่ถูกใจ",
     "price":     "💸 แพงไป",

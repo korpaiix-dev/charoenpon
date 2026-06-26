@@ -5923,14 +5923,20 @@ async function renderPromoManager() {
             <div class="tab ${promoTab==='comeback'?'active':''}" onclick="promoTab='comeback';renderPromoManager()">📩 Comeback DM</div>
             <div class="tab ${promoTab==='quickbuy'?'active':''}" onclick="promoTab='quickbuy';renderPromoManager()">⚡ ซื้อเร็ว /start</div>
             <div class="tab ${promoTab==='gacha_discount'?'active':''}" onclick="promoTab='gacha_discount';renderPromoManager()">💰 ส่วนลดกาชา</div>
+            <div class="tab ${promoTab==='welcome_journey'?'active':''}" onclick="promoTab='welcome_journey';renderPromoManager()">👋 Welcome 24h</div>
+            <div class="tab ${promoTab==='retention'?'active':''}" onclick="promoTab='retention';renderPromoManager()">⏰ เตือนต่ออายุ</div>
+            <div class="tab ${promoTab==='exit_survey'?'active':''}" onclick="promoTab='exit_survey';renderPromoManager()">🚪 Exit Survey</div>
             <div class="tab ${promoTab==='group_bot'?'active':''}" onclick="promoTab='group_bot';renderPromoManager()">🏛 บอทในกลุ่ม</div>
-            <div class="tab ${promoTab==='old_campaigns'?'active':''}" onclick="promoTab='old_campaigns';renderPromoManager()">📜 Campaign เก่า</div>
+            <div class="tab ${promoTab==='old_campaigns'?'active':''}" onclick="promoTab='old_campaigns';renderPromoManager()">📜 เก่า</div>
         </div>
         <div id="promo-area"><div class="loading"><div class="spinner"></div></div></div>
     `;
     if (promoTab === 'comeback') loadComebackConfig();
     else if (promoTab === 'quickbuy') loadQuickBuyConfig();
     else if (promoTab === 'gacha_discount') loadGachaDiscountConfig();
+    else if (promoTab === 'welcome_journey') loadWelcomeConfig();
+    else if (promoTab === 'retention') loadRetentionConfig();
+    else if (promoTab === 'exit_survey') loadExitSurveyConfig();
     else if (promoTab === 'group_bot') loadGroupBotConfig();
     else if (promoTab === 'old_campaigns') {
         document.getElementById('promo-area').innerHTML = '<div style="padding:1rem;">โหลด UI campaign เก่า...</div>';
@@ -6062,5 +6068,43 @@ async function loadGroupBotConfig() {
         </div>
     </div>`;
     await _loadConfigCategory('group_bot', '<h3 style="margin-bottom:1rem;">⚙️ ตั้งค่าบอทในกลุ่ม</h3>', helpHtml);
+}
+
+async function loadWelcomeConfig() {
+    const helpHtml = `
+    <div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:10px;padding:0.9rem 1.1rem;margin-bottom:1rem;font-size:0.85rem;">
+        <div style="font-weight:600;color:#065F46;margin-bottom:0.3rem;">👋 Welcome Journey V2 (24 ชม.)</div>
+        <div style="color:var(--text-muted);line-height:1.7;">
+            ลูกค้าใหม่กด /start → ส่ง DM 4 ครั้ง (instant + 3h + 12h + 23h) ลด 25%<br>
+            <br>⚠️ ต้องเปิด flag <code>welcome_config_from_db</code> ในแท็บ ฟีเจอร์ใหม่ ก่อน
+        </div>
+    </div>`;
+    await _loadConfigCategory('welcome_journey', '<h3 style="margin-bottom:1rem;">⚙️ ตั้งค่า Welcome Journey</h3>', helpHtml);
+}
+
+async function loadRetentionConfig() {
+    const helpHtml = `
+    <div style="background:rgba(217,119,6,0.08);border:1px solid rgba(217,119,6,0.3);border-radius:10px;padding:0.9rem 1.1rem;margin-bottom:1rem;font-size:0.85rem;">
+        <div style="font-weight:600;color:#92400E;margin-bottom:0.3rem;">⏰ Retention Alert (ก่อนหมดอายุ)</div>
+        <div style="color:var(--text-muted);line-height:1.7;">
+            ส่ง DM ลูกค้า ACTIVE ก่อนหมดอายุ<br>
+            <b>3 วันก่อนหมด:</b> ลด 10% &nbsp; <b>1 วัน:</b> ลด 15% &nbsp; <b>วันหมด:</b> ลด 20%<br>
+            <br>⚠️ ต้องเปิด flag <code>retention_config_from_db</code> ก่อน
+        </div>
+    </div>`;
+    await _loadConfigCategory('retention', '<h3 style="margin-bottom:1rem;">⚙️ ตั้งค่า Retention Alert</h3>', helpHtml);
+}
+
+async function loadExitSurveyConfig() {
+    const helpHtml = `
+    <div style="background:rgba(220,38,38,0.05);border:1px solid rgba(220,38,38,0.3);border-radius:10px;padding:0.9rem 1.1rem;margin-bottom:1rem;font-size:0.85rem;">
+        <div style="font-weight:600;color:var(--error);margin-bottom:0.3rem;">🚪 Exit Survey (หลังหมด 24-48 ชม.)</div>
+        <div style="color:var(--text-muted);line-height:1.7;">
+            ส่ง DM ลูกค้าที่หมดอายุแล้ว 24-48 ชม. ขอเหตุผล + เสนอส่วนลด<br>
+            <b>VIP 300:</b> ลด 50% &nbsp; <b>OF+VIP 500:</b> 40% &nbsp; <b>GOD 1299:</b> 30% &nbsp; <b>ถาวร 2499:</b> 20%<br>
+            <br>⚠️ ต้องเปิด flag <code>exit_survey_config_from_db</code> ก่อน
+        </div>
+    </div>`;
+    await _loadConfigCategory('exit_survey', '<h3 style="margin-bottom:1rem;">⚙️ ตั้งค่า Exit Survey</h3>', helpHtml);
 }
 

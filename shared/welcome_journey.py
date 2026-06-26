@@ -31,6 +31,36 @@ WELCOME_DISCOUNT_PCT = 25
 WELCOME_VALID_HOURS = 24
 
 STAGE_INSTANT = (301, "instant")
+
+
+# Phase B.6 (2026-06-27): DB-backed config with feature flag
+async def _wj_cfg(key: str, default):
+    """Read promo_config from DB if flag welcome_config_from_db is ON. Errors -> default."""
+    try:
+        from shared.feature_flags import is_flag_enabled
+        if not await is_flag_enabled("welcome_config_from_db"):
+            return default
+        from shared.promo_config import get_promo_config
+        v = await get_promo_config(key, default=default)
+        return v if v is not None else default
+    except Exception:
+        return default
+
+
+async def get_welcome_discount_pct() -> int:
+    """Get current welcome discount %. Default 25 (hardcoded)."""
+    return int(await _wj_cfg("welcome_discount_pct", WELCOME_DISCOUNT_PCT))
+
+
+async def get_welcome_valid_hours() -> int:
+    """Get current promo validity in hours. Default 24."""
+    return int(await _wj_cfg("welcome_valid_hours", WELCOME_VALID_HOURS))
+
+
+async def is_welcome_enabled() -> bool:
+    """Master switch for welcome system. Default True."""
+    v = await _wj_cfg("welcome_enabled", True)
+    return bool(v)
 STAGE_3H      = (302, "3h")
 STAGE_12H     = (303, "12h")
 STAGE_23H     = (304, "23h")

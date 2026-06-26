@@ -49,6 +49,40 @@ DISCOUNT_TIERS = [
 PROMO_EXPIRY_HOURS = 48
 
 
+# Phase B.6 (2026-06-27): DB-backed config
+async def _rt_cfg(key: str, default):
+    """Read promo_config if flag retention_config_from_db is ON."""
+    try:
+        from shared.feature_flags import is_flag_enabled
+        if not await is_flag_enabled("retention_config_from_db"):
+            return default
+        from shared.promo_config import get_promo_config
+        v = await get_promo_config(key, default=default)
+        return v if v is not None else default
+    except Exception:
+        return default
+
+
+async def is_retention_enabled() -> bool:
+    return bool(await _rt_cfg("retention_enabled", True))
+
+
+async def get_discount_tiers_from_db():
+    """Return DISCOUNT_TIERS with DB values when flag ON."""
+    d0 = int(await _rt_cfg("retention_0d_discount_pct", 20))
+    d1 = int(await _rt_cfg("retention_1d_discount_pct", 15))
+    d3 = int(await _rt_cfg("retention_3d_discount_pct", 10))
+    return [
+        (0, d0, NotificationType.EXPIRED, 202),
+        (1, d1, NotificationType.PRE_EXPIRY_1D, 201),
+        (3, d3, NotificationType.PRE_EXPIRY_3D, 200),
+    ]
+
+
+async def get_promo_expiry_hours() -> int:
+    return int(await _rt_cfg("retention_promo_expiry_hours", PROMO_EXPIRY_HOURS))
+
+
 # ─── Promo Code Helpers ──────────────────────────────────────────────────────
 
 def _generate_promo_code() -> str:
