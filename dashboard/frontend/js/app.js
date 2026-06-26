@@ -4749,22 +4749,179 @@ async function resetPraePrompt() {
 }
 
 // ===== Authed slip image viewer (Bearer token required) =====
+// ===== Slip image + payment detail popup (boss requested popup not new tab) =====
 async function openSlipImage(paymentId) {
+    if (!paymentId) return;
     try {
-        const resp = await fetch(`/api/payments/${paymentId}/slip-image`, {
-            headers: { Authorization: `Bearer ${token}` }
-        });
-        if (!resp.ok) {
-            const err = await resp.text();
-            toast(`❌ HTTP ${resp.status}: ${err.slice(0, 100)}`, "error");
-            return;
-        }
-        const blob = await resp.blob();
-        const url = URL.createObjectURL(blob);
-        window.open(url, "_blank");
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        // Open modal early with loading state
+        openModal(`💳 Payment #${paymentId}`, `
+            <div id="slip-modal-body" style="text-align:center;padding:1rem;">
+                <div class="spinner"></div>
+                <div style="margin-top:0.5rem;color:var(--text-muted);font-size:0.875rem;">กำลังโหลด...</div>
+            </div>
+        `);
+
+        // Fetch detail + slip in parallel
+        const [detail, slipBlob] = await Promise.all([
+            api(`/payments/${paymentId}/detail`),
+            fetch(`/api/payments/${paymentId}/slip-image`, {
+                headers: { Authorization: `Bearer ${token}` }
+            }).then(r => r.ok ? r.blob() : null).catch(() => null),
+        ]);
+
+        const slipUrl = slipBlob ? URL.createObjectURL(slipBlob) : null;
+        const body = document.getElementById('slip-modal-body');
+        if (!body) return;
+
+        // Format helpers
+        const d = detail;
+        const cust = d.customer || {};
+        const pkg = d.package || {};
+        const promo = d.promo;
+        const slip = d.slip || {};
+        const retry = d.retry;
+
+        const statusColor = {
+            PENDING: 'var(--warning)',
+            CONFIRMED: 'var(--success)',
+            REJECTED: 'var(--error)',
+            REFUNDED: 'var(--text-muted)',
+        }[d.status] || 'var(--text)';
+
+        const statusBadge = `<span style="display:inline-block;padding:0.2rem 0.625rem;border-radius:9999px;background:${statusColor}22;color:${statusColor};font-size:0.75rem;font-weight:600;">${d.status}</span>`;
+
+        const rankBadge = cust.loyalty_rank && cust.loyalty_rank !== 'NONE'
+            ? `<span style="display:inline-block;padding:0.15rem 0.5rem;border-radius:4px;background:var(--surface-2);font-size:0.7rem;color:var(--text-muted);margin-left:0.35rem;">${esc(cust.loyalty_rank)}</span>`
+            : '';
+
+        const retHtml = cust.is_returning
+            ? `<span style="display:inline-block;padding:0.15rem 0.5rem;border-radius:4px;background:rgba(16,185,129,0.12);color:var(--success);font-size:0.7rem;margin-left:0.35rem;">🔁 ลูกค้าเก่า (${cust.past_confirmed_count} ครั้ง)</span>`
+            : `<span style="display:inline-block;padding:0.15rem 0.5rem;border-radius:4px;background:rgba(59,130,246,0.12);color:var(--accent);font-size:0.7rem;margin-left:0.35rem;">🆕 ลูกค้าใหม่</span>`;
+
+        const bannedHtml = cust.is_banned
+            ? `<span style="display:inline-block;padding:0.15rem 0.5rem;border-radius:4px;background:rgba(239,68,68,0.15);color:var(--error);font-size:0.7rem;margin-left:0.35rem;">🚫 ถูกแบน</span>` : '';
+
+        const blockedHtml = cust.is_blocked_bot
+            ? `<span style="display:inline-block;padding:0.15rem 0.5rem;border-radius:4px;background:rgba(245,158,11,0.15);color:var(--warning);font-size:0.7rem;margin-left:0.35rem;">🤖 block บอท</span>` : '';
+
+        body.innerHTML = `
+            <div style="display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:1rem;">
+
+                <!-- Left: Slip image -->
+                <div>
+                    <div style="background:var(--surface-2);border-radius:8px;padding:0.5rem;text-align:center;">
+                        ${slipUrl
+                            ? `<img src="${slipUrl}" alt="slip" style="max-width:100%;max-height:60vh;border-radius:6px;cursor:zoom-in;" onclick="window.open('${slipUrl}','_blank')">`
+                            : `<div style="padding:3rem;color:var(--text-muted);">⚠️ ไม่มีรูปสลิป</div>`
+                        }
+                    </div>
+                </div>
+
+                <!-- Right: Details -->
+                <div style="display:flex;flex-direction:column;gap:0.625rem;font-size:0.875rem;">
+
+                    <!-- Status row -->
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        ${statusBadge}
+                        <span style="font-size:0.78rem;color:var(--text-muted);">#${d.id}</span>
+                    </div>
+
+                    <!-- Amount -->
+                    <div style="background:var(--surface-2);border-radius:8px;padding:0.625rem 0.875rem;">
+                        <div style="font-size:0.7rem;color:var(--text-muted);">ยอดที่จ่าย</div>
+                        <div style="font-size:1.5rem;font-weight:700;color:var(--primary);">฿${fmt(d.amount)}</div>
+                        ${pkg.price && d.discount > 0 ? `
+                            <div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.2rem;">
+                                ราคาเต็ม ฿${fmt(pkg.price)}
+                                <span style="color:var(--success);margin-left:0.5rem;">ส่วนลด ฿${fmt(d.discount)}</span>
+                            </div>` : ''
+                        }
+                    </div>
+
+                    <!-- Package -->
+                    <div class="detail-panel" style="padding:0.625rem 0.875rem;">
+                        <div style="font-size:0.7rem;color:var(--text-muted);">📦 แพ็กเกจ</div>
+                        <div style="font-weight:600;">${esc(pkg.name || '?')}</div>
+                        <div style="font-size:0.75rem;color:var(--text-muted);">${esc(pkg.tier || '')} · ${pkg.duration_days || 0} วัน</div>
+                    </div>
+
+                    ${promo ? `
+                    <div class="detail-panel" style="padding:0.625rem 0.875rem;background:rgba(245,158,11,0.08);">
+                        <div style="font-size:0.7rem;color:var(--warning);">🎁 โปรโมชั่น</div>
+                        <div style="font-weight:600;">${esc(promo.name)}</div>
+                        <div style="font-size:0.75rem;color:var(--text-muted);">฿${fmt(promo.normal_price || 0)} → ฿${fmt(promo.promo_price || 0)}</div>
+                    </div>` : ''}
+
+                    <!-- Customer -->
+                    <div class="detail-panel" style="padding:0.625rem 0.875rem;">
+                        <div style="font-size:0.7rem;color:var(--text-muted);">👤 ลูกค้า</div>
+                        <div>
+                            <span style="font-weight:600;">${esc((cust.first_name || '') + ' ' + (cust.last_name || ''))}</span>
+                            ${rankBadge} ${retHtml} ${bannedHtml} ${blockedHtml}
+                        </div>
+                        <div style="font-size:0.75rem;color:var(--text-muted);font-family:var(--font-mono);">
+                            ${cust.username ? '@' + esc(cust.username) : ''} tg:${cust.telegram_id || '?'}
+                        </div>
+                        ${cust.total_spent > 0 ? `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;">รวมจ่ายมา ฿${fmt(cust.total_spent)}</div>` : ''}
+                        <div style="margin-top:0.4rem;">
+                            <button class="btn btn-sm btn-outline" onclick="closeModal();showCustomer360(${cust.id})">👤 Customer 360</button>
+                        </div>
+                    </div>
+
+                    <!-- Slip metadata -->
+                    <div class="detail-panel" style="padding:0.625rem 0.875rem;">
+                        <div style="font-size:0.7rem;color:var(--text-muted);">📄 ข้อมูลสลิป</div>
+                        <div style="font-size:0.78rem;line-height:1.6;">
+                            <div><b>ผู้โอน:</b> ${slip.sender_name ? esc(slip.sender_name) : '<span style="color:var(--text-muted);">— Slip2Go อ่านไม่ออก</span>'}</div>
+                            ${slip.sender_bank_name ? `<div><b>ธนาคาร:</b> ${esc(slip.sender_bank_name)}</div>` : ''}
+                            ${slip.sender_bank_account ? `<div><b>เลขบัญชี:</b> <code>${esc(slip.sender_bank_account)}</code></div>` : ''}
+                            <div><b>Trans ref:</b> ${slip.trans_ref ? `<code style="font-size:0.7rem;">${esc(slip.trans_ref)}</code>` : '<span style="color:var(--text-muted);">—</span>'}</div>
+                            <div><b>Method:</b> ${esc(d.method)}</div>
+                        </div>
+                    </div>
+
+                    <!-- Retry status (if any) -->
+                    ${retry ? `
+                    <div class="detail-panel" style="padding:0.625rem 0.875rem;background:rgba(245,158,11,0.08);border-left:3px solid var(--warning);">
+                        <div style="font-size:0.7rem;color:var(--warning);">🔄 Slip2Go Retry</div>
+                        <div style="font-size:0.78rem;">
+                            <b>${esc(retry.status)}</b> · ลอง ${retry.attempt}/${retry.max_attempts} ครั้ง
+                            ${retry.last_error ? `<div style="margin-top:0.2rem;color:var(--error);">⚠️ ${esc(retry.last_error)}</div>` : ''}
+                        </div>
+                    </div>` : ''}
+
+                    <!-- Verification info -->
+                    ${d.verified_at ? `
+                    <div class="detail-panel" style="padding:0.625rem 0.875rem;">
+                        <div style="font-size:0.7rem;color:var(--text-muted);">✅ ตรวจสอบโดย</div>
+                        <div style="font-size:0.78rem;">
+                            ${d.auto_approved ? '🤖 Auto (Slip2Go)' : `${esc(d.verifier_name || 'admin')} (tg:${d.verified_by})`}
+                            <span style="color:var(--text-muted);margin-left:0.4rem;">${fmtDateTime(d.verified_at)}</span>
+                        </div>
+                        ${d.reject_reason ? `<div style="color:var(--error);font-size:0.78rem;margin-top:0.2rem;">เหตุผล: ${esc(d.reject_reason)}</div>` : ''}
+                    </div>` : ''}
+
+                    <!-- Timestamps -->
+                    <div style="font-size:0.7rem;color:var(--text-muted);text-align:right;">
+                        ส่งสลิปเมื่อ ${fmtDateTime(d.created_at)}
+                    </div>
+
+                    <!-- Action buttons (only if pending) -->
+                    ${d.status === 'PENDING' ? `
+                    <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+                        <button class="btn btn-success" style="flex:1;" onclick="closeModal();inboxAction('approve_payment', ${d.id})">✅ Approve</button>
+                        <button class="btn btn-danger" style="flex:1;" onclick="closeModal();inboxAction('reject_payment', ${d.id})">❌ Reject</button>
+                    </div>` : ''}
+                </div>
+            </div>
+        `;
+
+        // Revoke blob URL when modal closes (memory)
+        setTimeout(() => { try { if (slipUrl) URL.revokeObjectURL(slipUrl); } catch (e) {} }, 5 * 60 * 1000);
     } catch (err) {
-        toast(`❌ ${err.message || "load slip failed"}`, "error");
+        const body = document.getElementById('slip-modal-body');
+        if (body) body.innerHTML = `<div style="color:var(--error);padding:1rem;">❌ ${esc(err.message || 'load failed')}</div>`;
+        else toast(`❌ ${err.message || 'load failed'}`, 'error');
     }
 }
 

@@ -652,6 +652,111 @@ async def get_slip(payment_id: int, admin=Depends(get_current_admin)):
         raise HTTPException(404, "Payment not found")
     return {"slip_url": row["slip_url"], "slip_file_id": row["slip_file_id"]}
 
+
+
+@router.get("/{payment_id}/detail")
+async def payment_detail(payment_id: int, admin=Depends(get_current_admin)):
+    """Full payment detail for popup modal — purchase + customer + slip2go retry + verification."""
+    pay = await pool.fetchrow("""
+        SELECT p.*,
+               u.telegram_id, u.username, u.first_name, u.last_name, u.phone,
+               u.total_spent, u.loyalty_rank, u.is_banned, u.is_blocked_bot,
+               u.created_at AS user_created_at,
+               pk.name AS package_name, pk.tier::text AS package_tier, pk.price AS package_price,
+               pk.duration_days
+        FROM payments p
+        LEFT JOIN users u ON u.id = p.user_id
+        LEFT JOIN packages pk ON pk.id = p.package_id
+        WHERE p.id = $1
+    """, payment_id)
+    if not pay:
+        raise HTTPException(404, "Payment not found")
+
+    # Promo campaign info if any
+    promo = None
+    if pay["promotion_campaign_id"]:
+        promo = await pool.fetchrow(
+            "SELECT name, normal_price, promo_price FROM promotion_campaigns WHERE id = $1",
+            pay["promotion_campaign_id"],
+        )
+
+    # Slip2Go retry queue info
+    retry = await pool.fetchrow("""
+        SELECT id, attempt, max_attempts, status, last_error, next_retry_at, enqueued_at
+        FROM slip2go_retry_queue WHERE payment_id = $1 ORDER BY id DESC LIMIT 1
+    """, payment_id)
+
+    # Customer past payment count
+    past_count = await pool.fetchval(
+        "SELECT COUNT(*) FROM payments WHERE user_id = $1 AND status = 'CONFIRMED' AND id != $2",
+        pay["user_id"], payment_id,
+    )
+
+    # Calculate discount
+    package_price = float(pay["package_price"] or 0)
+    amount_paid = float(pay["amount"] or 0)
+    discount = max(0, package_price - amount_paid) if package_price > 0 else 0
+
+    # Verifier display name
+    verifier_name = None
+    if pay["verified_by"]:
+        verifier = await pool.fetchrow(
+            "SELECT display_name FROM dashboard_admins WHERE telegram_id = $1",
+            pay["verified_by"],
+        )
+        if verifier:
+            verifier_name = verifier["display_name"]
+
+    return {
+        "id": pay["id"],
+        "status": pay["status"],
+        "method": pay["method"],
+        "amount": amount_paid,
+        "auto_approved": pay["auto_approved"],
+        "created_at": pay["created_at"].isoformat() if pay["created_at"] else None,
+        "verified_at": pay["verified_at"].isoformat() if pay["verified_at"] else None,
+        "verified_by": pay["verified_by"],
+        "verifier_name": verifier_name,
+        "reject_reason": pay["reject_reason"],
+
+        "package": {
+            "id": pay["package_id"],
+            "name": pay["package_name"],
+            "tier": pay["package_tier"],
+            "price": package_price,
+            "duration_days": pay["duration_days"],
+        },
+        "discount": discount,
+        "promo": dict(promo) if promo else None,
+
+        "customer": {
+            "id": pay["user_id"],
+            "telegram_id": pay["telegram_id"],
+            "username": pay["username"],
+            "first_name": pay["first_name"],
+            "last_name": pay["last_name"],
+            "phone": pay["phone"],
+            "total_spent": float(pay["total_spent"] or 0),
+            "loyalty_rank": pay["loyalty_rank"],
+            "is_banned": pay["is_banned"],
+            "is_blocked_bot": pay["is_blocked_bot"],
+            "past_confirmed_count": int(past_count or 0),
+            "is_returning": (past_count or 0) > 0,
+            "registered_at": pay["user_created_at"].isoformat() if pay["user_created_at"] else None,
+        },
+
+        "slip": {
+            "trans_ref": pay["slip_trans_ref"],
+            "hash": pay["slip_hash"][:16] + "..." if pay["slip_hash"] else None,
+            "sender_name": pay["sender_name"],
+            "sender_bank_name": pay["sender_bank_name"],
+            "sender_bank_account": pay["sender_bank_account"],
+            "has_image": bool(pay["slip_file_id"]),
+        },
+
+        "retry": dict(retry) if retry else None,
+    }
+
 @router.get("/{payment_id}/slip-image")
 async def get_slip_image(payment_id: int, admin=Depends(get_current_admin)):
     """Proxy slip image from Telegram for display in dashboard."""
