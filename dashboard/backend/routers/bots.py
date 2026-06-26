@@ -297,5 +297,72 @@ async def add_admin_id(
     _write_env_value(ADMIN_KEY, ",".join(str(i) for i in ids))
 
     # FIX 2025-05-21 (Phase D-10): _restart_service is now async — await each call
+    # FIX 2026-06-26 (audit): completed truncated function + added DELETE endpoint
     services = ["admin-bot", "content-bot", "sales-bot", "guardian-bot"]
-    resta
+    restart_results = {}
+    for svc in services:
+        restart_results[svc] = await _restart_service(svc)
+
+    # Audit log
+    try:
+        from ..database import pool as _pool
+        await _pool.execute(
+            "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details) "
+            "VALUES ($1, 'admin_id_add', 'admin_telegram_id', $2, $3)",
+            admin["telegram_id"], body.telegram_id,
+            f"added {body.telegram_id} (now {len(ids)} admins) restarts={','.join(k for k,v in restart_results.items() if v.get('ok'))}"
+        )
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "ids": ids,
+        "added": body.telegram_id,
+        "restarts": restart_results,
+    }
+
+
+@router.delete("/admin-ids/{tid}")
+async def delete_admin_id(
+    tid: int,
+    request: Request,
+    admin=Depends(require_role("owner")),
+) -> dict:
+    """Remove a telegram_id from ADMIN_TELEGRAM_IDS env + restart bots."""
+    env = _read_env()
+    ids = _parse_ids(env.get(ADMIN_KEY, ""))
+    if tid not in ids:
+        return {"ok": True, "ids": ids, "note": "not present"}
+    # Safety: don't remove the caller themselves
+    if tid == admin.get("telegram_id"):
+        raise HTTPException(400, "Cannot remove yourself")
+    # Safety: must keep at least 1 admin
+    if len(ids) <= 1:
+        raise HTTPException(400, "Cannot remove the last admin")
+
+    ids.remove(tid)
+    _write_env_value(ADMIN_KEY, ",".join(str(i) for i in ids))
+
+    services = ["admin-bot", "content-bot", "sales-bot", "guardian-bot"]
+    restart_results = {}
+    for svc in services:
+        restart_results[svc] = await _restart_service(svc)
+
+    try:
+        from ..database import pool as _pool
+        await _pool.execute(
+            "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details) "
+            "VALUES ($1, 'admin_id_remove', 'admin_telegram_id', $2, $3)",
+            admin["telegram_id"], tid,
+            f"removed {tid} (now {len(ids)} admins)"
+        )
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "ids": ids,
+        "removed": tid,
+        "restarts": restart_results,
+    }

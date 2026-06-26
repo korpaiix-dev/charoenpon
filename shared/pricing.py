@@ -47,6 +47,40 @@ TIER_PRICES: dict[str, Decimal] = {
     "GACHA_10": Decimal("890"),  # Gacha bundle: 10 spins
 }
 
+# FIX 2026-06-26 (audit): in-memory cache for DB override (refresh every 60s)
+import time as _ptime
+_gacha_price_cache = {"val": None, "expires": 0}
+
+
+def gacha_spin_pricing_override() -> dict[str, Decimal]:
+    """Read current gacha_spin_pricing from DB. Falls back to TIER_PRICES default."""
+    now = _ptime.time()
+    if _gacha_price_cache["val"] and _gacha_price_cache["expires"] > now:
+        return _gacha_price_cache["val"]
+    out = {
+        "GACHA_1":  Decimal("99"),
+        "GACHA_3":  Decimal("270"),
+        "GACHA_10": Decimal("890"),
+    }
+    try:
+        import os
+        import psycopg2  # type: ignore
+        dsn = os.environ.get("DATABASE_URL") or ""
+        dsn = dsn.replace("postgresql+asyncpg://", "postgresql://")
+        if dsn:
+            with psycopg2.connect(dsn) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT tier, price_thb FROM gacha_spin_pricing")
+                    for tier, price in cur.fetchall():
+                        if tier in out:
+                            out[tier] = Decimal(str(price))
+    except Exception:
+        pass
+    _gacha_price_cache["val"] = out
+    _gacha_price_cache["expires"] = now + 60
+    return out
+
+
 # tier_str → PackageTier enum (imported lazily to avoid circular imports)
 def tier_str_to_enum(tier_str: str):
     from shared.models import PackageTier

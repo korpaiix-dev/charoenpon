@@ -229,3 +229,153 @@ async def recent_pulls(limit: int = 50, admin=Depends(require_role("admin"))):
         LIMIT $1
     """, limit)
     return {"items": [dict(r) for r in rows]}
+
+
+# ====== Audit 2026-06-26: prize CRUD + spin price control ======
+from pydantic import BaseModel as _BM_g, Field as _F_g
+
+
+class _PrizePoolCreate(_BM_g):
+    code: str = _F_g(..., max_length=32)
+    tier: str = _F_g(..., max_length=20)  # COMMON / RARE / EPIC / LEGENDARY
+    name: str
+    prize_type: str = _F_g(..., max_length=20)  # discount / clip / sub / cash / item
+    value_thb: float = 0
+    probability_pct: float = 0.01
+    enabled: bool = True
+    sort_order: int = 0
+
+
+@router.post("/prize-pool")
+async def create_prize_pool(req: _PrizePoolCreate, admin=Depends(require_role("admin"))):
+    """Add new prize to gacha_prize_pool."""
+    try:
+        row = await pool.fetchrow("""
+            INSERT INTO gacha_prize_pool (code, tier, name, prize_type, value_thb, probability_pct, enabled, sort_order)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING id, code, tier, name
+        """,
+            req.code, req.tier, req.name, req.prize_type,
+            req.value_thb, req.probability_pct, req.enabled, req.sort_order,
+        )
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(400, f"create failed (code already exists?): {exc}")
+
+    try:
+        await pool.execute(
+            "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details) "
+            "VALUES ($1, 'gacha_prize_create', 'gacha_prize_pool', $2, $3)",
+            admin["telegram_id"], row["id"],
+            f"code={req.code} name={req.name} value={req.value_thb} prob={req.probability_pct}"
+        )
+    except Exception:
+        pass
+
+    return {"ok": True, **dict(row)}
+
+
+@router.delete("/prize-pool/{pid}")
+async def delete_prize_pool(pid: int, admin=Depends(require_role("admin"))):
+    """Delete a prize from gacha_prize_pool.
+
+    Safety: blocks deletion if prize has been won (referenced by gachapon_pulls.prize_pool_id).
+    Soft option: just disable it (set enabled=FALSE) — preserves history.
+    """
+    row = await pool.fetchrow(
+        "SELECT id, code, name FROM gacha_prize_pool WHERE id = $1", pid
+    )
+    if not row:
+        from fastapi import HTTPException
+        raise HTTPException(404, "prize not found")
+
+    # Check if prize has been won historically
+    try:
+        winners = await pool.fetchval(
+            "SELECT COUNT(*) FROM gachapon_pulls WHERE prize_pool_id = $1", pid
+        )
+        if winners and winners > 0:
+            # Soft delete (disable)
+            await pool.execute("UPDATE gacha_prize_pool SET enabled = FALSE WHERE id = $1", pid)
+            try:
+                await pool.execute(
+                    "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details) "
+                    "VALUES ($1, 'gacha_prize_disable', 'gacha_prize_pool', $2, $3)",
+                    admin["telegram_id"], pid,
+                    f"code={row['code']} name={row['name']} — soft-disabled (had {winners} winners, kept for history)"
+                )
+            except Exception:
+                pass
+            return {"ok": True, "soft_deleted": True, "winners": winners}
+    except Exception:
+        pass
+
+    # Hard delete (no winners)
+    await pool.execute("DELETE FROM gacha_prize_pool WHERE id = $1", pid)
+    try:
+        await pool.execute(
+            "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details) "
+            "VALUES ($1, 'gacha_prize_delete', 'gacha_prize_pool', $2, $3)",
+            admin["telegram_id"], pid,
+            f"code={row['code']} name={row['name']} — hard deleted"
+        )
+    except Exception:
+        pass
+    return {"ok": True, "hard_deleted": True}
+
+
+# ====== Spin price override (DB-backed pricing) ======
+async def _ensure_gacha_pricing_table():
+    """Optional override of GACHA prices stored in DB (vs hardcoded pricing.py)."""
+    await pool.execute("""
+        CREATE TABLE IF NOT EXISTS gacha_spin_pricing (
+            tier VARCHAR(20) PRIMARY KEY,
+            price_thb INTEGER NOT NULL,
+            updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            updated_by BIGINT
+        )
+    """)
+    # Seed defaults
+    await pool.execute("""
+        INSERT INTO gacha_spin_pricing (tier, price_thb) VALUES
+        ('GACHA_1', 99), ('GACHA_3', 270), ('GACHA_10', 890)
+        ON CONFLICT (tier) DO NOTHING
+    """)
+
+
+@router.get("/spin-pricing")
+async def get_spin_pricing(admin=Depends(require_role("admin"))):
+    """Get current per-spin pricing (from DB override + hardcoded fallback)."""
+    await _ensure_gacha_pricing_table()
+    rows = await pool.fetch(
+        "SELECT tier, price_thb, updated_at FROM gacha_spin_pricing ORDER BY price_thb"
+    )
+    return [dict(r) for r in rows]
+
+
+class _SpinPriceUpdate(_BM_g):
+    price_thb: int = _F_g(..., ge=1, le=99999)
+
+
+@router.patch("/spin-pricing/{tier}")
+async def update_spin_pricing(tier: str, req: _SpinPriceUpdate, admin=Depends(require_role("admin"))):
+    """Update per-spin price for one tier (GACHA_1 / GACHA_3 / GACHA_10)."""
+    if tier not in ("GACHA_1", "GACHA_3", "GACHA_10"):
+        from fastapi import HTTPException
+        raise HTTPException(400, "tier must be GACHA_1, GACHA_3, or GACHA_10")
+    await _ensure_gacha_pricing_table()
+    await pool.execute("""
+        UPDATE gacha_spin_pricing SET price_thb = $1, updated_at = NOW(), updated_by = $2
+        WHERE tier = $3
+    """, req.price_thb, admin["telegram_id"], tier)
+    try:
+        await pool.execute(
+            "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details) "
+            "VALUES ($1, 'gacha_spin_price_update', 'gacha_spin_pricing', 0, $2)",
+            admin["telegram_id"],
+            f"tier={tier} new_price={req.price_thb}"
+        )
+    except Exception:
+        pass
+    return {"ok": True, "tier": tier, "price_thb": req.price_thb}
+
