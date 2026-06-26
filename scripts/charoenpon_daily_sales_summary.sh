@@ -61,7 +61,7 @@ TODAY_CONFIRMED=$(psql_q "
     AND p.amount > 0
     AND u.telegram_id < 9000000000
     AND ((p.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date
-        = ((NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date
+        = (NOW() AT TIME ZONE 'Asia/Bangkok')::date
 ")
 TODAY_COUNT=${TODAY_CONFIRMED%%|*}
 TODAY_SUM=${TODAY_CONFIRMED##*|}
@@ -75,7 +75,7 @@ YDAY_CONFIRMED=$(psql_q "
     AND p.amount > 0
     AND u.telegram_id < 9000000000
     AND ((p.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date
-        = ((NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date - INTERVAL '1 day'
+        = (NOW() AT TIME ZONE 'Asia/Bangkok')::date - INTERVAL '1 day'
 ")
 YDAY_COUNT=${YDAY_CONFIRMED%%|*}
 YDAY_SUM=${YDAY_CONFIRMED##*|}
@@ -90,7 +90,7 @@ BY_PACKAGE=$(psql_q "
     AND p.amount > 0
     AND u.telegram_id < 9000000000
     AND ((p.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date
-        = ((NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date
+        = (NOW() AT TIME ZONE 'Asia/Bangkok')::date
   GROUP BY pkg.name
   ORDER BY SUM(p.amount) DESC
 ")
@@ -113,7 +113,7 @@ MTD=$(psql_q "
     AND p.amount > 0
     AND u.telegram_id < 9000000000
     AND ((p.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date
-        >= date_trunc('month', ((NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date)
+        >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Bangkok')::date)
 ")
 MTD_COUNT=${MTD%%|*}
 MTD_SUM=${MTD##*|}

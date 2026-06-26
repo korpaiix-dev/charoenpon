@@ -43,7 +43,7 @@ async def gacha_overview(admin=Depends(require_role("admin"))):
             COUNT(*) FILTER (WHERE payment_id IS NULL)    AS free_pulls
         FROM gachapon_pulls
         WHERE ((pulled_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date
-            = ((NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date
+            = (NOW() AT TIME ZONE 'Asia/Bangkok')::date
     """)
 
     # 7-day window

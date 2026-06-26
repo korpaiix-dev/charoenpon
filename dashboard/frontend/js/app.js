@@ -4944,7 +4944,7 @@ let _purchasesPeriod = 'today';
 async function openPurchasesModal(period) {
     _purchasesPeriod = period || _purchasesPeriod || 'today';
     openModal('🛒 รายการออเดอร์', `
-        <div id="purchases-body" style="text-align:center;padding:1rem;">
+        <div id="purchases-body" style="text-align:center;padding:1rem;min-width:min(95vw, 1100px);">
             <div class="spinner"></div>
             <div style="margin-top:0.5rem;color:var(--text-muted);font-size:0.875rem;">กำลังโหลด...</div>
         </div>
@@ -5050,7 +5050,7 @@ async function loadPurchases() {
             <div style="display:flex;gap:0.4rem;margin-bottom:0.75rem;flex-wrap:wrap;">${chips}</div>
             ${summaryHtml}
             <div class="table-wrap" style="max-height:60vh;overflow:auto;">
-                <table style="width:100%;font-size:0.85rem;">
+                <table style="width:100%;font-size:0.82rem;table-layout:auto;">
                     <thead style="background:var(--surface-2);position:sticky;top:0;">
                         <tr>
                             <th style="padding:0.5rem;text-align:left;width:60px;">เวลา</th>

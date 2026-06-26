@@ -16,7 +16,7 @@ router = APIRouter(prefix='/daily-report', tags=['daily-report'])
 @router.get('/today')
 async def daily_report_today(admin=Depends(require_role('admin'))):
     """All-in-one daily report for today (BKK timezone)."""
-    BKK = "((NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date"
+    BKK = "(NOW() AT TIME ZONE 'Asia/Bangkok')::date"
     BKK_CREATED = "((p.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date"
 
     # Revenue + count today
@@ -69,7 +69,7 @@ async def daily_report_today(admin=Depends(require_role('admin'))):
         SELECT COUNT(*) FROM users
         WHERE telegram_id < 9000000000
           AND ((created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date
-              = ((NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date
+              = (NOW() AT TIME ZONE 'Asia/Bangkok')::date
     """)
 
     # SOS open
@@ -107,7 +107,7 @@ async def daily_purchases(period: str = "today", admin=Depends(require_role("adm
 
     period: today / yesterday / week / month
     """
-    BKK = "((NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date"
+    BKK = "(NOW() AT TIME ZONE 'Asia/Bangkok')::date"
     BKK_CREATED = "((p.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date"
 
     if period == "today":
