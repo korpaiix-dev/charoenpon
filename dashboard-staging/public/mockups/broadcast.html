@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>บอกข่าว — เจริญพร 2.0</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/mockups/style.css">
+
+</head>
+<body>
+<div class="preview-bar">
+  <div>🟡 STAGING MOCKUP — Broadcast DM / กลุ่ม</div>
+  <a href="/mockups/today.html" style="color:inherit;text-decoration:none;">← กลับงานวันนี้</a>
+</div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo"><div class="logo-mark">เพ</div><div><div>เจริญพร 2.0</div><div class="subtitle" style="padding-left:0;">Admin Dashboard</div></div></div>
+    </div>
+    <a class="nav-item " href="/mockups/today.html"><span class="icon">📋</span> งานวันนี้</a>
+    <a class="nav-item " href="/mockups/inbox.html"><span class="icon">📥</span> Inbox สลิป <span class="badge">5</span></a>
+    <a class="nav-item " href="/mockups/sos.html"><span class="icon">🛟</span> SOS <span class="badge">2</span></a>
+    <a class="nav-item " href="/mockups/customers.html"><span class="icon">👤</span> ลูกค้า</a>
+    <div class="nav-divider">บอกข่าว + โปร</div>
+    <a class="nav-item active" href="/mockups/broadcast.html"><span class="icon">📣</span> บอกข่าว DM/กลุ่ม</a>
+    <a class="nav-item " href="/mockups/promo-wizard.html"><span class="icon">🎁</span> จัดโปร</a>
+    <a class="nav-item " href="/mockups/bot-messages.html"><span class="icon">💬</span> คำพูดบอท</a>
+    <a class="nav-item " href="/mockups/gacha.html"><span class="icon">🎰</span> กาชา</a>
+    <div class="nav-divider">การเงิน + รายงาน</div>
+    <a class="nav-item " href="/mockups/finance.html"><span class="icon">💰</span> การเงิน</a>
+    <a class="nav-item " href="/mockups/reports.html"><span class="icon">📊</span> รายงาน</a>
+    <div class="nav-divider">ตั้งค่า</div>
+    <a class="nav-item " href="/mockups/prae.html"><span class="icon">🤖</span> Prae AI</a>
+    <a class="nav-item " href="/mockups/settings.html"><span class="icon">⚙️</span> ตั้งค่าระบบ</a>
+  </aside>
+  <main class="main">
+
+    <div class="page-header">
+      <div>
+        <h1>📣 บอกข่าว / Broadcast</h1>
+        <div class="date">ส่ง DM ลูกค้า + โพสต์ลงกลุ่ม VIP / กลุ่มฟรี / Discord</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem;margin-bottom:2rem;">
+      <div class="qa" style="padding:1.5rem;cursor:pointer;" onclick="document.getElementById(mode-dm).click()">
+        <div style="font-size:2rem;margin-bottom:0.5rem;">📩</div>
+        <div style="font-weight:600;font-size:1.1rem;margin-bottom:0.3rem;">DM ลูกค้า</div>
+        <div style="font-size:0.85rem;color:var(--text-muted);">ส่งข้อความตรงหา 1,234 ลูกค้า (filter ตาม tier)</div>
+      </div>
+      <div class="qa" style="padding:1.5rem;cursor:pointer;" onclick="document.getElementById(mode-group).click()">
+        <div style="font-size:2rem;margin-bottom:0.5rem;">📨</div>
+        <div style="font-weight:600;font-size:1.1rem;margin-bottom:0.3rem;">โพสต์ในกลุ่ม</div>
+        <div style="font-size:0.85rem;color:var(--text-muted);">VIP / GOD / กลุ่มฟรี — รวม 25 กลุ่ม</div>
+      </div>
+      <div class="qa" style="padding:1.5rem;cursor:pointer;" onclick="alert(coming soon)">
+        <div style="font-size:2rem;margin-bottom:0.5rem;">⏰</div>
+        <div style="font-weight:600;font-size:1.1rem;margin-bottom:0.3rem;">ตั้งเวลาส่ง</div>
+        <div style="font-size:0.85rem;color:var(--text-muted);">ตั้ง schedule ส่งล่วงหน้า · ดู history</div>
+      </div>
+    </div>
+
+    <div class="section-title">📝 เขียนข้อความใหม่</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;">
+      <div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;">
+          <div style="margin-bottom:1rem;">
+            <label style="font-size:0.8rem;font-weight:600;color:var(--text-muted);margin-bottom:0.4rem;display:block;">ส่งถึงใคร</label>
+            <div>
+              <label><input type="radio" name="mode" id="mode-dm" checked> DM ลูกค้า</label>
+              &nbsp;&nbsp;
+              <label><input type="radio" name="mode" id="mode-group"> โพสต์ในกลุ่ม</label>
+            </div>
+          </div>
+
+          <div style="margin-bottom:1rem;">
+            <label style="font-size:0.8rem;font-weight:600;color:var(--text-muted);margin-bottom:0.4rem;display:block;">Preset</label>
+            <select style="width:100%;padding:0.55rem;border:1px solid var(--border);border-radius:var(--radius-sm);">
+              <option>ทุกคน (1,234 คน)</option>
+              <option>VIP active (456 คน)</option>
+              <option>VIP จะหมดใน 7 วัน (89 คน)</option>
+              <option>ลูกค้าหมดอายุแล้ว 30 วัน (234 คน)</option>
+              <option>เลือกเอง...</option>
+            </select>
+          </div>
+
+          <div style="margin-bottom:1rem;">
+            <label style="font-size:0.8rem;font-weight:600;color:var(--text-muted);margin-bottom:0.4rem;display:block;">หัวข้อ (optional)</label>
+            <input type="text" placeholder="เช่น 🎁 โปรลด 30% วันนี้เท่านั้น" style="width:100%;padding:0.55rem;border:1px solid var(--border);border-radius:var(--radius-sm);">
+          </div>
+
+          <div style="margin-bottom:1rem;">
+            <label style="font-size:0.8rem;font-weight:600;color:var(--text-muted);margin-bottom:0.4rem;display:block;">เนื้อหา HTML</label>
+            <textarea style="width:100%;padding:0.55rem;border:1px solid var(--border);border-radius:var(--radius-sm);min-height:180px;font-family:inherit;" placeholder="&lt;b&gt;สวัสดีค่ะ&lt;/b&gt; วันนี้เรามีโปรพิเศษ..."></textarea>
+          </div>
+
+          <div style="margin-bottom:1rem;">
+            <label style="font-size:0.8rem;font-weight:600;color:var(--text-muted);margin-bottom:0.4rem;display:block;">ปุ่ม inline (optional)</label>
+            <button class="btn btn-outline btn-sm">➕ เพิ่มปุ่ม</button>
+          </div>
+
+          <div style="display:flex;gap:0.5rem;">
+            <button class="btn btn-primary" onclick="alert(mockup: จะ confirm แล้วส่ง 456 ข้อความ)">📤 ส่งทันที (456 คน)</button>
+            <button class="btn btn-outline" onclick="alert(mockup: เลือกเวลาส่ง)">⏰ ตั้งเวลา</button>
+            <button class="btn btn-outline">💾 Draft</button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem;">
+          <label style="font-size:0.8rem;font-weight:600;color:var(--text-muted);margin-bottom:0.5rem;display:block;">👀 Preview ใน Telegram</label>
+          <div style="background:#cad3df;padding:1rem;border-radius:8px;">
+            <div style="background:white;padding:0.85rem 1rem;border-radius:12px;font-size:0.9rem;line-height:1.6;max-width:90%;">
+              ⚠️ ตัวอย่างจะ render ตอนกรอกข้อความ
+            </div>
+          </div>
+
+          <div style="margin-top:1.5rem;">
+            <label style="font-size:0.8rem;font-weight:600;color:var(--text-muted);margin-bottom:0.5rem;display:block;">📊 7 วันที่ผ่านมา</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;font-size:0.85rem;">
+              <div style="background:var(--surface-2);padding:0.75rem;border-radius:6px;"><b>23</b> broadcast<br><span style="color:var(--text-dim);">12 DM + 11 กลุ่ม</span></div>
+              <div style="background:var(--surface-2);padding:0.75rem;border-radius:6px;"><b>4,521</b> reach<br><span style="color:var(--text-dim);">+18% vs สัปดาห์ก่อน</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+</body>
+</html>

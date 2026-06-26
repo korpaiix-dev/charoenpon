@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ตั้งค่าระบบ — เจริญพร 2.0</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/mockups/style.css">
+
+</head>
+<body>
+<div class="preview-bar">
+  <div>🟡 STAGING MOCKUP — System Settings</div>
+  <a href="/mockups/today.html" style="color:inherit;text-decoration:none;">← กลับงานวันนี้</a>
+</div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo"><div class="logo-mark">เพ</div><div><div>เจริญพร 2.0</div><div class="subtitle" style="padding-left:0;">Admin Dashboard</div></div></div>
+    </div>
+    <a class="nav-item " href="/mockups/today.html"><span class="icon">📋</span> งานวันนี้</a>
+    <a class="nav-item " href="/mockups/inbox.html"><span class="icon">📥</span> Inbox สลิป <span class="badge">5</span></a>
+    <a class="nav-item " href="/mockups/sos.html"><span class="icon">🛟</span> SOS <span class="badge">2</span></a>
+    <a class="nav-item " href="/mockups/customers.html"><span class="icon">👤</span> ลูกค้า</a>
+    <div class="nav-divider">บอกข่าว + โปร</div>
+    <a class="nav-item " href="/mockups/broadcast.html"><span class="icon">📣</span> บอกข่าว DM/กลุ่ม</a>
+    <a class="nav-item " href="/mockups/promo-wizard.html"><span class="icon">🎁</span> จัดโปร</a>
+    <a class="nav-item " href="/mockups/bot-messages.html"><span class="icon">💬</span> คำพูดบอท</a>
+    <a class="nav-item " href="/mockups/gacha.html"><span class="icon">🎰</span> กาชา</a>
+    <div class="nav-divider">การเงิน + รายงาน</div>
+    <a class="nav-item " href="/mockups/finance.html"><span class="icon">💰</span> การเงิน</a>
+    <a class="nav-item " href="/mockups/reports.html"><span class="icon">📊</span> รายงาน</a>
+    <div class="nav-divider">ตั้งค่า</div>
+    <a class="nav-item " href="/mockups/prae.html"><span class="icon">🤖</span> Prae AI</a>
+    <a class="nav-item active" href="/mockups/settings.html"><span class="icon">⚙️</span> ตั้งค่าระบบ</a>
+  </aside>
+  <main class="main">
+
+    <div class="page-header">
+      <div>
+        <h1>⚙️ ตั้งค่าระบบ</h1>
+        <div class="date">admin · กลุ่ม · cron · feature flags · ไม่ค่อยยุ่ง</div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:0.5rem;margin-bottom:1.5rem;flex-wrap:wrap;">
+      <button class="btn btn-primary btn-sm">👤 Admin IDs</button>
+      <button class="btn btn-outline btn-sm">🏛 Groups</button>
+      <button class="btn btn-outline btn-sm">⏰ Cron Jobs</button>
+      <button class="btn btn-outline btn-sm">🚦 Feature Flags</button>
+      <button class="btn btn-outline btn-sm">💾 Backup</button>
+    </div>
+
+    <div class="section-title" style="margin-top:0;">👤 Admin Telegram IDs</div>
+    <div class="table-card" style="margin-bottom:1.5rem;">
+      <div class="table-header"><h3>4 admin</h3><button class="btn btn-outline btn-sm">➕ เพิ่ม admin</button></div>
+      <table class="table">
+        <thead><tr><th>Telegram ID</th><th>ชื่อ</th><th>Role</th><th>เพิ่มเมื่อ</th><th></th></tr></thead>
+        <tbody>
+          <tr><td><code>8502597269</code></td><td>บอส</td><td><span class="tag" style="background:#FCE7F3;color:#9D174D;">👑 Owner</span></td><td>2026-01-01</td><td><span style="color:var(--text-dim);font-size:0.8rem;">ลบเองไม่ได้</span></td></tr>
+          <tr><td><code>1234567890</code></td><td>Ivy</td><td><span class="tag" style="background:#DBEAFE;color:#1E40AF;">⚡ Admin</span></td><td>2026-06-15</td><td><button class="btn btn-sm btn-danger">🗑 ลบ</button></td></tr>
+          <tr><td><code>9876543210</code></td><td>Pai</td><td><span class="tag" style="background:#DBEAFE;color:#1E40AF;">⚡ Admin</span></td><td>2026-06-20</td><td><button class="btn btn-sm btn-danger">🗑 ลบ</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section-title">🚦 Feature Flags</div>
+    <div class="banner" style="background:rgba(247,176,69,0.05);border-color:rgba(247,176,69,0.3);margin-bottom:1rem;">
+      <span style="font-size:1.5rem;">💡</span>
+      <div>
+        <div class="title" style="color:var(--warning);">สวิตช์เปิด/ปิด feature ใหม่</div>
+        <div class="desc" style="color:var(--text-muted);">ปิด = ใช้พฤติกรรมเดิม (ปลอดภัย) · canary = เปิดให้บอสคนเดียวก่อนเทสต์</div>
+      </div>
+    </div>
+
+    <div class="table-card" style="margin-bottom:1.5rem;">
+      <table class="table">
+        <thead><tr><th>Feature</th><th>Scope</th><th>สถานะ</th><th></th></tr></thead>
+        <tbody>
+          <tr><td><code>bot_messages_enabled</code><br><span style="font-size:0.75rem;color:var(--text-muted);">อ่านคำพูดบอทจาก DB แทน hardcoded</span></td><td><span class="tag" style="background:#E5E7EB;color:#374151;">all</span></td><td><span style="color:var(--text-dim);font-weight:600;">⏸ OFF</span></td><td><button class="btn btn-sm btn-outline">▶ เปิด</button> <button class="btn btn-sm btn-outline">⚙️ Scope</button></td></tr>
+          <tr><td><code>promo_wizard_enabled</code><br><span style="font-size:0.75rem;color:var(--text-muted);">ใช้ Promo Wizard แทน Lucky/Flash/Birthday</span></td><td><span class="tag" style="background:#E5E7EB;color:#374151;">all</span></td><td><span style="color:var(--text-dim);font-weight:600;">⏸ OFF</span></td><td><button class="btn btn-sm btn-outline">▶ เปิด</button> <button class="btn btn-sm btn-outline">⚙️ Scope</button></td></tr>
+          <tr><td><code>prae_persona_enabled</code><br><span style="font-size:0.75rem;color:var(--text-muted);">บุคลิกแพรจาก DB editor</span></td><td><span class="tag" style="background:#E5E7EB;color:#374151;">all</span></td><td><span style="color:var(--text-dim);font-weight:600;">⏸ OFF</span></td><td><button class="btn btn-sm btn-outline">▶ เปิด</button> <button class="btn btn-sm btn-outline">⚙️ Scope</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section-title">⏰ Cron Jobs</div>
+    <div class="table-card">
+      <table class="table">
+        <thead><tr><th>เวลา</th><th>งาน</th><th>รันล่าสุด</th><th></th></tr></thead>
+        <tbody>
+          <tr><td>09:00 ทุกวัน</td><td>Daily expiry report</td><td>09:00 (สำเร็จ)</td><td><button class="btn btn-sm btn-outline">▶ run now</button> <button class="btn btn-sm btn-outline">📋 log</button></td></tr>
+          <tr><td>16:59 ทุกวัน</td><td>Daily sales summary</td><td>16:59 (สำเร็จ)</td><td><button class="btn btn-sm btn-outline">▶ run now</button> <button class="btn btn-sm btn-outline">📋 log</button></td></tr>
+          <tr><td>19:00 ทุกวัน</td><td>DB backup</td><td>เมื่อวาน 19:00</td><td><button class="btn btn-sm btn-outline">▶ run now</button> <button class="btn btn-sm btn-outline">📋 log</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </main>
+</div>
+
+</body>
+</html>

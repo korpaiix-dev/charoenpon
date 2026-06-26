@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>กาชา — เจริญพร 2.0</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/mockups/style.css">
+
+</head>
+<body>
+<div class="preview-bar">
+  <div>🟡 STAGING MOCKUP — Gacha admin</div>
+  <a href="/mockups/today.html" style="color:inherit;text-decoration:none;">← กลับงานวันนี้</a>
+</div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo"><div class="logo-mark">เพ</div><div><div>เจริญพร 2.0</div><div class="subtitle" style="padding-left:0;">Admin Dashboard</div></div></div>
+    </div>
+    <a class="nav-item " href="/mockups/today.html"><span class="icon">📋</span> งานวันนี้</a>
+    <a class="nav-item " href="/mockups/inbox.html"><span class="icon">📥</span> Inbox สลิป <span class="badge">5</span></a>
+    <a class="nav-item " href="/mockups/sos.html"><span class="icon">🛟</span> SOS <span class="badge">2</span></a>
+    <a class="nav-item " href="/mockups/customers.html"><span class="icon">👤</span> ลูกค้า</a>
+    <div class="nav-divider">บอกข่าว + โปร</div>
+    <a class="nav-item " href="/mockups/broadcast.html"><span class="icon">📣</span> บอกข่าว DM/กลุ่ม</a>
+    <a class="nav-item " href="/mockups/promo-wizard.html"><span class="icon">🎁</span> จัดโปร</a>
+    <a class="nav-item " href="/mockups/bot-messages.html"><span class="icon">💬</span> คำพูดบอท</a>
+    <a class="nav-item active" href="/mockups/gacha.html"><span class="icon">🎰</span> กาชา</a>
+    <div class="nav-divider">การเงิน + รายงาน</div>
+    <a class="nav-item " href="/mockups/finance.html"><span class="icon">💰</span> การเงิน</a>
+    <a class="nav-item " href="/mockups/reports.html"><span class="icon">📊</span> รายงาน</a>
+    <div class="nav-divider">ตั้งค่า</div>
+    <a class="nav-item " href="/mockups/prae.html"><span class="icon">🤖</span> Prae AI</a>
+    <a class="nav-item " href="/mockups/settings.html"><span class="icon">⚙️</span> ตั้งค่าระบบ</a>
+  </aside>
+  <main class="main">
+
+    <div class="page-header">
+      <div>
+        <h1>🎰 กาชา</h1>
+        <div class="date">prize pool · spin price · probability · events</div>
+      </div>
+      <div style="display:flex;gap:0.5rem;">
+        <button class="btn btn-outline" onclick="alert(mockup: ราคา/หมุน edit)">💰 ราคา/หมุน</button>
+        <button class="btn btn-outline" onclick="alert(mockup: เพิ่มรางวัล)">🎁 เพิ่มรางวัล</button>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat"><div class="label">รายได้กาชาเดือนนี้</div><div class="val">฿32,890</div><div class="delta">↑ +23%</div></div>
+      <div class="stat"><div class="label">หมุนรวม</div><div class="val">487</div><div class="delta">↑ +12%</div></div>
+      <div class="stat"><div class="label">RTP</div><div class="val">78.4%</div><div class="delta" style="color:var(--success)">เป็นไปตามเป้า</div></div>
+      <div class="stat"><div class="label">รางวัลใหญ่หมุนเดือนนี้</div><div class="val">3</div><div class="delta">SUB_GOD ฿1,299</div></div>
+    </div>
+
+    <div class="section-title">💎 Prize Pool</div>
+    <div class="table-card">
+      <div class="table-header"><h3>รางวัลในระบบ</h3><span style="font-size:0.8rem;color:var(--text-dim);">รวม 7 อัน · active 6</span></div>
+      <table class="table">
+        <thead><tr><th>Code</th><th>ชื่อ</th><th>Tier</th><th>มูลค่า</th><th>โอกาส</th><th>คนได้</th><th>สถานะ</th><th></th></tr></thead>
+        <tbody>
+          <tr><td><code>COIN_50</code></td><td>เครดิตส่วนลด ฿50</td><td><span class="tag" style="background:#E5E7EB;color:#374151;">COMMON</span></td><td>฿50</td><td>70%</td><td>340 ครั้ง</td><td><span class="tag active">✓ เปิด</span></td><td><button class="btn btn-sm btn-outline">✏️</button> <button class="btn btn-sm btn-danger">🗑</button></td></tr>
+          <tr><td><code>COIN_200</code></td><td>เครดิตส่วนลด ฿200</td><td><span class="tag" style="background:#DBEAFE;color:#1E40AF;">RARE</span></td><td>฿200</td><td>25%</td><td>122 ครั้ง</td><td><span class="tag active">✓ เปิด</span></td><td><button class="btn btn-sm btn-outline">✏️</button> <button class="btn btn-sm btn-danger">🗑</button></td></tr>
+          <tr><td><code>SUB_VIP</code></td><td>VIP 30 วัน ฟรี</td><td><span class="tag" style="background:#FEF3C7;color:#92400E;">EPIC</span></td><td>฿300</td><td>4.9%</td><td>22 ครั้ง</td><td><span class="tag active">✓ เปิด</span></td><td><button class="btn btn-sm btn-outline">✏️</button> <button class="btn btn-sm btn-danger">🗑</button></td></tr>
+          <tr><td><code>SUB_GOD</code></td><td>GOD MODE 90 วัน ฟรี</td><td><span class="tag" style="background:#FCE7F3;color:#9D174D;">LEGENDARY</span></td><td>฿1,299</td><td>0.1%</td><td>3 ครั้ง</td><td><span class="tag active">✓ เปิด</span></td><td><button class="btn btn-sm btn-outline">✏️</button> <button class="btn btn-sm btn-danger">🗑</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section-title">💰 ราคาต่อบันเดิ้ล</div>
+    <div class="table-card">
+      <table class="table">
+        <thead><tr><th>Tier</th><th>ราคา</th><th>คุ้มหมุน</th><th>ขายเดือนนี้</th><th></th></tr></thead>
+        <tbody>
+          <tr><td><code>GACHA_1</code></td><td>฿99</td><td>1 หมุน</td><td>132 ครั้ง</td><td><button class="btn btn-sm btn-outline">✏️ แก้ราคา</button></td></tr>
+          <tr><td><code>GACHA_3</code></td><td>฿270 <span class="tag" style="background:#D1FAE5;color:#065F46;font-size:0.7rem;">save ฿27</span></td><td>3 หมุน</td><td>89 ครั้ง</td><td><button class="btn btn-sm btn-outline">✏️ แก้ราคา</button></td></tr>
+          <tr><td><code>GACHA_10</code></td><td>฿890 <span class="tag" style="background:#D1FAE5;color:#065F46;font-size:0.7rem;">save ฿100</span></td><td>10 หมุน</td><td>34 ครั้ง</td><td><button class="btn btn-sm btn-outline">✏️ แก้ราคา</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </main>
+</div>
+
+</body>
+</html>
