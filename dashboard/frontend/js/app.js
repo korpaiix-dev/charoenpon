@@ -2945,13 +2945,13 @@ async function renderContent() {
     content.innerHTML = `
         <div class="tabs">
             <div class="tab ${contentTab==='queue'?'active':''}" onclick="contentTab='queue';renderContent()">📦 Queue</div>
-            <div class="tab ${contentTab==='schedule'?'active':''}" onclick="contentTab='schedule';renderContent()">📅 Schedule</div>
+            
             <div class="tab ${contentTab==='stats'?'active':''}" onclick="contentTab='stats';renderContent()">📊 สถิติ</div>
         </div>
         <div id="content-area"><div class="loading"><div class="spinner"></div></div></div>
     `;
     if (contentTab === 'queue') loadContentQueue();
-    else if (contentTab === 'schedule') loadContentSchedule();
+    
     else loadContentStats();
 }
 
@@ -3025,18 +3025,6 @@ async function deleteQueueItem(id) {
     await api(`/content/queue/${id}`, { method: 'DELETE' }); loadContentQueue();
 }
 
-async function loadContentSchedule() {
-    try {
-        const data = await api('/content/schedule');
-        let html = '<div class="table-wrap"><table><thead><tr><th>เวลา</th><th>กลุ่ม</th><th>Type</th><th>สถานะ</th></tr></thead><tbody>';
-        data.forEach(s => {
-            html += `<tr><td>${fmtDateTime(s.scheduled_at)}</td><td>${esc(s.group_slug)}</td><td>${esc(s.content_type)}</td>
-                <td>${s.is_sent ? '<span style="color:var(--success)">✅ ส่งแล้ว</span>' : '<span style="color:var(--warning)">⏳ รอ</span>'}</td></tr>`;
-        });
-        html += '</tbody></table></div>';
-        document.getElementById('content-area').innerHTML = data.length ? html : '<div class="empty-state"><div class="icon">📅</div><p>ไม่มี schedule</p></div>';
-    } catch (e) { toast(e.message, 'error'); }
-}
 
 async function loadContentStats() {
     try {
@@ -5469,6 +5457,123 @@ async function sendPraeDM(uid, telegramId) {
     } finally {
         btn.disabled = false;
         btn.textContent = '📤 ส่ง';
+    }
+}
+
+// ===== Gacha: spin pricing + add prize =====
+async function showGachaPricingModal() {
+    try {
+        const rows = await api('/gacha-admin/spin-pricing');
+        const inputs = rows.map(r => `
+            <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.5rem;">
+                <code style="min-width:80px;font-weight:600;">${esc(r.tier)}</code>
+                <span style="color:var(--text-muted);">฿</span>
+                <input type="number" id="gp-${esc(r.tier)}" value="${r.price_thb}" min="1" max="99999" style="width:120px;">
+                <button class="btn btn-sm btn-primary" onclick="saveGachaPrice('${esc(r.tier)}')">💾 บันทึก</button>
+                <small style="color:var(--text-muted);">${r.updated_at ? fmtDateTime(r.updated_at) : ''}</small>
+            </div>
+        `).join('');
+        openModal('💰 ราคา/หมุน Gacha', `
+            <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.75rem;">
+                แก้ราคาที่ลูกค้าจ่ายต่อบันเดิ้ลกาชา (sales bot อ่านจาก DB ทันที — ไม่ต้อง deploy)
+            </div>
+            ${inputs}
+            <div style="margin-top:0.75rem;padding:0.5rem;background:var(--surface-2);border-radius:6px;font-size:0.7rem;color:var(--text-muted);">
+                💡 ราคาเหล่านี้แทนที่ค่า hardcode ใน pricing.py · cache 60 วินาที
+            </div>
+        `);
+    } catch (err) {
+        toast('❌ ' + (err.message || 'load failed'), 'error');
+    }
+}
+
+async function saveGachaPrice(tier) {
+    const v = parseInt(document.getElementById(`gp-${tier}`).value);
+    if (isNaN(v) || v < 1) { toast('ตัวเลข ≥ 1', 'error'); return; }
+    try {
+        await api(`/gacha-admin/spin-pricing/${tier}`, {
+            method: 'PATCH', body: JSON.stringify({ price_thb: v }),
+        });
+        toast(`✅ ${tier} = ฿${v}`, 'success');
+    } catch (err) {
+        toast('❌ ' + (err.message || 'save failed'), 'error');
+    }
+}
+
+async function showAddPrizeModal() {
+    openModal('🎁 เพิ่มรางวัล Gacha', `
+        <div class="form-group"><label>Code (uniq)</label><input id="ap-code" placeholder="เช่น COIN_50"></div>
+        <div class="form-group"><label>ชื่อรางวัล</label><input id="ap-name" placeholder="เช่น เครดิตส่วนลด ฿50"></div>
+        <div class="form-row">
+            <div class="form-group"><label>Tier</label>
+                <select id="ap-tier">
+                    <option value="COMMON">COMMON</option>
+                    <option value="RARE">RARE</option>
+                    <option value="EPIC">EPIC</option>
+                    <option value="LEGENDARY">LEGENDARY</option>
+                </select>
+            </div>
+            <div class="form-group"><label>Type</label>
+                <select id="ap-type">
+                    <option value="discount">discount (เครดิตส่วนลด)</option>
+                    <option value="clip">clip (ชุดคลิป)</option>
+                    <option value="sub">sub (เปิดสิทธิ)</option>
+                    <option value="cash">cash</option>
+                    <option value="item">item</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Value (฿)</label><input id="ap-value" type="number" value="50"></div>
+            <div class="form-group"><label>Probability (%)</label><input id="ap-prob" type="number" step="0.001" value="5"></div>
+        </div>
+        <button class="btn btn-primary btn-full" onclick="doAddPrize()">💾 เพิ่มรางวัล</button>
+    `);
+}
+
+async function doAddPrize() {
+    try {
+        const body = {
+            code: document.getElementById('ap-code').value.trim(),
+            name: document.getElementById('ap-name').value.trim(),
+            tier: document.getElementById('ap-tier').value,
+            prize_type: document.getElementById('ap-type').value,
+            value_thb: parseFloat(document.getElementById('ap-value').value || 0),
+            probability_pct: parseFloat(document.getElementById('ap-prob').value || 0),
+            enabled: true,
+            sort_order: 100,
+        };
+        if (!body.code || !body.name) { toast('กรอก code + name', 'error'); return; }
+        await api('/gacha-admin/prize-pool', { method: 'POST', body: JSON.stringify(body) });
+        toast('✅ เพิ่มรางวัลเรียบร้อย', 'success');
+        closeModal();
+        if (typeof renderGacha === 'function') renderGacha();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'add failed'), 'error');
+    }
+}
+
+async function deletePrize(pid, name) {
+    if (!confirm(`ลบรางวัล "${name}"?\n\n(ถ้าเคยมีคนได้รางวัลนี้ จะ soft-delete = disabled ไม่ลบจริง)`)) return;
+    try {
+        const r = await api(`/gacha-admin/prize-pool/${pid}`, { method: 'DELETE' });
+        if (r.soft_deleted) toast(`✅ Disabled (มีคนได้ ${r.winners} ครั้ง — เก็บประวัติ)`, 'success');
+        else toast('✅ ลบเรียบร้อย', 'success');
+        if (typeof renderGacha === 'function') renderGacha();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'delete failed'), 'error');
+    }
+}
+
+// ===== Admin Telegram IDs — add delete button =====
+async function deleteAdminId(tid) {
+    if (!confirm(`ลบ Telegram ID ${tid}?\n\nบอททั้ง 4 ตัว (admin/content/sales/guardian) จะ restart`)) return;
+    try {
+        const r = await api(`/admin/admin-ids/${tid}`, { method: 'DELETE' });
+        toast(`✅ ลบ ${tid} เรียบร้อย (restart: ${Object.keys(r.restarts || {}).filter(k => r.restarts[k].ok).join(', ')})`, 'success');
+        if (typeof renderBotManage === 'function') renderBotManage();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'delete failed'), 'error');
     }
 }
 
