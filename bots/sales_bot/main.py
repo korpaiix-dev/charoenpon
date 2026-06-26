@@ -10,8 +10,23 @@ import logging
 import os
 
 # >>> FIXALL_TOKEN_ALERT <<< Bug #19
+# Phase A.2 fix 2026-06-27: cooldown + maintenance suppression + recovery msg
+_SLIP2GO_ALERT_STATE = {
+    "last_alert_at": 0.0,
+    "last_alert_code": None,
+    "was_down": False,
+}
+_SLIP2GO_ALERT_COOLDOWN_SEC = 1800  # 30 min between same-error alerts
+
 async def _slip2go_balance_check(context):
-    """Every 6h: alert Discord if Slip2Go token balance < SLIP2GO_TOKEN_ALERT_THRESHOLD (default 50 slips)."""
+    """Every 6h: alert Discord if Slip2Go token balance low OR API down.
+
+    - Skip alert if Slip2Go responds with 500503 (scheduled maintenance).
+    - Throttle: re-alert at most every 30 min (per-process state).
+    - On recovery: send single recovery message after previous outage.
+    """
+    import time as _t
+    import logging as _logging
     try:
         from shared.slip2go import get_account_info, Slip2GoError
         from bots.sales_bot.handlers.payment import _notify_discord
@@ -19,10 +34,47 @@ async def _slip2go_balance_check(context):
         try:
             info = await get_account_info()
         except Slip2GoError as e:
+            err_code = str(e.code or "")
+            err_msg = str(e.message or "")
+
+            # Suppress scheduled-maintenance alerts (Slip2Go uses 500503 for planned downtime)
+            is_maintenance = (
+                "500503" in err_code
+                or "500503" in err_msg
+                or "undergoing scheduled maintenance" in err_msg.lower()
+                or "scheduled maintenance" in err_msg.lower()
+            )
+            if is_maintenance:
+                _logging.getLogger(__name__).info("Slip2Go maintenance (%s) — alert suppressed", err_code)
+                _SLIP2GO_ALERT_STATE["was_down"] = True
+                _SLIP2GO_ALERT_STATE["last_alert_code"] = err_code
+                return
+
+            # Cooldown: skip if same error within 30 min
+            now = _t.time()
+            since_last = now - _SLIP2GO_ALERT_STATE["last_alert_at"]
+            same_code = _SLIP2GO_ALERT_STATE["last_alert_code"] == err_code
+            if same_code and since_last < _SLIP2GO_ALERT_COOLDOWN_SEC:
+                _logging.getLogger(__name__).info("Slip2Go alert throttled (%ds since last)", int(since_last))
+                return
+
+            _SLIP2GO_ALERT_STATE["last_alert_at"] = now
+            _SLIP2GO_ALERT_STATE["last_alert_code"] = err_code
+            _SLIP2GO_ALERT_STATE["was_down"] = True
             await _notify_discord("🛑 Slip2Go API DOWN",
-                                   f"Cannot fetch account info: {e.code} {e.message}",
+                                   f"Cannot fetch account info: {err_code} {err_msg}",
                                    color=0xFF0000)
             return
+
+        # API responded successfully — if previously down, send recovery message once
+        if _SLIP2GO_ALERT_STATE["was_down"]:
+            _SLIP2GO_ALERT_STATE["was_down"] = False
+            try:
+                await _notify_discord("✅ Slip2Go API recovered",
+                                       "API กลับมาทำงานปกติแล้ว",
+                                       color=0x00FF00)
+            except Exception:
+                pass
         remaining_slips = info.get("estimatedQuotaSlip", 0)
         threshold = int(_os.environ.get("SLIP2GO_TOKEN_ALERT_THRESHOLD", "50"))
         if remaining_slips < threshold:
