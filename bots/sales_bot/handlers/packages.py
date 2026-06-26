@@ -201,8 +201,6 @@ def _build_package_list_text() -> str:
         flash_header = ""
     songkran_bonus = "- โปรโมชั่นสงกรานต์ (โบนัสเฉพาะคนซื้อช่วงโปร)\n" if is_songkran_promo_window() else ""
     songkran_note = "🎁 ซื้อช่วงโปร 7 วันนี้ แถมกลุ่ม โปรโมชั่นสงกรานต์\n\n" if is_songkran_promo_window() else ""
-    # FIX 2026-06-26: show dashboard-created promotion_campaigns as banner
-    _active_campaign_banner_text = await _active_campaign_banner()
     # LUCKY 6.6 > FLASH > end-month VIP promo (priority)
     if lucky6:
         vip_price_line = "💰 ราคา: <s>300</s> 166 บาท / 30 วัน 🍀 LUCKY 6.6! +ฟรี 6 วัน\n"
