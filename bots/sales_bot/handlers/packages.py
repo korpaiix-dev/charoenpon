@@ -186,8 +186,52 @@ PACKAGES = [
 ]
 
 
-def _build_package_list_text() -> str:
+async def _build_package_list_text() -> str:
     """Build the text for the package overview."""
+    # FIX 2026-06-26 (audit): fetch dashboard-managed promotion_campaigns
+    # and show them in menu (override hardcoded prices when applicable)
+    dash_campaigns = {}  # package_id → {name, normal_price, promo_price, bot_badge}
+    dash_banner_lines = []
+    try:
+        from shared.database import get_session
+        from sqlalchemy import text as _t_dc
+        async with get_session() as _s_dc:
+            _rows = (await _s_dc.execute(_t_dc("""
+                SELECT pc.package_id, pc.name, pc.normal_price, pc.promo_price,
+                       pc.bot_badge, pk.tier::text AS pkg_tier
+                FROM promotion_campaigns pc
+                LEFT JOIN packages pk ON pk.id = pc.package_id
+                WHERE pc.is_active = TRUE
+                  AND pc.starts_at IS NOT NULL AND pc.ends_at IS NOT NULL
+                  AND pc.starts_at <= NOW() AND pc.ends_at >= NOW()
+                  AND pc.promo_price IS NOT NULL AND pc.promo_price > 0
+                ORDER BY pc.ends_at
+                LIMIT 5
+            """))).fetchall()
+        for r in _rows:
+            if r.package_id:
+                dash_campaigns[r.package_id] = {
+                    "name": r.name,
+                    "normal_price": float(r.normal_price or 0),
+                    "promo_price": float(r.promo_price or 0),
+                    "badge": r.bot_badge or "🎁",
+                    "tier": r.pkg_tier or "",
+                }
+                badge = r.bot_badge or "🎁"
+                if r.normal_price and r.promo_price:
+                    dash_banner_lines.append(
+                        f"{badge} <b>{r.name}</b>: <s>{int(r.normal_price)}</s> {int(r.promo_price)} บาท"
+                    )
+                else:
+                    dash_banner_lines.append(f"{badge} <b>{r.name}</b>")
+    except Exception as _exc_dc:
+        import logging
+        logging.getLogger(__name__).warning("dashboard campaign fetch failed: %s", _exc_dc)
+
+    dash_banner = ""
+    if dash_banner_lines:
+        dash_banner = "🎁 <b>โปรพิเศษวันนี้!</b>\n" + "\n".join(dash_banner_lines) + "\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+
     lucky6 = is_lucky_6_active()
     birthday = is_birthday_promo_active() and not lucky6
     flash = is_mid_month_flash_active() and not lucky6 and not birthday
@@ -217,6 +261,7 @@ def _build_package_list_text() -> str:
     vip_promo_note = f"🔥 <b>โปรสิ้นเดือน:</b> VIP เจริญพร 18+ จาก 300 เหลือ 200 บาท — {PROMO_DATE_TEXT}\n\n" if (is_endmonth_vip_promo_active() and not flash) else ""
     god_promo_note = f"💎 <b>โปรสิ้นเดือน:</b> GOD MODE ถาวร จาก 2,499 เหลือ 2,000 บาท — {PROMO_DATE_TEXT}\n\n" if (is_endmonth_vip_promo_active() and not flash) else ""
     return (
+        dash_banner +
         flash_header +
         (
         "<b>📦 แพ็กเกจ VIP ทั้งหมด</b>\n\n"
@@ -346,7 +391,7 @@ async def view_packages_command(
     if not update.message:
         return
     await update.message.reply_text(
-        _build_package_list_text(),
+        await _build_package_list_text(),
         parse_mode="HTML",
         reply_markup=_build_package_keyboard(),
     )
@@ -363,7 +408,7 @@ async def view_packages_callback(
         await query.answer()
     except Exception:
         pass  # callback may be too old / already answered
-    await _safe_edit(query, _build_package_list_text(),
+    await _safe_edit(query, await _build_package_list_text(),
         parse_mode="HTML",
         reply_markup=_build_package_keyboard(),)
 async def package_detail_callback(
