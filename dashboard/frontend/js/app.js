@@ -6283,12 +6283,28 @@ async function checkTestMode() {
             headers: token ? { "Authorization": "Bearer " + token } : {}
         });
         if (resp.headers.get("X-Dashboard-Test-Mode") === "true" && !document.getElementById("test-mode-banner")) {
+            // Update page title
+            document.title = "🟡 TEST · " + document.title;
+            // Inject CSS that shifts sidebar AND main down so banner fits
+            const css = document.createElement("style");
+            css.id = "test-mode-css";
+            css.textContent = `
+                body { padding-top: 36px !important; }
+                .sidebar { top: 36px !important; }
+                .top-bar { top: 36px !important; }
+                #test-mode-banner { position: fixed; top: 0; left: 0; right: 0; z-index: 10000;
+                    background: linear-gradient(135deg, #DC2626 0%, #991B1B 100%);
+                    color: white; text-align: center; padding: 0.4rem 1rem;
+                    font-weight: 700; font-size: 0.8rem; letter-spacing: 0.04em;
+                    box-shadow: 0 2px 6px rgba(0,0,0,0.3); height: 36px;
+                    display: flex; align-items: center; justify-content: center; gap: 0.5rem; }
+            `;
+            document.head.appendChild(css);
+            // Add banner
             const banner = document.createElement("div");
             banner.id = "test-mode-banner";
-            banner.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,#DC2626 0%,#991B1B 100%);color:white;text-align:center;padding:0.5rem 1rem;font-weight:700;font-size:0.85rem;letter-spacing:0.05em;box-shadow:0 2px 8px rgba(0,0,0,0.3);";
-            banner.innerHTML = "🟡 <b>TEST MODE</b> — กดอะไรก็ได้ ไม่กระทบลูกค้าจริง · ทุก action ถูก block ไม่เก็บใน DB";
-            document.body.appendChild(banner);
-            document.body.style.paddingTop = "40px";
+            banner.innerHTML = "🟡 <b>TEST MODE</b> — กดอะไรก็ได้ ไม่กระทบลูกค้าจริง · port 8012";
+            document.body.insertBefore(banner, document.body.firstChild);
         }
     } catch (_e) {}
 }
