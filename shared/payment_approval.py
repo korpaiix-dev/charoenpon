@@ -681,7 +681,8 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
             try:
                 from shared.receiver_pool import record_payment_received
                 await record_payment_received(
-                    inp.matched_receiver_account_id, inp.amount_paid
+                    inp.matched_receiver_account_id, inp.amount_paid,
+                    payment_id=payment_id_final,
                 )
             except Exception as exc:
                 logger.warning("[approval] record_payment_received failed: %s", exc)

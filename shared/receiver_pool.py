@@ -178,11 +178,45 @@ def match_receiver(slip_data: dict, accounts: Sequence[dict]) -> Optional[dict]:
     return None
 
 
-async def record_payment_received(account_id: int, amount: Decimal) -> dict:
-    """Update cumulative + check alert threshold (Decimal-safe, single transaction)."""
+async def record_payment_received(account_id: int, amount: Decimal, payment_id: int | None = None) -> dict:
+    """Update cumulative + check alert threshold (Decimal-safe, single transaction).
+
+    FIX 2026-06-26 (boss audit): added optional payment_id for idempotency.
+    Same payment_id can never credit cumulative twice (guard against double-call).
+    """
     from decimal import Decimal as _D
     # Ensure Decimal type (prevent float drift)
     amt = amount if isinstance(amount, _D) else _D(str(amount))
+
+    # Idempotency check: if payment_id given, mark in admin_logs first
+    # If marker already exists → skip (already credited)
+    if payment_id is not None:
+        try:
+            async with get_session() as _sg:
+                _existing = await _sg.execute(text(
+                    "SELECT 1 FROM admin_logs WHERE action = :a AND target_id = :tid LIMIT 1"
+                ), {"a": "receiver_credit", "tid": payment_id})
+                if _existing.scalar():
+                    import logging
+                    logging.getLogger(__name__).info(
+                        "record_payment_received: payment_id=%s already credited to receiver_id=%s — skip",
+                        payment_id, account_id
+                    )
+                    return {"alert": False, "skipped": True, "reason": "already_credited"}
+                # Mark BEFORE update (prevents race)
+                await _sg.execute(text(
+                    "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details, created_at) "
+                    "VALUES (0, :a, :tt, :tid, :d, NOW())"
+                ), {
+                    "a": "receiver_credit", "tt": "payment", "tid": payment_id,
+                    "d": f"account_id={account_id} amount={amt}",
+                })
+                await _sg.commit()
+        except Exception as _idx_exc:
+            import logging
+            logging.getLogger(__name__).warning("record_payment_received idempotency check failed: %s", _idx_exc)
+            # Continue anyway (don't block legitimate credits if logs fail)
+
     async with get_session() as session:
         # 1) Atomic increment cumulative
         r = await session.execute(text("""
