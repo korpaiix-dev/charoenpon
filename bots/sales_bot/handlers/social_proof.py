@@ -181,12 +181,38 @@ def pick_campaign_image(campaign: str) -> Path | None:
         return None
 
 
-async def build_welcome_caption(tg_user_first_name: str | None = None) -> str:
+async def build_welcome_caption(
+    tg_user_first_name: str | None = None,
+    *,
+    telegram_id: int | None = None,
+    is_new_user: bool | None = None,
+) -> str:
     """Build dynamic welcome caption with social proof + 1 rotating review.
 
     Auto-prepends Flash Sale banner if active flash sale exists.
     Returns HTML-formatted text suitable for Telegram parse_mode='HTML'.
+
+    Phase A.1c (2026-06-27): if feature flag bot_messages_enabled is ON
+    for this user, use DB-stored welcome_new / welcome_returning instead.
+    Fallback to hardcoded behavior if flag OFF, key missing, or any error.
     """
+    # ---- Phase A.1c canary integration ----
+    try:
+        if telegram_id is not None and is_new_user is not None:
+            from shared.feature_flags import is_flag_enabled
+            from shared.bot_messages import get_bot_message, render_placeholders
+            if await is_flag_enabled("bot_messages_enabled", telegram_id=telegram_id):
+                key = "welcome_new" if is_new_user else "welcome_returning"
+                db_msg = await get_bot_message(key)
+                if db_msg:
+                    return render_placeholders(
+                        db_msg,
+                        customer_name=tg_user_first_name or "",
+                    )
+    except Exception as _exc:
+        logger.warning("bot_messages override failed: %s", _exc)
+    # ---- end canary integration; fall through to original behavior ----
+
     stats = await get_stats()
     ever_paid = stats.get("ever_paid", 400)
     ever_paid_display = f"{(ever_paid // 50) * 50:,}+"

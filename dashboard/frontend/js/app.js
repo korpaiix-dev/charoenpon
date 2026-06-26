@@ -109,6 +109,7 @@ async function withBusy(key, fn) {
 
 
 const NAV_ITEMS = [
+    { id: 'today', icon: '📋', label: 'งานวันนี้', minRole: 'moderator' },
     { id: 'dashboard', icon: '📊', label: 'ภาพรวม', minRole: 'moderator' },
     { id: 'inbox', icon: '📥', label: 'กล่องรอจัดการ', minRole: 'moderator' },
     { id: 'customers', icon: '👥', label: 'ลูกค้า', minRole: 'moderator' },
@@ -238,7 +239,7 @@ function navigate(page) {
     content.innerHTML = '<div class="loading"><div class="spinner"></div> กำลังโหลด...</div>';
     
     const pages = {
-        dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance, receivers: renderReceivers, gacha: renderGacha,
+        today: renderToday, dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance, receivers: renderReceivers, gacha: renderGacha,
         promotions: renderPromotions, content: renderContent, groups: renderGroups,
         team: renderTeam, settings: renderSettings, marketing: renderMarketing,
         activity: renderActivityLog, prae_logs: renderPraeLogs,
@@ -3437,6 +3438,8 @@ async function renderSettings() {
             ${hasRole('super_admin') && !hasRole('owner') ? `` : ''}
             <div class="tab ${settingsTab==='banned'?'active':''}" onclick="settingsTab='banned';renderSettings()">🚫 รายการแบน</div>
             <div class="tab ${settingsTab==='prae_prompt'?'active':''}" onclick="settingsTab='prae_prompt';renderSettings()">🤖 บุคลิก Prae</div>
+            <div class="tab ${settingsTab==='flags'?'active':''}" onclick="settingsTab='flags';renderSettings()">🚦 ฟีเจอร์ใหม่</div>
+            <div class="tab ${settingsTab==='botmsg'?'active':''}" onclick="settingsTab='botmsg';renderSettings()">💬 คำพูดบอท</div>
         </div>
         <div id="settings-area"><div class="loading"><div class="spinner"></div></div></div>
     `;
@@ -3445,6 +3448,8 @@ async function renderSettings() {
 
     else if (settingsTab === 'banned') loadBannedSettings();
     else if (settingsTab === 'prae_prompt') loadPraePrompt();
+    else if (settingsTab === 'flags') loadFeatureFlags();
+    else if (settingsTab === 'botmsg') loadBotMessages();
 }
 
 async function loadPackages() {
@@ -5584,5 +5589,323 @@ async function deleteAdminId(tid) {
     } catch (err) {
         toast('❌ ' + (err.message || 'delete failed'), 'error');
     }
+}
+
+// ==================================================================
+// Phase A.1b (2026-06-26): Today homepage + Feature Flags + Bot Messages
+// ==================================================================
+
+async function renderToday() {
+    const content = document.getElementById('page-content');
+    content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+    try {
+        const [summary, alerts] = await Promise.all([
+            api('/dashboard/summary').catch(() => ({})),
+            api('/dashboard/alerts').catch(() => ({ items: [] })),
+        ]);
+        const tier = (summary.tier_breakdown || []);
+        const todayRev = summary.today ?? 0;
+        const todayChange = summary.today_change ?? 0;
+        const pendingSlips = alerts.pending_slips ?? 0;
+        const sosCount = alerts.sos_count ?? 0;
+        const expToday = alerts.expiring_today ?? 0;
+        const weekRev = summary.week ?? 0;
+        const monthRev = summary.month ?? 0;
+        const anomalies = (alerts.anomalies || []).length;
+
+        const now = new Date();
+        const days = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัส','ศุกร์','เสาร์'];
+        const months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+        const greet = now.getHours() < 12 ? 'อรุณสวัสดิ์' : (now.getHours() < 18 ? 'สวัสดีตอนบ่าย' : 'สวัสดีตอนเย็น');
+        const dateStr = `${days[now.getDay()]}ที่ ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear() + 543}`;
+        const timeStr = now.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
+
+        let priorityHtml = '';
+        if (pendingSlips > 0) {
+            priorityHtml += `<div class="priority-card urgent" onclick="navigate('inbox')">
+                <div class="pri-dot"></div>
+                <div class="pri-body"><div class="pri-title">รออนุมัติสลิป ${pendingSlips} ใบ</div><div class="pri-meta">คลิกไปที่ Inbox</div></div>
+                <div class="pri-cta">ไปที่ Inbox →</div>
+            </div>`;
+        }
+        if (sosCount > 0) {
+            priorityHtml += `<div class="priority-card warn" onclick="navigate('customers')">
+                <div class="pri-dot"></div>
+                <div class="pri-body"><div class="pri-title">SOS รอจัดการ ${sosCount} อัน</div><div class="pri-meta">ลูกค้าต้องการความช่วยเหลือ</div></div>
+                <div class="pri-cta">ไปดู →</div>
+            </div>`;
+        }
+        priorityHtml += `<div class="priority-card ok">
+            <div class="pri-dot"></div>
+            <div class="pri-body"><div class="pri-title">วันนี้: ${expToday} ลูกค้าจะหมดอายุ</div><div class="pri-meta">ระบบเตือนต่ออายุจะส่ง DM อัตโนมัติ</div></div>
+            <div class="pri-cta">ตั้งค่า →</div>
+        </div>`;
+
+        if (!priorityHtml.includes('urgent') && !priorityHtml.includes('warn')) {
+            priorityHtml = '<div class="priority-card ok"><div class="pri-dot"></div><div class="pri-body"><div class="pri-title">ทุกอย่างเรียบร้อย ✨</div><div class="pri-meta">ไม่มีงานเร่งด่วน</div></div></div>' + priorityHtml;
+        }
+
+        content.innerHTML = `
+            <style>
+                .today-hero { display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.5rem; }
+                .today-hero h1 { font-size:1.65rem;font-weight:700;margin-bottom:0.2rem;letter-spacing:-0.02em; }
+                .today-hero .date { color:var(--text-dim);font-size:0.9rem; }
+                .section-label { font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-dim);font-weight:700;margin:1.5rem 0 0.6rem; }
+                .priority-list { display:flex;flex-direction:column;gap:0.6rem; }
+                .priority-card { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:0.85rem 1.1rem;display:flex;align-items:center;gap:1rem;cursor:pointer;transition:all 0.15s;box-shadow:var(--shadow-sm); }
+                .priority-card:hover { transform:translateY(-1px);border-color:var(--border-strong); }
+                .priority-card.urgent { border-left:3px solid var(--error); }
+                .priority-card.urgent .pri-dot { background:var(--error); }
+                .priority-card.warn { border-left:3px solid var(--warning); }
+                .priority-card.warn .pri-dot { background:var(--warning); }
+                .priority-card.ok { border-left:3px solid var(--success); }
+                .priority-card.ok .pri-dot { background:var(--success); }
+                .pri-dot { width:12px;height:12px;border-radius:50%;flex-shrink:0; }
+                .pri-body { flex:1; }
+                .pri-title { font-weight:600;font-size:0.95rem; }
+                .pri-meta { color:var(--text-muted);font-size:0.8rem;margin-top:0.1rem; }
+                .pri-cta { color:var(--accent);font-weight:600;font-size:0.8rem; }
+                .qa-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:0.6rem; }
+                .qa-btn { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:0.85rem 1rem;cursor:pointer;font-weight:500;font-size:0.875rem;color:var(--text);text-align:left;font-family:inherit;display:flex;align-items:center;gap:0.5rem; }
+                .qa-btn:hover { background:var(--surface-2);border-color:var(--border-strong); }
+                .mini-stats { display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0.75rem;margin-bottom:1rem; }
+                .mini-stat { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1rem 1.1rem; }
+                .mini-stat .ms-label { font-size:0.7rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:0.3rem; }
+                .mini-stat .ms-val { font-size:1.5rem;font-weight:700;letter-spacing:-0.02em; }
+            </style>
+            <div class="today-hero">
+                <div>
+                    <h1>${greet} 👋</h1>
+                    <div class="date">${dateStr} · ${timeStr}</div>
+                </div>
+            </div>
+            <div class="section-label">🎯 ที่ต้องทำตอนนี้</div>
+            <div class="priority-list">${priorityHtml}</div>
+            <div class="section-label">📊 วันนี้</div>
+            <div class="mini-stats">
+                <div class="mini-stat"><div class="ms-label">รายได้วันนี้</div><div class="ms-val">฿${Number(todayRev).toLocaleString()}</div><div style="font-size:0.75rem;color:${todayChange>=0?"var(--success)":"var(--error)"};font-weight:600;margin-top:0.2rem;">${todayChange>=0?"↑":"↓"} ${Math.abs(todayChange)}% vs เมื่อวาน</div></div>
+                <div class="mini-stat"><div class="ms-label">รายได้สัปดาห์นี้</div><div class="ms-val">฿${Number(weekRev).toLocaleString()}</div></div>
+                <div class="mini-stat"><div class="ms-label">รายได้เดือนนี้</div><div class="ms-val">฿${Number(monthRev).toLocaleString()}</div></div>
+                <div class="mini-stat"><div class="ms-label">หมดอายุวันนี้</div><div class="ms-val">${expToday}</div></div>
+            </div>
+            <div class="section-label">⚡ Quick Actions</div>
+            <div class="qa-grid">
+                <button class="qa-btn" onclick="openGroupBroadcastModal()">📣 บอกข่าวลงกลุ่ม</button>
+                <button class="qa-btn" onclick="navigate('promotions')">🎁 จัดโปร</button>
+                <button class="qa-btn" onclick="settingsTab='botmsg';navigate('settings');">💬 แก้คำพูดบอท</button>
+                <button class="qa-btn" onclick="navigate('customers')">🔍 หาลูกค้า</button>
+                <button class="qa-btn" onclick="openDailyReportModal()">📊 รายงานวันนี้</button>
+                <button class="qa-btn" onclick="openExportsModal()">📥 Export Excel</button>
+                <button class="qa-btn" onclick="navigate('receivers')">💳 บัญชีรับเงิน</button>
+                <button class="qa-btn" onclick="navigate('gacha')">🎰 กาชา</button>
+            </div>
+            <div style="margin-top:1.5rem;padding:1rem 1.25rem;background:var(--surface-2);border-radius:var(--radius);font-size:0.8rem;color:var(--text-muted);">
+                💡 หน้านี้คือ "งานวันนี้" — เปิดเช้ามาดูที่นี่ก่อน · ที่ <span class="tag" style="background:rgba(247,176,69,0.1);color:var(--primary);padding:0.1rem 0.5rem;border-radius:6px;font-weight:600;">🚦 ฟีเจอร์ใหม่</span> ในแท็บ <a href="javascript:navigate(\'settings\')" style="color:var(--accent);">ตั้งค่า</a> เปิด/ปิด feature ใหม่ได้
+            </div>
+        `;
+    } catch (e) {
+        content.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>โหลดไม่สำเร็จ: ${esc(e.message)}</p></div>`;
+    }
+}
+
+// ----- Feature Flags tab -----
+async function loadFeatureFlags() {
+    const area = document.getElementById('settings-area');
+    try {
+        const flags = await api('/feature-flags');
+        let html = `<div style="background:rgba(247,176,69,0.08);border:1px solid rgba(247,176,69,0.3);border-radius:var(--radius-lg);padding:0.9rem 1.1rem;margin-bottom:1rem;">
+            <div style="font-weight:600;color:var(--warning);margin-bottom:0.2rem;">🚦 Feature Flags = สวิตช์เปิด/ปิด</div>
+            <div style="font-size:0.85rem;color:var(--text-muted);">ใหม่ทุก feature จะมี flag ที่นี่ · default = OFF (ใช้พฤติกรรมเดิม) · เปิด ON สำหรับลูกค้าทุกคนได้เฉพาะ Owner</div>
+        </div>`;
+        html += '<div class="table-wrap"><table><thead><tr><th>Feature</th><th>คำอธิบาย</th><th>Scope</th><th>สถานะ</th><th>Action</th></tr></thead><tbody>';
+        flags.forEach(f => {
+            const statusColor = f.enabled ? 'var(--success)' : 'var(--text-dim)';
+            const statusText = f.enabled ? '✅ ON' : '⏸ OFF';
+            html += `<tr>
+                <td><code style="font-family:var(--font-mono);font-size:0.8rem;">${esc(f.flag_key)}</code></td>
+                <td style="font-size:0.85rem;color:var(--text-muted);">${esc(f.description || '')}</td>
+                <td><span class="tag" style="background:var(--surface-2);padding:0.15rem 0.5rem;border-radius:6px;font-size:0.75rem;">${esc(f.scope)}</span></td>
+                <td style="color:${statusColor};font-weight:600;">${statusText}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline" onclick="toggleFlag('${esc(f.flag_key)}', ${!f.enabled})">${f.enabled ? '⏸ ปิด' : '▶ เปิด'}</button>
+                    <button class="btn btn-sm btn-outline" onclick="editFlagScope('${esc(f.flag_key)}', '${esc(f.scope)}', ${JSON.stringify(f.canary_user_ids || []).replace(/"/g,'&quot;')})">⚙️ Scope</button>
+                </td>
+            </tr>`;
+        });
+        html += '</tbody></table></div>';
+        area.innerHTML = html;
+    } catch (e) {
+        area.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>${esc(e.message)}</p></div>`;
+    }
+}
+
+async function toggleFlag(flagKey, newEnabled) {
+    try {
+        await api(`/feature-flags/${flagKey}`, { method: 'PATCH', body: JSON.stringify({ enabled: newEnabled }) });
+        toast(`✅ ${flagKey} → ${newEnabled ? 'ON' : 'OFF'}`, 'success');
+        loadFeatureFlags();
+    } catch (e) { toast('❌ ' + e.message, 'error'); }
+}
+
+function editFlagScope(flagKey, currentScope, canaryIds) {
+    openModal('⚙️ Scope: ' + flagKey, `
+        <div class="form-group">
+            <label>ใครได้ feature นี้?</label>
+            <select id="flag-scope">
+                <option value="all" ${currentScope==='all'?'selected':''}>ทุกคน (ลูกค้าทั้งหมด)</option>
+                <option value="admin" ${currentScope==='admin'?'selected':''}>เฉพาะ admin เท่านั้น</option>
+                <option value="canary" ${currentScope==='canary'?'selected':''}>เฉพาะ user ที่ระบุ (canary test)</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Canary Telegram IDs (คั่นด้วย comma)</label>
+            <input id="flag-canary" placeholder="เช่น 8502597269,1234567890" value="${(canaryIds||[]).join(',')}">
+            <small style="color:var(--text-dim);">ใช้เฉพาะเมื่อ scope = canary</small>
+        </div>
+        <button class="btn btn-primary btn-full" onclick="saveFlagScope('${flagKey}')">💾 บันทึก</button>
+    `);
+}
+
+async function saveFlagScope(flagKey) {
+    const scope = document.getElementById('flag-scope').value;
+    const canaryStr = document.getElementById('flag-canary').value || '';
+    const canary_user_ids = canaryStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+    try {
+        await api(`/feature-flags/${flagKey}`, { method: 'PATCH', body: JSON.stringify({ scope, canary_user_ids }) });
+        toast('✅ บันทึก scope แล้ว', 'success');
+        closeModal();
+        loadFeatureFlags();
+    } catch (e) { toast('❌ ' + e.message, 'error'); }
+}
+
+// ----- Bot Messages tab -----
+async function loadBotMessages() {
+    const area = document.getElementById('settings-area');
+    try {
+        const msgs = await api('/bot-messages');
+        let html = `<div style="background:rgba(0,112,243,0.06);border:1px solid rgba(0,112,243,0.2);border-radius:var(--radius-lg);padding:0.9rem 1.1rem;margin-bottom:1rem;">
+            <div style="font-weight:600;color:var(--accent);margin-bottom:0.2rem;">💬 คำพูดบอท</div>
+            <div style="font-size:0.85rem;color:var(--text-muted);">แก้ข้อความที่ลูกค้าเห็น · มี version history + undo · ต้องเปิด flag <code>bot_messages_enabled</code> ที่ tab "🚦 ฟีเจอร์ใหม่" ก่อนถึงจะใช้งาน</div>
+        </div>
+        <button class="btn btn-primary" onclick="showCreateMessage()" style="margin-bottom:1rem;">+ เพิ่มคำพูดใหม่</button>`;
+
+        if (!msgs.length) {
+            html += `<div class="empty-state" style="padding:3rem 1rem;"><div class="icon">💬</div><p>ยังไม่มีคำพูดบอทในระบบ — ทุกอย่างใช้ค่า hardcoded เดิม<br>เพิ่มคำพูดใหม่เพื่อเริ่มใช้งาน DB-managed</p></div>`;
+        } else {
+            const byCat = {};
+            msgs.forEach(m => { (byCat[m.category] = byCat[m.category] || []).push(m); });
+            Object.entries(byCat).forEach(([cat, items]) => {
+                html += `<h3 style="font-size:0.85rem;margin:1rem 0 0.5rem;color:var(--text-muted);">📁 ${esc(cat)}</h3>`;
+                html += '<div class="table-wrap"><table><thead><tr><th>Key</th><th>คำอธิบาย</th><th>ข้อความ (preview)</th><th>แก้ล่าสุด</th><th></th></tr></thead><tbody>';
+                items.forEach(m => {
+                    const preview = (m.content_html || '').replace(/<[^>]*>/g,'').substring(0, 80);
+                    html += `<tr>
+                        <td><code style="font-family:var(--font-mono);font-size:0.75rem;">${esc(m.message_key)}</code></td>
+                        <td style="font-size:0.8rem;">${esc(m.description || '')}</td>
+                        <td style="font-size:0.8rem;color:var(--text-muted);">${esc(preview)}${preview.length >= 80 ? '...' : ''}</td>
+                        <td style="font-size:0.75rem;color:var(--text-dim);">${m.updated_at ? fmtDateTime(m.updated_at) : '-'}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline" onclick="editBotMessage('${esc(m.message_key)}')">✏️ แก้</button>
+                            ${admin && admin.role === 'owner' ? `<button class="btn btn-sm btn-outline" onclick="deleteBotMessage('${esc(m.message_key)}')">🗑</button>` : ''}
+                        </td>
+                    </tr>`;
+                });
+                html += '</tbody></table></div>';
+            });
+        }
+        area.innerHTML = html;
+    } catch (e) {
+        area.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>${esc(e.message)}</p></div>`;
+    }
+}
+
+function showCreateMessage() {
+    openModal('+ เพิ่มคำพูดใหม่', `
+        <div class="form-group"><label>Key (เช่น welcome_new)</label><input id="bm-key" placeholder="welcome_new"></div>
+        <div class="form-group"><label>คำอธิบาย (ให้ลูกน้องเข้าใจ)</label><input id="bm-desc" placeholder="ข้อความ /start ลูกค้าใหม่"></div>
+        <div class="form-group"><label>Category</label>
+            <select id="bm-cat">
+                <option value="start">start (เริ่มแชท)</option>
+                <option value="packages">packages (แพ็กเกจ)</option>
+                <option value="payment">payment (จ่ายเงิน)</option>
+                <option value="welcome">welcome (ต้อนรับ VIP)</option>
+                <option value="renewal">renewal (เตือนต่ออายุ)</option>
+                <option value="expired">expired (หมดอายุ)</option>
+                <option value="general">general (อื่นๆ)</option>
+            </select>
+        </div>
+        <div class="form-group"><label>เนื้อหา HTML</label><textarea id="bm-content" style="min-height:140px;font-family:var(--font-mono);font-size:0.85rem;" placeholder="<b>สวัสดีค่า~</b>&#10;ยินดีต้อนรับสู่ VIP เจริญพร"></textarea></div>
+        <button class="btn btn-primary btn-full" onclick="createBotMessage()">💾 บันทึก</button>
+    `);
+}
+
+async function createBotMessage() {
+    const body = {
+        message_key: document.getElementById('bm-key').value.trim(),
+        description: document.getElementById('bm-desc').value.trim(),
+        category: document.getElementById('bm-cat').value,
+        content_html: document.getElementById('bm-content').value,
+    };
+    if (!body.message_key || !body.content_html) { toast('กรอกครบทุกช่อง', 'error'); return; }
+    try {
+        await api('/bot-messages', { method: 'POST', body: JSON.stringify(body) });
+        toast('✅ เพิ่มแล้ว', 'success');
+        closeModal();
+        loadBotMessages();
+    } catch (e) { toast('❌ ' + e.message, 'error'); }
+}
+
+async function editBotMessage(key) {
+    try {
+        const m = await api(`/bot-messages/${encodeURIComponent(key)}`);
+        const versionsHtml = (m.versions || []).slice(0, 5).map(v => `
+            <div style="padding:0.5rem;background:var(--surface-2);border-radius:6px;margin-bottom:0.3rem;font-size:0.75rem;">
+                <div style="color:var(--text-dim);">${fmtDateTime(v.changed_at)} · ${esc(v.change_note || '')}</div>
+                <button class="btn btn-sm btn-outline" onclick="restoreVersion('${esc(key)}', ${v.id})" style="margin-top:0.3rem;">⏮ ย้อนกลับ version นี้</button>
+            </div>
+        `).join('');
+        openModal('✏️ แก้คำพูด: ' + key, `
+            <div class="form-group"><label>คำอธิบาย</label><input id="bm-desc-edit" value="${esc(m.description || '')}"></div>
+            <div class="form-group"><label>เนื้อหา HTML</label>
+                <textarea id="bm-content-edit" style="min-height:200px;font-family:var(--font-mono);font-size:0.85rem;">${esc(m.content_html || '')}</textarea>
+            </div>
+            <div class="form-group"><label>หมายเหตุการแก้ (optional)</label><input id="bm-note-edit" placeholder="เช่น เพิ่ม emoji หัวข้อ"></div>
+            <button class="btn btn-primary btn-full" onclick="saveBotMessage('${esc(key)}')">💾 บันทึก + เก็บ version</button>
+            ${versionsHtml ? `<div style="margin-top:1rem;"><h4 style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.5rem;">📜 Version history (5 ล่าสุด)</h4>${versionsHtml}</div>` : ''}
+        `);
+    } catch (e) { toast('❌ ' + e.message, 'error'); }
+}
+
+async function saveBotMessage(key) {
+    const body = {
+        content_html: document.getElementById('bm-content-edit').value,
+        description: document.getElementById('bm-desc-edit').value.trim(),
+        change_note: document.getElementById('bm-note-edit').value.trim() || 'manual edit',
+    };
+    try {
+        await api(`/bot-messages/${encodeURIComponent(key)}`, { method: 'PATCH', body: JSON.stringify(body) });
+        toast('✅ บันทึกแล้ว', 'success');
+        closeModal();
+        loadBotMessages();
+    } catch (e) { toast('❌ ' + e.message, 'error'); }
+}
+
+async function restoreVersion(key, versionId) {
+    if (!confirm('ย้อนกลับไป version นี้?')) return;
+    try {
+        await api(`/bot-messages/${encodeURIComponent(key)}/restore/${versionId}`, { method: 'POST' });
+        toast('✅ ย้อนกลับแล้ว', 'success');
+        closeModal();
+        loadBotMessages();
+    } catch (e) { toast('❌ ' + e.message, 'error'); }
+}
+
+async function deleteBotMessage(key) {
+    if (!confirm(`ลบคำพูด "${key}"? ระบบจะ fallback ไปใช้ค่า hardcoded`)) return;
+    try {
+        await api(`/bot-messages/${encodeURIComponent(key)}`, { method: 'DELETE' });
+        toast('✅ ลบแล้ว', 'success');
+        loadBotMessages();
+    } catch (e) { toast('❌ ' + e.message, 'error'); }
 }
 

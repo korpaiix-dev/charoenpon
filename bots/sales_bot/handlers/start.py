@@ -471,7 +471,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # SOCIAL_PROOF_V1 — send welcome photo + dynamic caption + dynamic keyboard
     # FLASH_AWARE: pick image based on active flash sale (03_flash1.png if active)
     try:
-        caption = await social_proof.build_welcome_caption(tg_user.first_name)
+        caption = await social_proof.build_welcome_caption(
+            tg_user.first_name,
+            telegram_id=tg_user.id,
+            is_new_user=is_new_user,
+        )
         img_path = await social_proof.pick_welcome_image_dynamic()
         if img_path and img_path.exists():
             with open(img_path, "rb") as f:
@@ -520,7 +524,11 @@ async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     tg_user = update.effective_user
     kb = await _build_main_keyboard(tg_user.id)
     try:
-        caption = await social_proof.build_welcome_caption(tg_user.first_name)
+        caption = await social_proof.build_welcome_caption(
+            tg_user.first_name,
+            telegram_id=tg_user.id,
+            is_new_user=False,
+        )
     except Exception:
         caption = WELCOME_TEXT
     # SAFE_NAV — handles photo origin
