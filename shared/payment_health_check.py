@@ -154,6 +154,10 @@ async def health_check_payment_system():
         from shared.database import get_session
         from sqlalchemy import text as _t
         async with get_session() as s:
+            # FIX 2026-06-27: also exclude payments approved via GACHA branch
+            # (customer started with package_id=VIP/etc but switched to gacha at checkout —
+            # payment.package_id stays original but actual processing was gacha branch,
+            # which awards sub via pull mechanism with payment_id=NULL)
             r = await s.execute(_t("""
                 SELECT COUNT(*) FROM payments p
                 JOIN packages pk ON pk.id = p.package_id
@@ -166,6 +170,12 @@ async def health_check_payment_system():
                         AND s.package_id = p.package_id
                         AND s.status::text = 'ACTIVE'
                         AND s.created_at >= p.created_at - INTERVAL '5 minutes'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM admin_logs al
+                      WHERE al.target_type = 'payment'
+                        AND al.target_id = p.id
+                        AND al.action IN ('payment_approved_gacha', 'gacha_grant')
                   )
             """))
             n = r.scalar() or 0
