@@ -89,3 +89,113 @@ async def ws_events(websocket: WebSocket, token: Optional[str] = Query(None)):
             await websocket.close()
         except Exception:
             pass
+
+
+# ==================================================================
+# Phase A.4 (2026-06-27): Live docker logs streamer
+# ==================================================================
+ALLOWED_CONTAINERS = {
+    "charoenpon-sales-bot",
+    "charoenpon-guardian-bot",
+    "charoenpon-admin-bot",
+    "charoenpon-relay-bot",
+    "charoenpon-dashboard",
+    "charoenpon-discord-bot",
+}
+
+
+@router.websocket("/logs/{container}")
+async def ws_container_logs(websocket: WebSocket, container: str, token: Optional[str] = Query(None)):
+    """Stream `docker logs -f --tail=200 <container>` over WebSocket.
+
+    Client: const ws = new WebSocket(`/api/ws/logs/charoenpon-sales-bot?token=${token}`);
+    ws.onmessage = (e) => { const m = JSON.parse(e.data); /* m.line / m.eof */ };
+    """
+    # Auth
+    try:
+        payload = decode_token(token or "")
+        if not payload:
+            await websocket.close(code=1008, reason="invalid token")
+            return
+        # Admin-only
+        roles = payload.get("roles") or []
+        if "admin" not in roles and "owner" not in roles:
+            await websocket.close(code=1008, reason="admin only")
+            return
+    except Exception:
+        await websocket.close(code=1008, reason="auth failed")
+        return
+
+    # Whitelist check (prevent arbitrary docker exec abuse)
+    if container not in ALLOWED_CONTAINERS:
+        await websocket.close(code=1008, reason=f"container '{container}' not allowed")
+        return
+
+    await websocket.accept()
+    logger.info("[WS-LOGS] connected to %s by %s", container, payload.get("telegram_id"))
+
+    import subprocess as _subp
+    import asyncio as _aio
+    proc = None
+    try:
+        proc = await _aio.create_subprocess_exec(
+            "docker", "logs", "--tail", "200", "-f", container,
+            stdout=_subp.PIPE, stderr=_subp.STDOUT,
+        )
+        # Send heartbeat task
+        async def _heartbeat():
+            while True:
+                await _aio.sleep(15)
+                try:
+                    await websocket.send_text(json.dumps({"type": "ping", "ts": int(time.time())}))
+                except Exception:
+                    return
+        hb_task = _aio.create_task(_heartbeat())
+
+        # Read stream line-by-line
+        assert proc.stdout is not None
+        while True:
+            try:
+                line = await _aio.wait_for(proc.stdout.readline(), timeout=60.0)
+            except _aio.TimeoutError:
+                continue  # heartbeat already sent
+            if not line:
+                break
+            try:
+                text = line.decode("utf-8", errors="ignore").rstrip("\n")
+            except Exception:
+                text = "<binary log>"
+            try:
+                await websocket.send_text(json.dumps({"type": "line", "container": container, "line": text}))
+            except WebSocketDisconnect:
+                break
+            except Exception:
+                break
+        hb_task.cancel()
+        try:
+            await websocket.send_text(json.dumps({"type": "eof"}))
+        except Exception:
+            pass
+    except WebSocketDisconnect:
+        logger.info("[WS-LOGS] disconnected from %s", container)
+    except Exception as exc:
+        logger.warning("[WS-LOGS] error: %s", exc)
+        try:
+            await websocket.send_text(json.dumps({"type": "error", "error": str(exc)[:200]}))
+        except Exception:
+            pass
+    finally:
+        if proc:
+            try:
+                proc.terminate()
+                await _aio.wait_for(proc.wait(), timeout=2.0)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+

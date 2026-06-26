@@ -366,3 +366,32 @@ async def delete_admin_id(
         "removed": tid,
         "restarts": restart_results,
     }
+
+
+# ==================================================================
+# Phase A.4 (2026-06-27): Restart container (whitelist)
+# ==================================================================
+_RESTART_WHITELIST = {
+    "charoenpon-sales-bot",
+    "charoenpon-guardian-bot",
+    "charoenpon-admin-bot",
+    "charoenpon-relay-bot",
+    "charoenpon-discord-bot",
+    # NOT dashboard (would kill our own request)
+}
+
+
+@router.post("/bots/{container}/restart")
+async def restart_container(container: str, _admin=Depends(require_role("admin"))) -> dict:
+    """Restart a whitelisted docker container. Owner-only operation."""
+    if container not in _RESTART_WHITELIST:
+        raise HTTPException(status_code=400, detail=f"container {container} not in whitelist")
+    import subprocess as _subp
+    try:
+        r = _subp.run(["docker", "restart", container], capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            raise HTTPException(status_code=500, detail=f"restart failed: {r.stderr[:200]}")
+        return {"ok": True, "container": container, "output": r.stdout.strip()}
+    except _subp.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="restart timed out")
+

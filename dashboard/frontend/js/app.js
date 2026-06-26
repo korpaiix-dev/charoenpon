@@ -2608,6 +2608,7 @@ async function renderPromotions() {
             <div class="tab ${promoTab==='flash'?'active':''}" onclick="promoTab='flash';renderPromotions()">⚡ Flash Sale</div>
             <div class="tab ${promoTab==='code'?'active':''}" onclick="promoTab='code';renderPromotions()">🎟 Promo Code</div>
             <div class="tab ${promoTab==='scheduled'?'active':''}" onclick="promoTab='scheduled';renderPromotions()">📅 ตั้งเวลาโปรโมท</div>
+            <div class="tab ${promoTab==='bots'?'active':''}" onclick="promoTab='bots';renderPromotions()">🤖 บอท</div>
         </div>
         <div id="promo-content"><div class="loading"><div class="spinner"></div></div></div>
     `;
@@ -2615,6 +2616,7 @@ async function renderPromotions() {
     else if (promoTab === 'performance') loadPromoPerformance();
     else if (promoTab === 'flash') loadFlashSales();
     else if (promoTab === 'code') loadPromoCodes();
+    else if (promoTab === 'bots') loadBotsStatus();
     else loadScheduledPromos();
 }
 
@@ -6545,6 +6547,162 @@ async function renderRelayWidget(containerId) {
             </div>`;
     } catch (e) {
         el.innerHTML = '<div style="padding:0.5rem;color:var(--error);font-size:0.85rem;">' + e.message + '</div>';
+    }
+}
+
+// ==================================================================
+// Phase A.4 (2026-06-27): Live log streamer (docker logs over WS)
+// ==================================================================
+let _logWs = null;
+function openBotLogStream(container) {
+    // Map common keys to actual container names
+    const MAP = {
+        'sales': 'charoenpon-sales-bot',
+        'sales-bot': 'charoenpon-sales-bot',
+        'sales_bot': 'charoenpon-sales-bot',
+        'guardian': 'charoenpon-guardian-bot',
+        'guardian-bot': 'charoenpon-guardian-bot',
+        'admin': 'charoenpon-admin-bot',
+        'admin-bot': 'charoenpon-admin-bot',
+        'relay': 'charoenpon-relay-bot',
+        'relay-bot': 'charoenpon-relay-bot',
+        'dashboard': 'charoenpon-dashboard',
+        'discord': 'charoenpon-discord-bot',
+        'discord-bot': 'charoenpon-discord-bot',
+    };
+    const name = MAP[container] || container;
+
+    // Close any existing
+    if (_logWs) { try { _logWs.close(); } catch (e) {} _logWs = null; }
+
+    openModal(`📋 Log — ${name}`, `
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
+            <span id="log-status" style="font-size:0.8rem;color:var(--text-dim);">เชื่อมต่อ...</span>
+            <button class="btn btn-sm btn-outline" onclick="document.getElementById('log-pre').textContent='';" style="margin-left:auto;">🗑 Clear</button>
+            <label style="font-size:0.8rem;display:flex;align-items:center;gap:0.3rem;cursor:pointer;">
+                <input type="checkbox" id="log-autoscroll" checked> auto-scroll
+            </label>
+            <button class="btn btn-sm btn-outline" id="log-pause-btn" onclick="toggleLogPause()">⏸ Pause</button>
+        </div>
+        <pre id="log-pre" style="background:#0a0a0a;color:#0f0;padding:0.6rem;border-radius:6px;height:60vh;overflow-y:auto;font-size:0.75rem;font-family:var(--font-mono,monospace);line-height:1.3;white-space:pre-wrap;word-break:break-all;"></pre>
+    `, '', 'wide');
+
+    const _logToken = (typeof token !== 'undefined' && token) ? token : (localStorage.getItem('jwt') || '');
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = `${proto}//${location.host}/ws/logs/${encodeURIComponent(name)}?token=${encodeURIComponent(_logToken)}`;
+    const ws = new WebSocket(url);
+    _logWs = ws;
+    window._logPaused = false;
+
+    ws.onopen = () => {
+        const el = document.getElementById('log-status');
+        if (el) el.innerHTML = '🟢 LIVE';
+    };
+    ws.onmessage = (ev) => {
+        if (window._logPaused) return;
+        try {
+            const m = JSON.parse(ev.data);
+            const pre = document.getElementById('log-pre');
+            if (!pre) return;
+            if (m.type === 'line') {
+                pre.textContent += m.line + '\n';
+                // Trim to last 5000 lines worth
+                if (pre.textContent.length > 500000) {
+                    pre.textContent = pre.textContent.slice(-300000);
+                }
+                if (document.getElementById('log-autoscroll')?.checked) {
+                    pre.scrollTop = pre.scrollHeight;
+                }
+            } else if (m.type === 'eof') {
+                const st = document.getElementById('log-status');
+                if (st) st.innerHTML = '⚪ EOF';
+            } else if (m.type === 'error') {
+                const st = document.getElementById('log-status');
+                if (st) st.innerHTML = '🔴 error: ' + m.error;
+            }
+            // ping → ignore
+        } catch (e) {}
+    };
+    ws.onerror = () => {
+        const el = document.getElementById('log-status');
+        if (el) el.innerHTML = '🔴 connection error';
+    };
+    ws.onclose = (ev) => {
+        const el = document.getElementById('log-status');
+        if (el) el.innerHTML = '⚪ closed' + (ev.reason ? ': ' + ev.reason : '');
+        _logWs = null;
+    };
+}
+
+function toggleLogPause() {
+    window._logPaused = !window._logPaused;
+    const btn = document.getElementById('log-pause-btn');
+    if (btn) btn.textContent = window._logPaused ? '▶ Resume' : '⏸ Pause';
+}
+
+// Close log WS when modal closes (defensive)
+window.addEventListener('beforeunload', () => {
+    if (_logWs) { try { _logWs.close(); } catch (e) {} _logWs = null; }
+});
+
+// ==================================================================
+// Phase A.4 (2026-06-27): Bots status + live log button
+// ==================================================================
+async function loadBotsStatus() {
+    const el = document.getElementById('promo-content');
+    if (!el) return;
+    el.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+    const BOTS = [
+        { container: 'charoenpon-sales-bot', name: 'Sales Bot (Prae)', icon: '🤖', desc: 'รับสลิป + ขายแพ็กเกจ + AI ตอบลูกค้า' },
+        { container: 'charoenpon-guardian-bot', name: 'Guardian Bot', icon: '🛡', desc: 'ตรวจสมาชิกในกลุ่ม + ban' },
+        { container: 'charoenpon-admin-bot', name: 'Admin Bot', icon: '👨‍💼', desc: 'แจ้งเตือนแอดมิน + คำสั่ง admin' },
+        { container: 'charoenpon-relay-bot', name: 'Relay Bot', icon: '🔄', desc: 'forward โพสต์จาก VGOD ไปกลุ่มฟรี' },
+        { container: 'charoenpon-discord-bot', name: 'Discord Bot', icon: '💬', desc: 'รายงานทีม + Prae Discord' },
+        { container: 'charoenpon-dashboard', name: 'Dashboard', icon: '📊', desc: 'หน้าเว็บนี้' },
+    ];
+
+    // Fetch live status via simple endpoint (use existing /api/bots if available, else check via container_running)
+    let statuses = {};
+    try {
+        // Use a simple ping: try fetching /api/dashboard/today as proxy that dashboard is up
+        // For other bots, we'll show "ดู log" — the WS will fail-close if container is dead
+        statuses = {}; // placeholder; UI shows "?" status, click log to see
+    } catch (e) {}
+
+    el.innerHTML = `
+        <div style="background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.2);border-radius:8px;padding:0.75rem 1rem;margin-bottom:1rem;font-size:0.85rem;color:var(--text-muted);">
+            💡 <b>วิธีใช้:</b> คลิก "📋 ดู log สด" เพื่อดูข้อความบอตแบบ real-time เหมือนใน terminal
+            <br>หาก log ค้างนิ่งนาน → บอตอาจค้าง / แจ้ง dev
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:0.75rem;">
+            ${BOTS.map(b => `
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1rem;">
+                    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem;">
+                        <span style="font-size:1.4rem;">${b.icon}</span>
+                        <div>
+                            <div style="font-weight:600;font-size:0.95rem;">${b.name}</div>
+                            <div style="font-size:0.7rem;color:var(--text-dim);font-family:var(--font-mono,monospace);">${b.container}</div>
+                        </div>
+                    </div>
+                    <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.7rem;">${b.desc}</div>
+                    <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+                        <button class="btn btn-sm btn-primary" onclick="openBotLogStream('${b.container}')">📋 ดู log สด</button>
+                        <button class="btn btn-sm btn-outline" onclick="restartBotContainer('${b.container}')" title="restart container (ต้องยืนยัน)">♻️ Restart</button>
+                    </div>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+async function restartBotContainer(container) {
+    if (!confirm('⚠️ Restart ' + container + '?\n\nบอตจะ offline ~5-10 วินาที\nลูกค้าที่กำลังใช้งานอาจเจอ timeout 1 ครั้ง\n\nยืนยัน?')) return;
+    try {
+        const r = await api('/bots/' + encodeURIComponent(container) + '/restart', { method: 'POST' });
+        showToast('✅ ' + container + ' restarting...', 'success');
+        setTimeout(() => loadBotsStatus(), 2000);
+    } catch (e) {
+        showToast('❌ ' + e.message, 'error');
     }
 }
 
