@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
+from .test_mode import test_mode_middleware, TEST_MODE
 import os
 
 from .database import init_db, close_db
@@ -55,6 +56,13 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+# Phase A.2 (2026-06-27): test mode middleware — blocks destructive methods
+# when DASHBOARD_TEST_MODE env is true. Real production has it false/unset.
+app.middleware("http")(test_mode_middleware)
+if TEST_MODE:
+    import logging as _log
+    _log.getLogger(__name__).warning("🟡 DASHBOARD_TEST_MODE = ON — destructive HTTP methods will be blocked")
 
 # API Routers
 app.include_router(auth_router)

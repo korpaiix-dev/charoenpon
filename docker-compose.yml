@@ -235,6 +235,31 @@ services:
       - ./dashboard-staging/docs:/usr/share/nginx/spec:ro
 
 
+  dashboard-test:
+    # Phase A.2 (2026-06-27): TEST MODE clone of dashboard on port 8012
+    # ALL POST/PATCH/DELETE blocked → boss can click anything safely.
+    # GET passes through → real data still visible.
+    container_name: charoenpon-dashboard-test
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    ports:
+      - "8012:8010"
+    env_file:
+      - .env
+    environment:
+      DASHBOARD_TEST_MODE: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./.env:/app/host.env
+      - ./docker-compose.yml:/app/docker-compose.yml:ro
+      - ./dashboard/frontend:/app/dashboard/frontend:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+
 volumes:
   postgres_data:
     driver: local

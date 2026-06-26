@@ -212,6 +212,7 @@ function showApp() {
     renderSidebar();
     (restoreLastPage() || navigate('dashboard'));
     startAlertPolling();
+    checkTestMode();  // Phase A.2
 }
 
 function renderSidebar() {
@@ -4490,7 +4491,7 @@ function startLiveUpdates() {
             dot = document.createElement('span');
             dot.id = 'ws-live-dot';
             dot.style.cssText = 'display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--success);margin-right:0.35rem;animation:pulseDot 1.5s infinite;vertical-align:middle;';
-            dot.title = 'Live updates connected';
+            dot.title = '🟢 ระบบ Live Update ทำงาน — แจ้งเตือนทันทีเมื่อมีสลิปใหม่/SOS';
             const right = document.querySelector('.top-bar-right');
             if (right) right.insertBefore(dot, right.firstChild);
         }
@@ -6271,5 +6272,24 @@ async function deleteCustomerNote(userId, noteId) {
         toast('✅ ลบแล้ว', 'success');
         renderCustomerNotes(userId, 'notes-' + userId);
     } catch (err) { toast('❌ ' + err.message, 'error'); }
+}
+
+// ==================================================================
+// Phase A.2 (2026-06-27): Test mode banner — detects X-Dashboard-Test-Mode header
+// ==================================================================
+async function checkTestMode() {
+    try {
+        const resp = await fetch("/api/dashboard/alerts", {
+            headers: token ? { "Authorization": "Bearer " + token } : {}
+        });
+        if (resp.headers.get("X-Dashboard-Test-Mode") === "true" && !document.getElementById("test-mode-banner")) {
+            const banner = document.createElement("div");
+            banner.id = "test-mode-banner";
+            banner.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,#DC2626 0%,#991B1B 100%);color:white;text-align:center;padding:0.5rem 1rem;font-weight:700;font-size:0.85rem;letter-spacing:0.05em;box-shadow:0 2px 8px rgba(0,0,0,0.3);";
+            banner.innerHTML = "🟡 <b>TEST MODE</b> — กดอะไรก็ได้ ไม่กระทบลูกค้าจริง · ทุก action ถูก block ไม่เก็บใน DB";
+            document.body.appendChild(banner);
+            document.body.style.paddingTop = "40px";
+        }
+    } catch (_e) {}
 }
 
