@@ -18,6 +18,7 @@ from telegram.ext import (
 from shared.database import get_session
 from shared.models import Lead, LeadStatus, User
 from bots.sales_bot.handlers import social_proof  # SOCIAL_PROOF_V1
+from shared.bot_messages import render_or_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +60,12 @@ async def _handle_comeback_start(update: Update, context: ContextTypes.DEFAULT_T
     if not promo:
         # FIX: use dynamic keyboard so referral button shows
         kb = await _build_main_keyboard(update.effective_user.id) if update.effective_user else MAIN_KEYBOARD
+        _promo_expired_txt = await render_or_fallback(
+            "promo_expired_msg",
+            "❌ โปรโมชั่นนี้หมดอายุหรือไม่ถูกต้องแล้วค่ะ\n\nกดดูแพ็กเกจราคาปกติได้เลยนะคะ 👇",
+        )
         await update.message.reply_text(
-            "❌ โปรโมชั่นนี้หมดอายุหรือไม่ถูกต้องแล้วค่ะ\n\n"
-            "กดดูแพ็กเกจราคาปกติได้เลยนะคะ 👇",
+            _promo_expired_txt,
             parse_mode="HTML",
             reply_markup=kb,
         )
@@ -547,12 +551,9 @@ async def free_room_callback(
     except Exception:
         pass  # callback may be too old / already answered
 
-    text = (
-        "🆓 <b>ห้องฟรี</b>\n\n"
-        "เรามีห้องทดลองให้ดูก่อนตัดสินใจค่ะ\n"
-        "สามารถเข้าไปดูบรรยากาศและคุณภาพสัญญาณได้เลย\n\n"
-        "📌 กดปุ่มด้านล่างเพื่อขอลิงก์เข้าห้องฟรีค่ะ\n\n"
-        "หากสนใจอัปเกรดเป็น VIP ทักแพรได้เลยนะคะ 😊"
+    text = await render_or_fallback(
+        "free_room_intro",
+        "🆓 <b>ห้องฟรี</b>\n\nเรามีห้องทดลองให้ดูก่อนตัดสินใจค่ะ\nสามารถเข้าไปดูบรรยากาศและคุณภาพสัญญาณได้เลย\n\n📌 กดปุ่มด้านล่างเพื่อขอลิงก์เข้าห้องฟรีค่ะ\n\nหากสนใจอัปเกรดเป็น VIP ทักแพรได้เลยนะคะ 😊",
     )
     keyboard = InlineKeyboardMarkup(
         [

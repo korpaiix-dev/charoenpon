@@ -35,6 +35,7 @@ from shared.models import (
     User,
 )
 from shared.utils import log_admin_action
+from shared.bot_messages import render_or_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +146,7 @@ async def getlink_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     guardian_token = os.environ.get("GUARDIAN_BOT_TOKEN", "")
     if not guardian_token:
         logger.error("getlink: GUARDIAN_BOT_TOKEN not set")
-        await update.message.reply_text("⚠️ ระบบขัดข้องชั่วคราว กดปุ่มด้านล่างทักแอดมินได้เลยค่ะ", reply_markup=contact_admin_kb())
+        await update.message.reply_text(await render_or_fallback("system_error_temp", "⚠️ ระบบขัดข้องชั่วคราว กดปุ่มด้านล่างทักแอดมินได้เลยค่ะ"), reply_markup=contact_admin_kb())
         return
 
     guardian = tg.Bot(token=guardian_token)
@@ -153,7 +154,7 @@ async def getlink_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await guardian.initialize()
     except Exception as exc:
         logger.error("getlink: guardian.initialize() failed: %s", exc)
-        await update.message.reply_text("⚠️ ระบบขัดข้องชั่วคราว กดปุ่มด้านล่างทักแอดมินได้เลยค่ะ", reply_markup=contact_admin_kb())
+        await update.message.reply_text(await render_or_fallback("system_error_temp", "⚠️ ระบบขัดข้องชั่วคราว กดปุ่มด้านล่างทักแอดมินได้เลยค่ะ"), reply_markup=contact_admin_kb())
         return
 
     buttons: list[list[InlineKeyboardButton]] = []

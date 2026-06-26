@@ -99,6 +99,7 @@ from shared.utils import (
     format_thb,
     log_admin_action,
 )
+from shared.bot_messages import render_or_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -334,9 +335,10 @@ async def handle_photo_slip(
             except Exception:
                 pass
             await update.message.reply_text(
-                "⏳ ระบบประมวลผลสลิปอัตโนมัติหยุดทำงานชั่วคราวค่ะ\n\n"
-                "กรุณาส่งสลิปอีกครั้งใน 30 นาที หรือทักแอดมินโดยตรง 🙏\n"
-                "ติดต่อแอดมิน: @sperm6969"
+                await render_or_fallback(
+                    "slip_resubmit_30min",
+                    "⏳ ระบบประมวลผลสลิปอัตโนมัติหยุดทำงานชั่วคราวค่ะ\n\nกรุณาส่งสลิปอีกครั้งใน 30 นาที หรือทักแอดมินโดยตรง 🙏\nติดต่อแอดมิน: @sperm6969",
+                )
             )
             return
         logger.warning("AI screen failed, proceeding with OCR: %s", exc)
@@ -1391,8 +1393,10 @@ async def handle_photo_slip(
             except Exception:
                 pass
             await update.message.reply_text(
-                "⏳ ระบบประมวลผลสลิปอัตโนมัติหยุดทำงานชั่วคราวค่ะ\n\n"
-                "กรุณาส่งสลิปอีกครั้งใน 30 นาที 🙏"
+                await render_or_fallback(
+                    "slip_resubmit_simple",
+                    "⏳ ระบบประมวลผลสลิปอัตโนมัติหยุดทำงานชั่วคราวค่ะ\n\nกรุณาส่งสลิปอีกครั้งใน 30 นาที 🙏",
+                )
             )
             return
         logger.error("OCR failed: %s", exc)
@@ -1537,11 +1541,12 @@ async def handle_photo_slip(
 
     if payment_id is not None:
         await update.message.reply_text(
-            f"📩 <b>ได้รับสลิปแล้วค่ะ</b>\n\n"
-            f"💰 แพ็กเกจ: {format_thb(expected_price)}\n"
-            f"📋 หมายเลข: #PAY{payment_id}\n\n"
-            f"แอดมินจะตรวจสอบและแจ้งผลให้เร็วที่สุดค่ะ\n"
-            f"ขอบคุณที่รอนะคะ 🙏",
+            await render_or_fallback(
+                "thanks_waiting",
+                f"📩 <b>ได้รับสลิปแล้วค่ะ</b>\n\n💰 แพ็กเกจ: {format_thb(expected_price)}\n📋 หมายเลข: #PAY{payment_id}\n\nแอดมินจะตรวจสอบและแจ้งผลให้เร็วที่สุดค่ะ\nขอบคุณที่รอนะคะ 🙏",
+                price=format_thb(expected_price),
+                payment_id=payment_id,
+            ),
             parse_mode="HTML",
         )
 
@@ -1772,11 +1777,10 @@ async def handle_non_slip_payment(
 
     # Check if it's a document or sticker that isn't a slip/truemoney
     await update.message.reply_text(
-        "⚠️ ขออภัยค่ะ ระบบรับเฉพาะ:\n"
-        "1️⃣ <b>รูปสลิปโอนเงิน</b> (PromptPay/ธนาคาร)\n"
-        "2️⃣ <b>ลิงก์ซอง TrueMoney</b> (gift.truemoney.com)\n\n"
-        "QR Code หรือไฟล์อื่นๆ ไม่สามารถตรวจสอบได้ค่ะ\n"
-        "กรุณาส่งรูปสลิป หรือลิงก์ซอง TrueMoney นะคะ 🙏",
+        await render_or_fallback(
+            "slip_or_truemoney_prompt",
+            "⚠️ ขออภัยค่ะ ระบบรับเฉพาะ:\n1️⃣ <b>รูปสลิปโอนเงิน</b> (PromptPay/ธนาคาร)\n2️⃣ <b>ลิงก์ซอง TrueMoney</b> (gift.truemoney.com)\n\nQR Code หรือไฟล์อื่นๆ ไม่สามารถตรวจสอบได้ค่ะ\nกรุณาส่งรูปสลิป หรือลิงก์ซอง TrueMoney นะคะ 🙏",
+        ),
         parse_mode="HTML",
     )
 

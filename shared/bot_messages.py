@@ -98,3 +98,29 @@ def clear_cache(message_key: str | None = None) -> None:
         _cache.pop(message_key, None)
     else:
         _cache.clear()
+
+async def render_or_fallback(
+    message_key: str,
+    fallback: str,
+    *,
+    bypass_cache: bool = False,
+    **placeholders,
+) -> str:
+    """DB-first lookup with safe fallback. Never raises.
+
+    Order:
+      1. Try get_bot_message(key) — 60s cache
+      2. If returns content → render_placeholders → return
+      3. Else / on any error → return fallback (with placeholders rendered)
+
+    Safe to call on hot path. Drop-in replacement for hardcoded strings.
+    """
+    try:
+        db_msg = await get_bot_message(message_key, bypass_cache=bypass_cache)
+        if db_msg:
+            return render_placeholders(db_msg, **placeholders) if placeholders else db_msg
+    except Exception as exc:
+        logger.warning("render_or_fallback(%s) failed: %s", message_key, exc)
+    # Fallback: render placeholders in hardcoded text too
+    return render_placeholders(fallback, **placeholders) if placeholders else fallback
+

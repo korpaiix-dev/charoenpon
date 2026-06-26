@@ -12,6 +12,7 @@ from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
 from sqlalchemy import text as sql_text
 from shared.database import get_session
+from shared.bot_messages import render_or_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +142,7 @@ async def cb_gacha_pick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     acct = await pick_random()
     if not acct:
         from shared.contact_admin import contact_admin_kb as _cak
-        await q.edit_message_text("⚠️ ระบบไม่พร้อม กดปุ่มด้านล่างทักแอดมินได้เลยค่ะ", reply_markup=_cak())
+        await q.edit_message_text(await render_or_fallback("system_not_ready", "⚠️ ระบบไม่พร้อม กดปุ่มด้านล่างทักแอดมินได้เลยค่ะ"), reply_markup=_cak())
         return
 
     price_str = f"{bundle['price']:,}"
