@@ -538,10 +538,10 @@ function thRange(from, to) {
     if (from === to) return fmtDate(from);
     return `${fmtDate(from)} - ${fmtDate(to)}`;
 }
-let dashboardPeriod = 'month';
-let dashboardDateFrom = isoDate(new Date());
-let dashboardDateTo = isoDate(new Date());
-let dashboardMonth = isoMonth(new Date());
+var dashboardPeriod = 'month';
+var dashboardDateFrom = isoDate(new Date());
+var dashboardDateTo = isoDate(new Date());
+var dashboardMonth = isoMonth(new Date());
 
 function setDashboardQuick(type) {
     const now = new Date();
@@ -2182,7 +2182,7 @@ async function batchResolveAllSOS() {
     } catch (e) { toast(e.message, 'error'); }
 }
 
-let sosHistoryPage = 1, sosHistoryFilter = 'all';
+var sosHistoryPage = 1, sosHistoryFilter = 'all';
 async function showSOSHistory(page) {
     if (page) sosHistoryPage = page;
     try {
@@ -2566,7 +2566,7 @@ async function loadFinanceCharts() {
 }
 
 // ========== PAGE: PROMOTIONS ==========
-let promoTab = "comeback";
+var promoTab = "comeback";
 async function renderPromotions() {
     const content = document.getElementById('page-content');
     let statsHtml = '';
@@ -2953,7 +2953,7 @@ async function deleteScheduledPromo(id) {
 }
 
 // ========== PAGE: CONTENT ==========
-let contentTab = 'queue';
+var contentTab = 'queue';
 async function renderContent() {
     const content = document.getElementById('page-content');
     content.innerHTML = `
@@ -3432,7 +3432,7 @@ async function deleteTeam(id) {
 
 
 // ========== PAGE: SETTINGS ==========
-let settingsTab = 'packages';
+var settingsTab = 'packages';
 async function renderSettings() {
     const content = document.getElementById('page-content');
     content.innerHTML = `
@@ -4011,7 +4011,7 @@ async function inboxBulkReject() {
 }
 
 // ========== PAGE: PRAE LOGS ==========
-let praeLogsDays = 7;
+var praeLogsDays = 7;
 
 async function renderPraeLogs() {
     const area = document.getElementById('page-content');
