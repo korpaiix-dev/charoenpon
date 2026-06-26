@@ -1851,7 +1851,7 @@ async function renderInbox() {
                 <div style="max-width:760px;">
                     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1.25rem;">
                         <div>
-                            <h2 style="margin:0; font-size:1.25rem; font-weight:600; color:var(--text); letter-spacing:-0.02em;">📥 กล่องรอจัดการ${mockBadge}</h2>
+                            <h2 style="margin:0; font-size:1.25rem; font-weight:600; color:var(--text); letter-spacing:-0.02em;">📥 Inbox สลิป${mockBadge}</h2>
                             <p style="margin:0.25rem 0 0; color:var(--text-muted); font-size:0.875rem;">
                                 ${total === 0 ? 'ไม่มีงานค้างค่ะ' : 'มี ' + total + ' งานรอจัดการ'}
                             </p>
@@ -3812,14 +3812,33 @@ async function loadActivityLog(page) {
         const data = await api(url);
         let html = '<div class="table-wrap"><table><thead><tr><th>เวลา</th><th>Admin</th><th>Action</th><th>Type</th><th>Entity ID</th><th>Details</th><th>IP</th></tr></thead><tbody>';
         data.items.forEach(a => {
-            const details = a.details ? JSON.stringify(a.details).slice(0, 100) : '-';
+            // Phase A.2 fix: pretty details + dont duplicate IP
+            let detailsHtml = '-';
+            if (a.details) {
+                try {
+                    const d = typeof a.details === 'string' ? JSON.parse(a.details) : a.details;
+                    // Skip IP from details (shown in its own column)
+                    const filtered = {...d};
+                    delete filtered.ip; delete filtered.ip_address;
+                    const keys = Object.keys(filtered);
+                    if (keys.length === 0) {
+                        detailsHtml = '<span style="color:var(--text-dim);">-</span>';
+                    } else {
+                        const preview = keys.slice(0, 2).map(k => `${esc(k)}=${esc(String(filtered[k]).slice(0,30))}`).join(', ');
+                        const full = JSON.stringify(filtered, null, 2);
+                        detailsHtml = `<details style="cursor:pointer;"><summary style="font-size:0.75rem;color:var(--text-muted);">${esc(preview)}${keys.length>2 ? ' …' : ''}</summary><pre style="font-family:var(--font-mono);font-size:0.7rem;background:var(--surface-2);padding:0.4rem;border-radius:4px;margin-top:0.3rem;white-space:pre-wrap;max-width:300px;">${esc(full)}</pre></details>`;
+                    }
+                } catch (_e) {
+                    detailsHtml = `<span style="font-size:0.75rem;color:var(--text-muted);">${esc(String(a.details).slice(0, 80))}</span>`;
+                }
+            }
             html += `<tr>
                 <td style="white-space:nowrap;">${fmtDateTime(a.created_at)}</td>
                 <td>${esc(a.admin_name || a.admin_id)}</td>
                 <td><span class="status-badge">${esc(a.action)}</span></td>
                 <td>${esc(a.entity_type || '-')}</td>
                 <td>${a.entity_id || '-'}</td>
-                <td style="font-size:0.8rem;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(details)}</td>
+                <td style="max-width:300px;">${detailsHtml}</td>
                 <td style="font-size:0.75rem;font-family:var(--font-mono);">${esc(a.ip_address || '-')}</td>
             </tr>`;
         });
@@ -6261,16 +6280,21 @@ async function renderCustomerNotes(userId, containerId) {
 }
 
 async function saveCustomerNote(userId) {
-    const content = document.getElementById('note-new-' + userId).value.trim();
+    const inputEl = document.getElementById('note-new-' + userId);
+    const pinEl = document.getElementById('note-pin-' + userId);
+    const content = inputEl?.value.trim();
     if (!content) { toast('พิมพ์โน้ตก่อน', 'error'); return; }
-    const isPinned = document.getElementById('note-pin-' + userId).checked;
+    const isPinned = pinEl?.checked;
     try {
         await api('/customers/' + userId + '/notes', {
             method: 'POST',
             body: JSON.stringify({ content: content, is_pinned: isPinned })
         });
         toast('✅ บันทึกโน้ตแล้ว', 'success');
-        renderCustomerNotes(userId, 'notes-' + userId);
+        // Phase A.2 fix: clear input + force re-render with await (was racing before)
+        if (inputEl) inputEl.value = '';
+        if (pinEl) pinEl.checked = false;
+        await renderCustomerNotes(userId, 'notes-' + userId);
     } catch (err) {
         toast('❌ ' + err.message, 'error');
     }
