@@ -175,6 +175,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/host.env
       - ./docker-compose.yml:/app/docker-compose.yml:ro
+      # Phase A.2 2026-06-27: mount frontend so JS/CSS/HTML changes
+      # apply instantly without rebuild → zero-downtime for frontend edits
+      - ./dashboard/frontend:/app/dashboard/frontend:ro
     depends_on:
       postgres:
         condition: service_healthy
