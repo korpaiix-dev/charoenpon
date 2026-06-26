@@ -1724,7 +1724,7 @@ async function renderInbox() {
                 if (it.type === 'payment') {
                     actions = `
                         <label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.75rem;color:var(--text-muted);cursor:pointer;"><input type="checkbox" ${window._inboxSelected?.has(it.id) ? 'checked' : ''} onclick="event.stopPropagation();inboxToggle(${it.id})" style="width:auto;"> เลือก</label>
-                        <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); window.open('/api/payments/${it.id}/slip-image', '_blank');">👁 ดูสลิป</button>
+                        <button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); openSlipImage(it.id);">👁 ดูสลิป</button>
                         <button class="btn btn-sm btn-success" onclick="event.stopPropagation(); inboxAction('approve_payment', ${it.id});">✅ Approve</button>
                         <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); inboxAction('reject_payment', ${it.id});">❌ Reject</button>`;
                 } else if (it.type === 'sos') {
@@ -4440,7 +4440,7 @@ async function cmdkSearch() {
                     icon: '💰',
                     label: `Payment #${p.id} — ${fmtBaht(p.amount)} (${p.status})`,
                     hint: 'open payment',
-                    action: () => { closeCmdK(); window.open(`/api/payments/${p.id}/slip-image`, '_blank'); },
+                    action: () => { closeCmdK(); openSlipImage(p.id); },
                 });
             }
         } catch (err) {}
@@ -4745,6 +4745,26 @@ async function resetPraePrompt() {
         loadPraePrompt();
     } catch (err) {
         toast('❌ ' + (err.message || 'reset failed'), 'error');
+    }
+}
+
+// ===== Authed slip image viewer (Bearer token required) =====
+async function openSlipImage(paymentId) {
+    try {
+        const resp = await fetch(`/api/payments/${paymentId}/slip-image`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!resp.ok) {
+            const err = await resp.text();
+            toast(`❌ HTTP ${resp.status}: ${err.slice(0, 100)}`, "error");
+            return;
+        }
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        window.open(url, "_blank");
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+        toast(`❌ ${err.message || "load slip failed"}`, "error");
     }
 }
 
