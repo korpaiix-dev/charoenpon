@@ -739,3 +739,184 @@ async def gift_subscription(user_id: int, req: _GiftSubReq, admin=Depends(get_cu
         pass
     return {'ok': True, 'subscription_id': row['id'], 'end_date': row['end_date'].isoformat()}
 
+
+# ====== Customer 360 Sprint 2026-06-26: regen links + group memberships ======
+
+@router.post("/{user_id}/regen-links")
+async def regen_invite_links(user_id: int, request: Request, admin=Depends(get_current_admin)):
+    """Regenerate invite links for customer's active subscription + DM the customer.
+
+    Use case: customer's old link expired / didn't click in time. Send fresh links.
+    """
+    import os, httpx, json
+    from .payments import _generate_invite_links, _telegram_api
+
+    # Get customer info + active sub
+    user = await pool.fetchrow("""
+        SELECT u.id, u.telegram_id, u.first_name
+        FROM users u WHERE u.id = $1
+    """, user_id)
+    if not user:
+        raise HTTPException(404, "Customer not found")
+    if not user["telegram_id"]:
+        raise HTTPException(400, "Customer has no telegram_id")
+
+    sub = await pool.fetchrow("""
+        SELECT s.id, s.package_id, s.end_date, p.name AS package_name
+        FROM subscriptions s JOIN packages p ON p.id = s.package_id
+        WHERE s.user_id = $1 AND s.status = 'ACTIVE'
+        ORDER BY s.end_date DESC LIMIT 1
+    """, user_id)
+    if not sub:
+        raise HTTPException(400, "Customer has no active subscription")
+
+    # Generate links
+    invite_links_full = await _generate_invite_links(
+        sub["package_id"], user["telegram_id"], return_titles=True
+    )
+    if not invite_links_full:
+        raise HTTPException(500, "Failed to generate any invite links")
+
+    # Build DM message
+    links_list = []
+    for slug, info in invite_links_full.items():
+        links_list.append({"text": f"🚀 {info['title']}", "url": info["url"]})
+
+    end_date_str = sub["end_date"].strftime("%d/%m/%Y") if sub["end_date"] else "—"
+    msg = (
+        f"🔄 <b>ลิงก์เข้ากลุ่มใหม่</b>\n"
+        f"📦 แพ็กเกจ: {sub['package_name']}\n"
+        f"📅 หมดอายุ: {end_date_str}\n\n"
+        f"👇 กดปุ่มด้านล่างเข้ากลุ่ม"
+    )
+    keyboard_rows = []
+    for i in range(0, len(links_list), 2):
+        row = [{"text": b["text"], "url": b["url"]} for b in links_list[i:i+2]]
+        keyboard_rows.append(row)
+    payload = {
+        "chat_id": user["telegram_id"],
+        "text": msg,
+        "parse_mode": "HTML",
+    }
+    if keyboard_rows:
+        payload["reply_markup"] = {"inline_keyboard": keyboard_rows}
+
+    SALES_BOT_TOKEN = os.environ.get("SALES_BOT_TOKEN") or os.environ.get("NAMWAN_TOKEN")
+    dm_ok = False
+    dm_error = None
+    if SALES_BOT_TOKEN:
+        try:
+            result = await _telegram_api(SALES_BOT_TOKEN, "sendMessage", payload)
+            dm_ok = bool(result.get("ok"))
+            if not dm_ok:
+                dm_error = result.get("description", "unknown")
+        except Exception as exc:
+            dm_error = str(exc)[:200]
+
+    # Audit log
+    ip = request.client.host if request.client else None
+    await _log(admin["id"], "regen_invite_links", "customer", user_id,
+               {"package_id": sub["package_id"], "links": len(invite_links_full), "dm_sent": dm_ok}, ip)
+
+    return {
+        "ok": True,
+        "links": [{"slug": s, "url": info["url"], "title": info["title"]} for s, info in invite_links_full.items()],
+        "dm_sent": dm_ok,
+        "dm_error": dm_error,
+    }
+
+
+@router.get("/{user_id}/group-memberships")
+async def customer_group_memberships(user_id: int, admin=Depends(get_current_admin)):
+    """Check which groups (VIP + Free) the customer is currently in via Telegram getChatMember.
+
+    Categorizes:
+    - vip_in: VIP groups they belong to
+    - vip_should: VIP groups they should be in based on subscription
+    - vip_missing: should be in but not
+    - free_in: Free groups they belong to
+    - other_in: Other groups (chat/announce/etc)
+    """
+    import os, asyncio, httpx, json
+
+    user = await pool.fetchrow(
+        "SELECT id, telegram_id, first_name FROM users WHERE id = $1", user_id
+    )
+    if not user:
+        raise HTTPException(404, "Customer not found")
+    if not user["telegram_id"]:
+        raise HTTPException(400, "Customer has no telegram_id")
+
+    # Get all groups in registry
+    groups = await pool.fetch("""
+        SELECT slug::text AS slug, chat_id, title, min_tier::text AS min_tier
+        FROM group_registry WHERE is_active = TRUE
+        ORDER BY min_tier, slug
+    """)
+
+    # Active sub determines which VIP groups customer SHOULD have
+    sub = await pool.fetchrow("""
+        SELECT p.groups_access FROM subscriptions s
+        JOIN packages p ON s.package_id = p.id
+        WHERE s.user_id = $1 AND s.status = 'ACTIVE' LIMIT 1
+    """, user_id)
+    should_have_slugs = set()
+    if sub and sub["groups_access"]:
+        try:
+            raw = sub["groups_access"]
+            if isinstance(raw, str):
+                if raw.startswith("["):
+                    should_have_slugs = set(json.loads(raw))
+                else:
+                    should_have_slugs = set(s.strip().strip('\"') for s in raw.split(",") if s.strip())
+            else:
+                should_have_slugs = set(raw)
+        except Exception:
+            should_have_slugs = set()
+
+    GUARDIAN_BOT_TOKEN = os.environ.get("GUARDIAN_BOT_TOKEN")
+    if not GUARDIAN_BOT_TOKEN:
+        raise HTTPException(500, "GUARDIAN_BOT_TOKEN not configured")
+
+    # Check membership in each group concurrently
+    async def check_one(grp):
+        slug = grp["slug"]
+        chat_id = grp["chat_id"]
+        url = f"https://api.telegram.org/bot{GUARDIAN_BOT_TOKEN}/getChatMember"
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as cli:
+                r = await cli.get(url, params={"chat_id": chat_id, "user_id": user["telegram_id"]})
+                data = r.json()
+                if data.get("ok"):
+                    status = data["result"].get("status", "unknown")
+                    is_member = status in ("creator", "administrator", "member", "restricted")
+                    return {**dict(grp), "status": status, "is_member": is_member, "error": None}
+                else:
+                    return {**dict(grp), "status": None, "is_member": False, "error": data.get("description", "unknown")}
+        except Exception as exc:
+            return {**dict(grp), "status": None, "is_member": False, "error": str(exc)[:120]}
+
+    results = await asyncio.gather(*[check_one(g) for g in groups])
+
+    # Categorize
+    vip_in = [r for r in results if r["min_tier"] != "FREE" and r["is_member"]]
+    vip_not_in = [r for r in results if r["min_tier"] != "FREE" and not r["is_member"] and not r["error"]]
+    free_in = [r for r in results if r["min_tier"] == "FREE" and r["is_member"]]
+    errors = [r for r in results if r["error"]]
+
+    # Which VIP groups should they have access to?
+    should_groups = [g for g in groups if g["slug"] in should_have_slugs]
+    in_slugs = {r["slug"] for r in vip_in}
+    missing_vip = [g for g in should_groups if g["slug"] not in in_slugs]
+
+    return {
+        "customer": dict(user),
+        "vip_in": vip_in,
+        "vip_not_in": vip_not_in,
+        "vip_should_have": should_have_slugs and list(should_have_slugs),
+        "vip_missing": [dict(g) for g in missing_vip],
+        "free_in": free_in,
+        "errors": errors,
+        "total_groups_in": len(vip_in) + len(free_in),
+    }
+

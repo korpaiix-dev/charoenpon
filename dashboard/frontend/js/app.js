@@ -1494,6 +1494,7 @@ async function showCustomer360(userId) {
                 <button class="btn btn-outline btn-sm" onclick="customerAction(${u.id},'upgrade')">🆙 อัพเกรด</button>
                 <button class="btn btn-outline btn-sm" onclick="customerCancelSub(${u.id})">⛔ ยกเลิก sub</button>
                 <button class="btn btn-outline btn-sm" onclick="customerReactivateSub(${u.id})">♻️ Reactivate</button>
+                <button class="btn btn-outline btn-sm" onclick="regenInviteLinks(${u.id})">🔄 ลิงก์ใหม่</button>
                 <button class="btn btn-outline btn-sm" onclick="customerGiftSub(${u.id})">🎁 Gift sub</button>
                 <button class="btn btn-outline btn-sm" onclick="customerAction(${u.id},'kick')">🔨 เตะ</button>
                 <button class="btn btn-${u.is_banned ? 'success' : 'danger'} btn-sm" onclick="customerAction(${u.id},'ban')">${u.is_banned ? '🔓 ปลดแบน' : '🚫 แบน'}</button>
@@ -5088,5 +5089,76 @@ function fmtTime(iso) {
         const d = new Date(iso);
         return d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false });
     } catch { return iso.slice(11, 16); }
+}
+
+// ===== Customer 360 — regen invite links + group memberships =====
+async function regenInviteLinks(uid) {
+    if (!confirm('สร้างลิงก์ใหม่ + ส่ง DM ให้ลูกค้า?\n\nใช้กรณี: ลูกค้ากดลิงก์เก่าไม่ทัน / ลิงก์เก่าหมดอายุ')) return;
+    try {
+        const r = await api(`/customers/${uid}/regen-links`, { method: 'POST' });
+        if (r.dm_sent) {
+            toast(`✅ สร้าง ${r.links.length} ลิงก์ + DM แล้ว`, 'success');
+        } else {
+            toast(`⚠️ สร้างลิงก์แล้ว ${r.links.length} ลิงก์ — DM ไม่ส่ง: ${r.dm_error || 'unknown'}`, 'error', 10000);
+        }
+        // Show links so admin can copy if DM failed
+        const linksHtml = r.links.map(l => `
+            <div style="padding:0.5rem;border:1px solid var(--border);border-radius:6px;margin-bottom:0.4rem;">
+                <div style="font-weight:600;font-size:0.85rem;">${esc(l.title)} <code style="font-size:0.7rem;color:var(--text-muted);">${esc(l.slug)}</code></div>
+                <div style="display:flex;gap:0.4rem;align-items:center;margin-top:0.3rem;">
+                    <input value="${esc(l.url)}" readonly style="flex:1;font-size:0.75rem;font-family:var(--font-mono);">
+                    <button class="btn btn-sm btn-outline" onclick="navigator.clipboard.writeText('${esc(l.url)}');toast('คัดลอกแล้ว','success');">📋</button>
+                </div>
+            </div>
+        `).join('');
+        openModal(`🔄 ลิงก์ใหม่ (${r.links.length})`, `
+            <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.5rem;">
+                ${r.dm_sent ? '✅ ส่ง DM แล้ว' : '⚠️ DM ไม่ส่ง — copy ส่งให้ลูกค้าเอง'}
+            </div>
+            ${linksHtml}
+        `);
+    } catch (err) {
+        toast('❌ ' + (err.message || 'regen failed'), 'error');
+    }
+}
+
+async function loadCustomerGroups(uid) {
+    const el = document.getElementById(`c360-groups-${uid}`);
+    if (!el) return;
+    el.innerHTML = '<div class="spinner" style="margin:1rem auto;"></div>';
+    try {
+        const r = await api(`/customers/${uid}/group-memberships`);
+        const renderGroup = (g) => `
+            <span style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.5rem;border-radius:4px;background:var(--surface-2);font-size:0.72rem;margin:0.15rem;">
+                ${esc(g.slug)}
+                ${g.title ? `<span style="color:var(--text-muted);">${esc(g.title)}</span>` : ''}
+            </span>`;
+
+        let html = '';
+        if (r.vip_in.length > 0) {
+            html += `<div style="margin-bottom:0.5rem;">
+                <div style="font-size:0.72rem;color:var(--success);font-weight:600;margin-bottom:0.25rem;">✅ VIP ที่อยู่ (${r.vip_in.length})</div>
+                <div>${r.vip_in.map(renderGroup).join('')}</div>
+            </div>`;
+        }
+        if (r.vip_missing.length > 0) {
+            html += `<div style="margin-bottom:0.5rem;">
+                <div style="font-size:0.72rem;color:var(--error);font-weight:600;margin-bottom:0.25rem;">⚠️ VIP ที่ขาด (${r.vip_missing.length}) — ควรอยู่แต่ไม่อยู่</div>
+                <div>${r.vip_missing.map(renderGroup).join('')}</div>
+            </div>`;
+        }
+        if (r.free_in.length > 0) {
+            html += `<div style="margin-bottom:0.5rem;">
+                <div style="font-size:0.72rem;color:var(--accent);font-weight:600;margin-bottom:0.25rem;">🆓 กลุ่มฟรี (${r.free_in.length})</div>
+                <div>${r.free_in.map(renderGroup).join('')}</div>
+            </div>`;
+        }
+        if (r.total_groups_in === 0) {
+            html = '<div style="color:var(--text-muted);font-size:0.78rem;text-align:center;padding:0.5rem;">ยังไม่อยู่กลุ่มไหนเลย</div>';
+        }
+        el.innerHTML = html;
+    } catch (err) {
+        el.innerHTML = `<div style="color:var(--error);font-size:0.78rem;">${esc(err.message || 'check failed')}</div>`;
+    }
 }
 
