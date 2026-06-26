@@ -83,7 +83,6 @@ class BroadcastRequest(BaseModel):
     parse_mode: Optional[str] = "HTML"
 
 
-@router.get("/broadcast/count")
 async def broadcast_count(target: str = "all", admin=Depends(require_role("admin"))):
     """Get count of users that would receive the broadcast."""
     count = await _get_broadcast_count(target)
@@ -95,7 +94,6 @@ async def broadcast_count(target: str = "all", admin=Depends(require_role("admin
 # เดิม: ยิง HTTP 11k คน sync (18 นาที) — timeout, retry แล้วยิงซ้ำ.
 # ใหม่: 1 INSERT → return 202-ish ทันที, worker จัดการต่อ.
 import base64 as _base64
-@router.post("/broadcast")
 async def broadcast_message(
     request: Request,
     message: str = Form(...),
@@ -179,7 +177,6 @@ async def broadcast_message(
 
 
 # ========== BROADCAST HISTORY ==========
-@router.get("/broadcast/history")
 async def broadcast_history(page: int = 1, per_page: int = 25, admin=Depends(get_current_admin)):
     """Get broadcast history from broadcast_log table."""
     # FIX 2025-05-21 (Phase D-6-business): clamp pagination

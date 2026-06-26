@@ -2271,19 +2271,6 @@ function previewBroadcastMedia(input) {
     }
 }
 
-async function updateBroadcastCount() {
-    const target = document.getElementById('bc-target')?.value || 'all';
-    const info = document.getElementById('bc-count-info');
-    if (!info) return;
-    info.textContent = 'กำลังนับจำนวน...';
-    try {
-        const data = await api(`/customers/broadcast/count?target=${target}`);
-        const labels = { all: 'ทุกคน', active: 'VIP Active', expired: 'Expired', trial: 'Trial' };
-        info.innerHTML = `📊 จะส่งถึง <b>${fmt(data.count)}</b> คน (${labels[target]})`;
-    } catch {
-        info.textContent = '❌ โหลดจำนวนไม่ได้';
-    }
-}
 
 
 let bcHistoryPage = 1;
