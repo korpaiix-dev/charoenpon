@@ -30,6 +30,8 @@ from .routers.daily_report import router as daily_report_router
 from .routers.group_broadcast import router as group_broadcast_router
 from .routers.ws import router as ws_router
 from .routers.prae_prompt import router as prae_prompt_router
+from .routers.feature_flags import router as feature_flags_router
+from .routers.bot_messages_admin import router as bot_messages_admin_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -76,6 +78,8 @@ app.include_router(daily_report_router, prefix="/api")
 app.include_router(group_broadcast_router, prefix="/api")
 app.include_router(ws_router)
 app.include_router(prae_prompt_router, prefix="/api")
+app.include_router(feature_flags_router, prefix="/api")
+app.include_router(bot_messages_admin_router, prefix="/api")
 
 # Serve frontend static files
 frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
