@@ -288,10 +288,19 @@ async function downloadAuthed(url, filename) {
 }
 
 // ========== MODAL ==========
-function openModal(title, bodyHtml) {
+function openModal(title, bodyHtml, opts) {
     document.getElementById('modal-title').textContent = title;
     document.getElementById('modal-body').innerHTML = bodyHtml;
     document.getElementById('modal-overlay').classList.remove('hidden');
+    // Custom width support
+    const mc = document.querySelector('.modal-content');
+    if (mc) {
+        if (opts && opts.wide) {
+            mc.style.maxWidth = (typeof opts.wide === 'string' ? opts.wide : 'min(95vw, 1100px)');
+        } else {
+            mc.style.maxWidth = '';  // reset to CSS default 560px
+        }
+    }
 }
 
 function closeModal(e) {
@@ -4772,7 +4781,7 @@ async function openSlipImage(paymentId) {
                 <div class="spinner"></div>
                 <div style="margin-top:0.5rem;color:var(--text-muted);font-size:0.875rem;">กำลังโหลด...</div>
             </div>
-        `);
+        `, { wide: true });
 
         // Fetch detail + slip in parallel
         const [detail, slipBlob] = await Promise.all([
@@ -4944,11 +4953,11 @@ let _purchasesPeriod = 'today';
 async function openPurchasesModal(period) {
     _purchasesPeriod = period || _purchasesPeriod || 'today';
     openModal('🛒 รายการออเดอร์', `
-        <div id="purchases-body" style="text-align:center;padding:1rem;min-width:min(95vw, 1100px);">
+        <div id="purchases-body" style="text-align:center;padding:1rem;">
             <div class="spinner"></div>
             <div style="margin-top:0.5rem;color:var(--text-muted);font-size:0.875rem;">กำลังโหลด...</div>
         </div>
-    `);
+    `, { wide: true });
     await loadPurchases();
 }
 
