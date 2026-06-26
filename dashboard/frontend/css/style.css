@@ -188,6 +188,17 @@ input:focus, select:focus, textarea:focus {
     border-color: var(--text);
     box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.12);
 }
+
+/* FIX 2026-06-26: prevent global input width:100% from breaking checkboxes/radios */
+input[type="checkbox"], input[type="radio"] {
+    width: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    accent-color: var(--accent);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
 textarea { min-height: 96px; resize: vertical; }
 .password-wrap { position: relative; }
 .pwd-toggle {

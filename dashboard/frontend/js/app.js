@@ -5126,7 +5126,7 @@ async function regenInviteLinks(uid) {
 👇 กดปุ่มด้านล่างเข้ากลุ่ม`;
 
         openModal(`🔄 ส่งลิงก์ใหม่ให้ ${fname}`, `
-            <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1rem;">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(min(100%, 350px), 1fr));gap:1rem;">
                 <!-- Left: Group picker + message editor -->
                 <div>
                     <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.5rem;">
