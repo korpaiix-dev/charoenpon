@@ -19,7 +19,7 @@ function toggleTheme() {
                 navigate(window.__currentPage);
             } else if (typeof navigate === 'function') {
                 // Fallback: read from URL or default to dashboard
-                navigate('dashboard');
+                (restoreLastPage() || navigate('dashboard'));
             }
         } catch (e) { console.warn('theme rerender:', e); }
     }, 50);
@@ -193,7 +193,7 @@ function showApp() {
     document.getElementById('login-page').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
     renderSidebar();
-    navigate('dashboard');
+    (restoreLastPage() || navigate('dashboard'));
     startAlertPolling();
 }
 
@@ -219,6 +219,7 @@ function toggleSidebar() {
 function navigate(page) {
     currentPage = page;
     try { window.__currentPage = page; } catch {}
+    try { localStorage.setItem("dashLastPage", page); } catch {}
     renderSidebar();
     const titles = {
         dashboard: '📊 ภาพรวม', inbox: '📥 กล่องรอจัดการ', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน', gacha: '🎰 กาชา',
@@ -243,6 +244,18 @@ function navigate(page) {
         activity: renderActivityLog, prae_logs: renderPraeLogs,
     };
     (pages[page] || (() => { content.innerHTML = '<div class="empty-state"><div class="icon">🚧</div><p>Coming soon</p></div>'; }))();
+}
+
+// Restore last-visited page on init
+function restoreLastPage() {
+    try {
+        const last = localStorage.getItem("dashLastPage");
+        if (last && typeof navigate === "function") {
+            const valid = (typeof NAV_ITEMS !== "undefined") && NAV_ITEMS.some(n => n.id === last);
+            if (valid) { navigate(last); return true; }
+        }
+    } catch (e) {}
+    return false;
 }
 
 // ========== TOAST ==========

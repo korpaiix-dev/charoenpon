@@ -535,8 +535,9 @@ async def approve_payment(payment_id: int, request: Request, admin=Depends(get_c
                     """), {"m": row.marketer})).first()
                     m_cnt = int(month_row.cnt or 0) if month_row else 0
                     m_rev = float(month_row.rev or 0) if month_row else 0
-                    import asyncio as _aio
-                    _aio.create_task(_mk_notify(
+                    # FIX 2026-06-26 (boss): await instead of create_task to prevent lost-task warnings
+                    # If notify fails, outer try/except catches it without crashing event loop
+                    await _mk_notify(
                         marketer=row.marketer, platform=row.platform,
                         telegram_id=pay["customer_telegram_id"],
                         tg_username=None, tg_first_name=pay["customer_name"],
@@ -544,7 +545,7 @@ async def approve_payment(payment_id: int, request: Request, admin=Depends(get_c
                         tier=str(pkg["tier"]) if pkg else "",
                         days_since_join=int(row.days_since_join or 0),
                         link_id=int(row.link_id), marketer_month_count=m_cnt, marketer_month_revenue=m_rev,
-                    ))
+                    )
     except Exception as exc:
         logger.warning("[dashboard approve] marketing conversion notify failed: %s", exc)
 
