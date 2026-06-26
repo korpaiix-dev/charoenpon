@@ -35,9 +35,15 @@ body {
 /* Sidebar */
 .sidebar {
   width: var(--sidebar-w); background: var(--surface); border-right: 1px solid var(--border);
-  padding: 1.5rem 1rem; display: flex; flex-direction: column; gap: 0.25rem;
+  padding: 1.5rem 1rem 2rem; display: flex; flex-direction: column; gap: 0.25rem;
   position: sticky; top: 0; height: 100vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
+.sidebar::-webkit-scrollbar { width: 6px; }
+.sidebar::-webkit-scrollbar-track { background: transparent; }
+.sidebar::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+.sidebar::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
 .sidebar-header {
   padding: 0 0.5rem 1.5rem; border-bottom: 1px solid var(--border); margin-bottom: 1rem;
 }
