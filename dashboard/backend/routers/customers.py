@@ -83,72 +83,11 @@ class BroadcastRequest(BaseModel):
     parse_mode: Optional[str] = "HTML"
 
 
-async def _get_broadcast_count(target: str) -> int:
-    if target == "active":
-        return await pool.fetchval(
-            "SELECT COUNT(DISTINCT u.id) FROM users u JOIN subscriptions s ON s.user_id = u.id "
-            "WHERE s.status = 'ACTIVE' AND u.telegram_id IS NOT NULL AND u.is_banned = FALSE"
-        )
-    elif target == "expired":
-        return await pool.fetchval(
-            "SELECT COUNT(*) FROM users u WHERE u.telegram_id IS NOT NULL AND u.is_banned = FALSE "
-            "AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id AND s.status = 'ACTIVE') "
-            "AND EXISTS (SELECT 1 FROM subscriptions s2 WHERE s2.user_id = u.id)"
-        )
-    elif target == "trial":
-        return await pool.fetchval(
-            "SELECT COUNT(DISTINCT u.id) FROM users u JOIN subscriptions s ON s.user_id = u.id "
-            "JOIN packages p ON s.package_id = p.id "
-            "WHERE s.status = 'ACTIVE' AND p.tier = 'TIER_99' AND u.telegram_id IS NOT NULL AND u.is_banned = FALSE"
-        )
-    else:  # all
-        return await pool.fetchval(
-            "SELECT COUNT(*) FROM users u WHERE u.telegram_id IS NOT NULL AND u.is_banned = FALSE"
-        )
-
-
-async def _get_broadcast_users(target: str):
-    if target == "active":
-        return await pool.fetch(
-            "SELECT DISTINCT u.telegram_id FROM users u JOIN subscriptions s ON s.user_id = u.id "
-            "WHERE s.status = 'ACTIVE' AND u.telegram_id IS NOT NULL AND u.is_banned = FALSE"
-        )
-    elif target == "expired":
-        return await pool.fetch(
-            "SELECT u.telegram_id FROM users u WHERE u.telegram_id IS NOT NULL AND u.is_banned = FALSE "
-            "AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id AND s.status = 'ACTIVE') "
-            "AND EXISTS (SELECT 1 FROM subscriptions s2 WHERE s2.user_id = u.id)"
-        )
-    elif target == "trial":
-        return await pool.fetch(
-            "SELECT DISTINCT u.telegram_id FROM users u JOIN subscriptions s ON s.user_id = u.id "
-            "JOIN packages p ON s.package_id = p.id "
-            "WHERE s.status = 'ACTIVE' AND p.tier = 'TIER_99' AND u.telegram_id IS NOT NULL AND u.is_banned = FALSE"
-        )
-    else:  # all
-        return await pool.fetch(
-            "SELECT telegram_id FROM users WHERE telegram_id IS NOT NULL AND is_banned = FALSE"
-        )
-
-
 @router.get("/broadcast/count")
 async def broadcast_count(target: str = "all", admin=Depends(require_role("admin"))):
     """Get count of users that would receive the broadcast."""
     count = await _get_broadcast_count(target)
     return {"count": count}
-
-
-async def _telegram_api_file(token, method, chat_id, file_bytes, caption, file_type):
-    """Send photo/video via Telegram Bot API with file upload."""
-    async with httpx.AsyncClient(timeout=30) as client:
-        files = {file_type: ("media", io.BytesIO(file_bytes))}
-        data = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"}
-        resp = await client.post(
-            f"https://api.telegram.org/bot{token}/{method}",
-            data=data,
-            files=files,
-        )
-        return resp.json()
 
 
 # FIX 2025-05-21 (Phase D-3-business): replaced synchronous HTTP loop with enqueue into

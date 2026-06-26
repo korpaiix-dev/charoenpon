@@ -2230,9 +2230,8 @@ async function loadDashboardPendingSlips() {
 let customerSearch = '', customerFilter = 'all', customerPage = 1;
 async function renderCustomers() {
     const content = document.getElementById('page-content');
-    const broadcastBtn = hasRole('admin') ? `<button class="btn btn-primary" onclick="showBroadcastModal()" style="margin-bottom:1rem;">📢 Broadcast</button> <button class="btn btn-outline" onclick="showBroadcastHistory()" style="margin-bottom:1rem;">📋 Broadcast History</button>` : '';
     content.innerHTML = `
-        ${broadcastBtn}
+
         <div class="filters">
             <input class="search-input" id="cust-search" placeholder="🔍 ค้นหา ชื่อ / Telegram ID / Username" value="${customerSearch}" onkeyup="if(event.key==='Enter'){customerSearch=this.value;customerPage=1;loadCustomers()}">
             <button class="filter-btn ${customerFilter==='all'?'active':''}" onclick="customerFilter='all';customerPage=1;loadCustomers()">All</button>
@@ -2247,32 +2246,6 @@ async function renderCustomers() {
 }
 
 // ========== BROADCAST ==========
-async function showBroadcastModal() {
-    openModal('📢 Broadcast ข้อความ', `
-        <div class="form-group">
-            <label>กลุ่มเป้าหมาย</label>
-            <select id="bc-target" onchange="updateBroadcastCount()">
-                <option value="all">📋 ทุกคน</option>
-                <option value="active">✅ VIP Active</option>
-                <option value="expired">⏰ Expired</option>
-                <option value="trial">🎯 Trial</option>
-            </select>
-        </div>
-        <div id="bc-count-info" style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;">กำลังนับจำนวน...</div>
-        <div class="form-group">
-            <label>ข้อความ (รองรับ HTML)</label>
-            <textarea id="bc-message" rows="6" placeholder="พิมพ์ข้อความที่จะส่ง...&#10;&#10;รองรับ HTML เช่น:&#10;<b>ตัวหนา</b>&#10;<i>ตัวเอียง</i>&#10;<a href='url'>ลิงก์</a>"></textarea>
-        </div>
-        <div class="form-group">
-            <label>📎 แนบรูป/วิดีโอ (ไม่บังคับ, สูงสุด 20MB)</label>
-            <input type="file" id="bc-media" accept="image/jpeg,image/png,image/gif,video/mp4" onchange="previewBroadcastMedia(this)" style="margin-bottom:0.5rem;">
-            <div id="bc-media-preview" style="display:none;margin-bottom:0.5rem;text-align:center;"></div>
-        </div>
-        <div id="bc-result" style="display:none;margin-bottom:1rem;"></div>
-        <button class="btn btn-primary btn-full" id="bc-send-btn" onclick="doBroadcast()">📩 ส่ง Broadcast</button>
-    `);
-    updateBroadcastCount();
-}
 
 function previewBroadcastMedia(input) {
     const preview = document.getElementById('bc-media-preview');
@@ -2312,83 +2285,8 @@ async function updateBroadcastCount() {
     }
 }
 
-async function doBroadcast() {
-    const target = document.getElementById('bc-target')?.value || 'all';
-    const message = document.getElementById('bc-message')?.value?.trim();
-    if (!message) { toast('กรุณาพิมพ์ข้อความ', 'error'); return; }
-    
-    const fileInput = document.getElementById('bc-media');
-    const mediaFile = fileInput?.files?.[0] || null;
-    if (mediaFile && mediaFile.size > 20 * 1024 * 1024) { toast('ไฟล์ใหญ่เกิน 20MB', 'error'); return; }
-    
-    const labels = { all: 'ทุกคน', active: 'VIP Active', expired: 'Expired', trial: 'Trial' };
-    const mediaLabel = mediaFile ? `\n📎 แนบไฟล์: ${mediaFile.name}` : '';
-    if (!confirm(`📢 ยืนยันส่ง Broadcast ไปยัง "${labels[target]}"?${mediaLabel}\n\nข้อความ:\n${message.slice(0, 200)}`)) return;
-    
-    const btn = document.getElementById('bc-send-btn');
-    const result = document.getElementById('bc-result');
-    btn.disabled = true;
-    btn.textContent = '⏳ กำลังส่ง...';
-    result.style.display = 'none';
-    
-    try {
-        const fd = new FormData();
-        fd.append('message', message);
-        fd.append('target', target);
-        fd.append('parse_mode', 'HTML');
-        if (mediaFile) fd.append('media', mediaFile);
-        
-        const resp = await fetch('/api/customers/broadcast', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
-            body: fd,
-        });
-        if (resp.status === 401) { logout(); throw new Error('Session expired'); }
-        if (!resp.ok) {
-            const err = await resp.json().catch(() => ({ detail: 'Error' }));
-            throw new Error(err.detail || 'API Error');
-        }
-        const data = await resp.json();
-        
-        result.style.display = 'block';
-        result.innerHTML = `<div class="alert-box">
-            <div class="alert-box-item" style="color:var(--success);">✅ ส่งสำเร็จ: ${data.sent} คน</div>
-            ${data.failed > 0 ? `<div class="alert-box-item" style="color:var(--error);">❌ ล้มเหลว: ${data.failed} คน</div>` : ''}
-            <div class="alert-box-item">📊 ทั้งหมด: ${data.total} คน</div>
-        </div>`;
-        btn.textContent = '✅ ส่งเสร็จแล้ว';
-        toast(`Broadcast สำเร็จ: ${data.sent}/${data.total}`, 'success');
-    } catch (e) {
-        result.style.display = 'block';
-        result.innerHTML = `<div class="alert-box"><div class="alert-box-item" style="color:var(--error);">❌ ${esc(e.message)}</div></div>`;
-        btn.disabled = false;
-        btn.textContent = '📩 ส่ง Broadcast';
-        toast(e.message, 'error');
-    }
-}
 
 let bcHistoryPage = 1;
-async function showBroadcastHistory(page) {
-    if (page) bcHistoryPage = page;
-    try {
-        const data = await api(`/customers/broadcast/history?page=${bcHistoryPage}&per_page=20`);
-        let html = '<div class="table-wrap"><table><thead><tr><th>วันที่</th><th>Admin</th><th>Target</th><th>ข้อความ</th><th>ส่ง/ล้มเหลว</th></tr></thead><tbody>';
-        data.items.forEach(b => {
-            const target = b.target_tier || b.target_group || 'all';
-            const msg = (b.message_text || '').slice(0, 60) + ((b.message_text || '').length > 60 ? '...' : '');
-            html += `<tr>
-                <td>${fmtDateTime(b.created_at)}</td>
-                <td>${esc(b.admin_name || b.admin_id)}</td>
-                <td>${target}</td>
-                <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.85rem;">${msg}</td>
-                <td><span style="color:var(--success);">${b.total_sent}</span> / <span style="color:var(--error);">${b.total_failed}</span></td>
-            </tr>`;
-        });
-        html += '</tbody></table></div>';
-        html += paginationHtml(data.page, data.pages, 'showBroadcastHistory');
-        openModal(`📋 Broadcast History (${data.total} รายการ)`, html);
-    } catch (e) { toast(e.message, 'error'); }
-}
 
 async function loadCustomers(page) {
     if (page) customerPage = page;
