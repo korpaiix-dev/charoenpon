@@ -208,6 +208,40 @@ HANDOFF (Mode A เท่านั้น):
 """
 
 
+# ==================================================================
+# Phase A.4 (2026-06-27): Hot-reload Prae prompt from ai_prompts table
+# - Cache 60s, fallback to SYSTEM_PROMPT_V3 constant
+# - Admin saves in Dashboard → bot uses new prompt within 60s, NO restart
+# ==================================================================
+import time as _t_prompt
+_prompt_cache_v3 = {"val": None, "expires": 0}
+
+async def _async_load_active_prompt() -> str:
+    """Return active Prae prompt from DB (60s cache) or SYSTEM_PROMPT_V3 fallback."""
+    now = _t_prompt.time()
+    if _prompt_cache_v3["val"] and _prompt_cache_v3["expires"] > now:
+        return _prompt_cache_v3["val"]
+    content = None
+    try:
+        from shared.database import get_session
+        from sqlalchemy import text as _t_sql
+        async with get_session() as sess:
+            r = (await sess.execute(_t_sql(
+                "SELECT content FROM ai_prompts WHERE name='prae' AND is_active=TRUE "
+                "ORDER BY version DESC LIMIT 1"
+            ))).first()
+            if r:
+                content = r.content
+    except Exception:
+        content = None
+    if not content:
+        content = SYSTEM_PROMPT_V3
+    _prompt_cache_v3["val"] = content
+    _prompt_cache_v3["expires"] = now + 60
+    return content
+
+
+
 # ============================================================
 # Memory (conversation history per user, in DB)
 # ============================================================
@@ -417,7 +451,7 @@ async def reply_to_user(telegram_id: int, user_text: str) -> dict:
 
     # ── Build conversation ──
     history = await load_history(telegram_id)
-    messages = [{"role": "system", "content": SYSTEM_PROMPT_V3}]
+    messages = [{"role": "system", "content": await _async_load_active_prompt()}]
     messages.extend(history)
     # Inject user identity hint so LLM knows whose status to check
     messages.append({
