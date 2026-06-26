@@ -2562,7 +2562,7 @@ async function loadFinanceCharts() {
 }
 
 // ========== PAGE: PROMOTIONS ==========
-let promoTab = 'campaigns';
+let promoTab = "comeback";
 async function renderPromotions() {
     const content = document.getElementById('page-content');
     let statsHtml = '';
@@ -5914,7 +5914,7 @@ async function deleteBotMessage(key) {
 // Replaces renderPromotions in dispatcher. Old renderPromotions kept
 // as "📜 Campaign เก่า" tab for legacy access.
 // ==================================================================
-let promoTab = 'comeback';
+// promoTab declared at line 2565 (reused)
 
 async function renderPromoManager() {
     const content = document.getElementById('page-content');
