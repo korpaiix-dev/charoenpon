@@ -452,6 +452,25 @@ async def handle_photo_slip(
         except Exception as _ge:
             logger.warning("GACHA detect fallback failed: %s", _ge)
 
+    # FIX 2026-06-26 (PRAE-CHAT FALLBACK): if customer talked via Prae chat instead of pressing buttons,
+    # selected_tier may be empty. Use Slip2Go amount → tier mapping as fallback.
+    # Only triggers when missing_context is True (button flow unaffected).
+    if missing_context and slip2go_data and not selected_tier:
+        try:
+            from shared.pricing import amount_to_tier as _amt_to_tier_v
+            _s2g_amt_v = float(slip2go_data.get("amount") or 0)
+            _tinfo_v = _amt_to_tier_v(int(_s2g_amt_v))
+            if _tinfo_v:
+                _tier_str, _tier_label, _is_promo = _tinfo_v
+                logger.info("PRAE-CHAT FALLBACK: amount=%s -> tier=%s label=%s — recovering missing_context", _s2g_amt_v, _tier_str, _tier_label)
+                selected_tier = _tier_str
+                context.user_data["selected_tier"] = _tier_str
+                expected_price = await _get_effective_price(selected_tier, context.user_data)
+                if expected_price:
+                    missing_context = False
+        except Exception as _pe:
+            logger.warning("Prae-chat amount fallback failed: %s", _pe)
+
     if selected_tier and selected_tier.startswith("GACHA_") and slip2go_data:
         from shared.pricing import TIER_PRICES
         _spins_map = {"GACHA_1": 1, "GACHA_3": 3, "GACHA_10": 10}
