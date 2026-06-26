@@ -647,10 +647,14 @@ async def send_payment_info(telegram_id: int, tier_or_amount: str) -> dict:
             "admin_url": "https://t.me/sperm6969",
         }
 
-    bank_name = account.get("bank_name") or "PromptPay"
-    bank_last5 = account.get("bank_account") or account.get("proxy_number") or ""
-    receiver_name = account.get("receiver_name") or "บัญชีรับเงิน"
+    bank_name = account.get("bank_name_th") or "PromptPay"
+    account_no = account.get("account_no") or ""
+    promptpay = account.get("promptpay_number") or ""
+    receiver_name = account.get("owner_name") or "บัญชีรับเงิน"
     qr_url = account.get("qr_url") or None
+
+    # Display: prefer real bank account, fallback to PromptPay number
+    display_number = account_no or promptpay or "-"
 
     # Construct customer-facing instructions (HTML for sales bot)
     msg = (
@@ -669,7 +673,7 @@ async def send_payment_info(telegram_id: int, tier_or_amount: str) -> dict:
         "tier": tier,
         "receiver": {
             "bank_name": bank_name,
-            "account_number": bank_last5,
+            "account_number": display_number,
             "name": receiver_name,
             "qr_url": qr_url,
         },
