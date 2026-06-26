@@ -661,8 +661,8 @@ async def send_payment_info(telegram_id: int, tier_or_amount: str) -> dict:
         f"💰 <b>{pkg_name}</b>\n"
         f"ราคา {price} บาท\n\n"
         f"🏦 <b>{bank_name}</b>\n"
-        f"{receiver_name}\n"
-        f"<code>{bank_last5}</code>\n\n"
+        f"ชื่อบัญชี: {receiver_name}\n"
+        f"เลขบัญชี: <code>{display_number}</code>\n\n"
         f"📸 โอนแล้วส่งสลิปกลับมาในแชทนี้ ระบบจะตรวจสอบและเปิดสิทธิให้อัตโนมัติค่ะ"
     )
 
