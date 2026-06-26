@@ -742,14 +742,23 @@ async def gift_subscription(user_id: int, req: _GiftSubReq, admin=Depends(get_cu
 
 # ====== Customer 360 Sprint 2026-06-26: regen links + group memberships ======
 
+class _RegenLinkReq(BaseModel):
+    slugs: list[str] | None = None  # None = all eligible
+    message: str | None = None  # None = default
+
+
 @router.post("/{user_id}/regen-links")
-async def regen_invite_links(user_id: int, request: Request, admin=Depends(get_current_admin)):
+async def regen_invite_links(user_id: int, request: Request, req: _RegenLinkReq | None = None,
+                              admin=Depends(get_current_admin)):
     """Regenerate invite links for customer's active subscription + DM the customer.
 
     Use case: customer's old link expired / didn't click in time. Send fresh links.
+
+    Optional body: slugs (which groups), message (custom DM text).
     """
     import os, httpx, json
     from .payments import _generate_invite_links, _telegram_api
+    from ..database import pool as _pool
 
     # Get customer info + active sub
     user = await pool.fetchrow("""
@@ -776,6 +785,12 @@ async def regen_invite_links(user_id: int, request: Request, admin=Depends(get_c
     )
     if not invite_links_full:
         raise HTTPException(500, "Failed to generate any invite links")
+
+    # Filter by selected slugs if provided
+    if req and req.slugs:
+        invite_links_full = {s: v for s, v in invite_links_full.items() if s in req.slugs}
+        if not invite_links_full:
+            raise HTTPException(400, "No matching groups in selection")
 
     # Build DM message
     links_list = []
@@ -918,5 +933,69 @@ async def customer_group_memberships(user_id: int, admin=Depends(get_current_adm
         "free_in": free_in,
         "errors": errors,
         "total_groups_in": len(vip_in) + len(free_in),
+    }
+
+
+@router.get("/{user_id}/regen-link-options")
+async def regen_link_options(user_id: int, admin=Depends(get_current_admin)):
+    """Return eligible groups + default message template for regen-link modal."""
+    import json
+
+    user = await pool.fetchrow(
+        "SELECT u.id, u.telegram_id, u.first_name FROM users u WHERE u.id = $1", user_id
+    )
+    if not user:
+        raise HTTPException(404, "Customer not found")
+
+    sub = await pool.fetchrow("""
+        SELECT s.id, s.package_id, s.end_date,
+               p.name AS package_name, p.groups_access
+        FROM subscriptions s JOIN packages p ON p.id = s.package_id
+        WHERE s.user_id = $1 AND s.status = 'ACTIVE'
+        ORDER BY s.end_date DESC LIMIT 1
+    """, user_id)
+    if not sub:
+        raise HTTPException(400, "Customer has no active subscription")
+
+    # Parse groups_access
+    raw = sub["groups_access"]
+    if isinstance(raw, str):
+        if raw.startswith("["):
+            try:
+                group_slugs = json.loads(raw)
+            except Exception:
+                group_slugs = [g.strip().strip('\"') for g in raw.split(",") if g.strip()]
+        else:
+            group_slugs = [g.strip().strip('\"') for g in raw.split(",") if g.strip()]
+    else:
+        group_slugs = list(raw) if raw else []
+
+    # Get group details
+    groups = []
+    if group_slugs:
+        rows = await pool.fetch("""
+            SELECT slug::text AS slug, chat_id, title, min_tier::text AS min_tier
+            FROM group_registry WHERE slug = ANY($1::groupslug[]) AND is_active = TRUE
+            ORDER BY slug
+        """, group_slugs)
+        groups = [dict(r) for r in rows]
+
+    end_date_str = sub["end_date"].strftime("%d/%m/%Y") if sub["end_date"] else "—"
+    default_msg = (
+        f"🔄 <b>ลิงก์เข้ากลุ่มใหม่</b>\n"
+        f"📦 แพ็กเกจ: {sub['package_name']}\n"
+        f"📅 หมดอายุ: {end_date_str}\n\n"
+        f"👇 กดปุ่มด้านล่างเข้ากลุ่ม"
+    )
+
+    return {
+        "customer": dict(user),
+        "subscription": {
+            "package_id": sub["package_id"],
+            "package_name": sub["package_name"],
+            "end_date": sub["end_date"].isoformat() if sub["end_date"] else None,
+        },
+        "groups": groups,
+        "default_message": default_msg,
     }
 

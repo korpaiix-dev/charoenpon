@@ -5093,15 +5093,164 @@ function fmtTime(iso) {
 
 // ===== Customer 360 — regen invite links + group memberships =====
 async function regenInviteLinks(uid) {
-    if (!confirm('สร้างลิงก์ใหม่ + ส่ง DM ให้ลูกค้า?\n\nใช้กรณี: ลูกค้ากดลิงก์เก่าไม่ทัน / ลิงก์เก่าหมดอายุ')) return;
     try {
-        const r = await api(`/customers/${uid}/regen-links`, { method: 'POST' });
+        // Load options first
+        const opts = await api(`/customers/${uid}/regen-link-options`);
+        const groups = opts.groups || [];
+        const customer = opts.customer || {};
+
+        if (groups.length === 0) {
+            toast('ลูกค้านี้ไม่มี VIP groups ที่จะส่งลิงก์ได้', 'error');
+            return;
+        }
+
+        // Build modal
+        const checkboxes = groups.map(g => `
+            <label style="display:flex;gap:0.5rem;align-items:center;padding:0.5rem;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:var(--surface-2);">
+                <input type="checkbox" class="regen-slug-cb" data-slug="${esc(g.slug)}" data-title="${esc(g.title || g.slug)}" checked>
+                <div style="flex:1;">
+                    <div style="font-weight:600;font-size:0.85rem;">${esc(g.title || g.slug)}</div>
+                    <div style="font-size:0.7rem;color:var(--text-muted);">${esc(g.slug)} · ${esc(g.min_tier || '')}</div>
+                </div>
+            </label>
+        `).join('');
+
+        const fname = esc(customer.first_name || `ลูกค้า`);
+        const pkgName = esc(opts.subscription?.package_name || '');
+        const endDate = opts.subscription?.end_date ? fmtDate(opts.subscription.end_date) : '—';
+
+        const defaultMsg = `🔄 <b>ลิงก์เข้ากลุ่มใหม่</b>
+📦 แพ็กเกจ: ${pkgName}
+📅 หมดอายุ: ${endDate}
+
+👇 กดปุ่มด้านล่างเข้ากลุ่ม`;
+
+        openModal(`🔄 ส่งลิงก์ใหม่ให้ ${fname}`, `
+            <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1rem;">
+                <!-- Left: Group picker + message editor -->
+                <div>
+                    <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.5rem;">
+                        เลือกกลุ่มที่จะสร้างลิงก์ใหม่ (${groups.length} กลุ่ม)
+                    </div>
+                    <div style="display:flex;gap:0.4rem;margin-bottom:0.5rem;">
+                        <button class="btn btn-sm btn-outline" onclick="regenToggleAll(true)" style="font-size:0.7rem;">✅ เลือกทุกกลุ่ม</button>
+                        <button class="btn btn-sm btn-outline" onclick="regenToggleAll(false)" style="font-size:0.7rem;">⬜ ไม่เลือกเลย</button>
+                    </div>
+                    <div id="regen-groups-list" style="display:flex;flex-direction:column;gap:0.3rem;max-height:30vh;overflow:auto;margin-bottom:0.75rem;">
+                        ${checkboxes}
+                    </div>
+
+                    <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.3rem;">
+                        ข้อความ DM (HTML รองรับ)
+                    </div>
+                    <textarea id="regen-msg" rows="6" style="width:100%;font-size:0.78rem;font-family:var(--font-sans);padding:0.5rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);line-height:1.5;resize:vertical;" oninput="regenUpdatePreview()">${esc(defaultMsg)}</textarea>
+                    <div style="display:flex;gap:0.3rem;margin-top:0.4rem;flex-wrap:wrap;">
+                        <button class="btn btn-sm btn-outline" onclick="regenInsertTemplate('default')" style="font-size:0.7rem;">📋 Default</button>
+                        <button class="btn btn-sm btn-outline" onclick="regenInsertTemplate('lost')" style="font-size:0.7rem;">😔 ลิงก์หาย</button>
+                        <button class="btn btn-sm btn-outline" onclick="regenInsertTemplate('expired')" style="font-size:0.7rem;">⏰ ลิงก์หมดอายุ</button>
+                        <button class="btn btn-sm btn-outline" onclick="regenInsertTemplate('blank')" style="font-size:0.7rem;">⚪ ว่าง</button>
+                    </div>
+                </div>
+
+                <!-- Right: Live preview -->
+                <div>
+                    <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.5rem;">📱 ตัวอย่างใน Telegram</div>
+                    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:0.875rem;">
+                        <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.5rem;">
+                            <div style="width:32px;height:32px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:0.85rem;">P</div>
+                            <div>
+                                <div style="font-size:0.85rem;font-weight:600;">เจริญพร Bot</div>
+                                <div style="font-size:0.7rem;color:var(--text-muted);">ตอนนี้</div>
+                            </div>
+                        </div>
+                        <div id="regen-preview-text" style="font-size:0.875rem;line-height:1.6;white-space:pre-wrap;word-break:break-word;background:var(--surface-2);padding:0.625rem 0.75rem;border-radius:8px;"></div>
+                        <div id="regen-preview-buttons" style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;margin-top:0.5rem;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display:flex;gap:0.5rem;margin-top:1rem;justify-content:flex-end;border-top:1px solid var(--border);padding-top:0.75rem;">
+                <button class="btn btn-outline" onclick="closeModal()">ยกเลิก</button>
+                <button class="btn btn-primary" onclick="doRegenLinks(${uid})">🚀 สร้างลิงก์ + ส่ง DM</button>
+            </div>
+        `, { wide: true });
+
+        // Hook checkbox changes to update preview
+        document.querySelectorAll('.regen-slug-cb').forEach(cb => {
+            cb.addEventListener('change', regenUpdatePreview);
+        });
+        regenUpdatePreview();
+    } catch (err) {
+        toast('❌ ' + (err.message || 'load failed'), 'error');
+    }
+}
+
+function regenToggleAll(checked) {
+    document.querySelectorAll('.regen-slug-cb').forEach(cb => { cb.checked = checked; });
+    regenUpdatePreview();
+}
+
+function regenUpdatePreview() {
+    const msg = document.getElementById('regen-msg')?.value || '';
+    const txt = document.getElementById('regen-preview-text');
+    const btns = document.getElementById('regen-preview-buttons');
+    if (!txt || !btns) return;
+
+    // Render HTML preview
+    txt.innerHTML = msg;
+
+    const selected = Array.from(document.querySelectorAll('.regen-slug-cb'))
+        .filter(cb => cb.checked)
+        .map(cb => ({ slug: cb.dataset.slug, title: cb.dataset.title }));
+
+    btns.innerHTML = selected.map(g => `
+        <button style="padding:0.4rem 0.6rem;background:var(--accent);color:#fff;border-radius:6px;border:none;font-size:0.75rem;cursor:pointer;">🚀 ${esc(g.title)}</button>
+    `).join('');
+}
+
+function regenInsertTemplate(type) {
+    const ta = document.getElementById('regen-msg');
+    if (!ta) return;
+    const templates = {
+        default: `🔄 <b>ลิงก์เข้ากลุ่มใหม่</b>
+📦 กดปุ่มด้านล่างเข้ากลุ่มได้เลย
+
+💡 ลิงก์นี้ใช้ได้ครั้งเดียวค่ะ`,
+        lost: `❤️ <b>ลิงก์เข้ากลุ่มใหม่</b>
+
+เห็นว่าน้องยังไม่ได้กดเข้ากลุ่มเลยส่งลิงก์ใหม่ให้นะคะ
+
+👇 กดปุ่มด้านล่างเข้าได้เลย`,
+        expired: `⏰ <b>ลิงก์เก่าหมดอายุแล้วค่ะ</b>
+
+ส่งลิงก์ใหม่ให้นะคะ — รีบกดก่อนหมดอีกนะ 😊
+
+👇 กดเลย`,
+        blank: ``,
+    };
+    ta.value = templates[type] || '';
+    regenUpdatePreview();
+}
+
+async function doRegenLinks(uid) {
+    const slugs = Array.from(document.querySelectorAll('.regen-slug-cb'))
+        .filter(cb => cb.checked)
+        .map(cb => cb.dataset.slug);
+    const message = document.getElementById('regen-msg')?.value || '';
+    if (slugs.length === 0) { toast('เลือกอย่างน้อย 1 กลุ่ม', 'error'); return; }
+    if (!message.trim()) { toast('ข้อความว่าง', 'error'); return; }
+
+    try {
+        const r = await api(`/customers/${uid}/regen-links`, {
+            method: 'POST',
+            body: JSON.stringify({ slugs, message }),
+        });
         if (r.dm_sent) {
             toast(`✅ สร้าง ${r.links.length} ลิงก์ + DM แล้ว`, 'success');
         } else {
-            toast(`⚠️ สร้างลิงก์แล้ว ${r.links.length} ลิงก์ — DM ไม่ส่ง: ${r.dm_error || 'unknown'}`, 'error', 10000);
+            toast(`⚠️ ลิงก์สร้างแล้ว — DM ไม่ส่ง: ${r.dm_error || 'unknown'}`, 'error', 10000);
         }
-        // Show links so admin can copy if DM failed
+        // Show result modal with links
         const linksHtml = r.links.map(l => `
             <div style="padding:0.5rem;border:1px solid var(--border);border-radius:6px;margin-bottom:0.4rem;">
                 <div style="font-weight:600;font-size:0.85rem;">${esc(l.title)} <code style="font-size:0.7rem;color:var(--text-muted);">${esc(l.slug)}</code></div>
@@ -5111,12 +5260,15 @@ async function regenInviteLinks(uid) {
                 </div>
             </div>
         `).join('');
-        openModal(`🔄 ลิงก์ใหม่ (${r.links.length})`, `
-            <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.5rem;">
-                ${r.dm_sent ? '✅ ส่ง DM แล้ว' : '⚠️ DM ไม่ส่ง — copy ส่งให้ลูกค้าเอง'}
-            </div>
-            ${linksHtml}
-        `);
+        closeModal();
+        setTimeout(() => {
+            openModal(`🔄 ลิงก์ใหม่ (${r.links.length})`, `
+                <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.5rem;">
+                    ${r.dm_sent ? '✅ ส่ง DM แล้ว' : '⚠️ DM ไม่ส่ง — copy ส่งให้ลูกค้าเอง'}
+                </div>
+                ${linksHtml}
+            `);
+        }, 200);
     } catch (err) {
         toast('❌ ' + (err.message || 'regen failed'), 'error');
     }
