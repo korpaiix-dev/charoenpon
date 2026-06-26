@@ -1939,22 +1939,22 @@ async function renderDashboard() {
                 <div class="rev-card today">
                     <div class="rev-label">📅 วันนี้</div>
                     <div class="rev-value">${fmtBaht(revSummary.today.amount)}</div>
-                    <div class="rev-sub">${fmt(revSummary.today.count)} order${revSummary.today.vs_yesterday_pct != null ? ` · ${revSummary.today.vs_yesterday_pct >= 0 ? '▲' : '▼'} ${Math.abs(revSummary.today.vs_yesterday_pct)}%` : ''}</div>
+                    <div class="rev-sub"><span style="color:var(--text-muted);">${fmt(revSummary.today.count)} order</span>${revSummary.today.vs_yesterday_pct != null ? ` <span style="color:var(--text-muted);">·</span> <span style="color:${revSummary.today.vs_yesterday_pct >= 0 ? 'var(--success)' : 'var(--error)'};font-weight:600;">${revSummary.today.vs_yesterday_pct >= 0 ? '▲' : '▼'} ${Math.abs(revSummary.today.vs_yesterday_pct)}%</span>` : ''}</div>
                 </div>
                 <div class="rev-card month">
                     <div class="rev-label">📆 เดือนนี้</div>
                     <div class="rev-value">${fmtBaht(revSummary.this_month.amount)}</div>
-                    <div class="rev-sub">${fmt(revSummary.this_month.count)} order${revSummary.this_month.vs_last_month_pct != null ? ` · ${revSummary.this_month.vs_last_month_pct >= 0 ? '▲' : '▼'} ${Math.abs(revSummary.this_month.vs_last_month_pct)}%` : ''}</div>
+                    <div class="rev-sub"><span style="color:var(--text-muted);">${fmt(revSummary.this_month.count)} order</span>${revSummary.this_month.vs_last_month_pct != null ? ` <span style="color:var(--text-muted);">·</span> <span style="color:${revSummary.this_month.vs_last_month_pct >= 0 ? 'var(--success)' : 'var(--error)'};font-weight:600;">${revSummary.this_month.vs_last_month_pct >= 0 ? '▲' : '▼'} ${Math.abs(revSummary.this_month.vs_last_month_pct)}%</span>` : ''}</div>
                 </div>
                 <div class="rev-card year">
                     <div class="rev-label">📊 ปีนี้</div>
                     <div class="rev-value">${fmtBaht(revSummary.this_year.amount)}</div>
-                    <div class="rev-sub">${fmt(revSummary.this_year.count)} order${revSummary.this_year.vs_last_year_pct != null ? ` · ${revSummary.this_year.vs_last_year_pct >= 0 ? '▲' : '▼'} ${Math.abs(revSummary.this_year.vs_last_year_pct)}%` : ''}</div>
+                    <div class="rev-sub"><span style="color:var(--text-muted);">${fmt(revSummary.this_year.count)} order</span>${revSummary.this_year.vs_last_year_pct != null ? ` <span style="color:var(--text-muted);">·</span> <span style="color:${revSummary.this_year.vs_last_year_pct >= 0 ? 'var(--success)' : 'var(--error)'};font-weight:600;">${revSummary.this_year.vs_last_year_pct >= 0 ? '▲' : '▼'} ${Math.abs(revSummary.this_year.vs_last_year_pct)}%</span>` : ''}</div>
                 </div>
                 <div class="rev-card alltime">
                     <div class="rev-label">💎 รวมทั้งหมด</div>
                     <div class="rev-value">${fmtBaht(revSummary.all_time.amount)}</div>
-                    <div class="rev-sub">${fmt(revSummary.all_time.count)} order ตลอดอายุระบบ</div>
+                    <div class="rev-sub"><span style="color:var(--text-muted);">${fmt(revSummary.all_time.count)} order ตลอดอายุระบบ</span></div>
                 </div>
             </div>` : '';
 
