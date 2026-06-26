@@ -348,6 +348,19 @@ textarea { min-height: 96px; resize: vertical; }
     opacity: 0.85;
 }
 .nav-item.active .nav-icon { opacity: 1; }
+
+/* Phase A.2 (2026-06-27): Sidebar category dividers */
+.nav-divider {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    padding: 1rem 0.75rem 0.4rem;
+    font-weight: 700;
+    border-top: 1px solid var(--border);
+    margin-top: 0.5rem;
+}
+.nav-divider:first-of-type { border-top: none; margin-top: 0.25rem; }
 .sidebar-footer {
     padding: 0.875rem 1rem;
     border-top: 1px solid var(--border);

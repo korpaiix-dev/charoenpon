@@ -109,21 +109,37 @@ async function withBusy(key, fn) {
 
 
 const NAV_ITEMS = [
+    // ─── หน้าเปิด ───
     { id: 'today', icon: '📋', label: 'งานวันนี้', minRole: 'moderator' },
-    { id: 'dashboard', icon: '📊', label: 'ภาพรวม', minRole: 'moderator' },
-    { id: 'inbox', icon: '📥', label: 'กล่องรอจัดการ', minRole: 'moderator' },
+
+    // ─── งานเร่งด่วน ───
+    { type: 'divider', label: 'งานเร่งด่วน' },
+    { id: 'inbox', icon: '📥', label: 'Inbox สลิป', minRole: 'moderator' },
     { id: 'customers', icon: '👥', label: 'ลูกค้า', minRole: 'moderator' },
-    { id: 'finance', icon: '💰', label: 'การเงิน', minRole: 'moderator' },
-    { id: 'receivers', icon: '💳', label: 'บัญชีรับเงิน', minRole: 'admin' },
+
+    // ─── สื่อสาร + ดึงดูด ───
+    { type: 'divider', label: 'สื่อสาร + โปร' },
     { id: 'promotions', icon: '🎁', label: 'โปรโมชั่น + บอท', minRole: 'admin' },
     { id: 'content', icon: '📸', label: 'Content', minRole: 'moderator' },
     { id: 'gacha', icon: '🎰', label: 'กาชา', minRole: 'admin' },
-    { id: 'prae_logs', icon: '💬', label: 'Prae Logs', minRole: 'admin' },
-    { id: 'groups', icon: '📱', label: 'กลุ่ม', minRole: 'admin' },
+    { id: 'prae_logs', icon: '💭', label: 'บทสนทนา Prae', minRole: 'admin' },
+
+    // ─── การเงิน + ภาพรวม ───
+    { type: 'divider', label: 'การเงิน + รายงาน' },
+    { id: 'finance', icon: '💰', label: 'การเงิน + Receivers', minRole: 'moderator' },
+    { id: 'receivers', icon: '💳', label: 'บัญชีรับเงิน', minRole: 'admin' },
+    { id: 'dashboard', icon: '📊', label: 'ภาพรวม', minRole: 'moderator' },
+    { id: 'marketing', icon: '📈', label: 'Marketing ROI', minRole: 'admin' },
+
+    // ─── ดูแลระบบ ───
+    { type: 'divider', label: 'ดูแลระบบ' },
     { id: 'team', icon: '👨‍💼', label: 'ทีมงาน', minRole: 'admin' },
-    { id: 'settings', icon: '⚙️', label: 'ตั้งค่า', minRole: 'admin' },
-    { id: 'marketing', icon: '📊', label: 'Marketing', minRole: 'admin' },
-    { id: 'activity', icon: '📋', label: 'Activity Log', minRole: 'admin' },
+    { id: 'groups', icon: '🏛', label: 'กลุ่ม VIP/ฟรี', minRole: 'admin' },
+    { id: 'settings', icon: '⚙️', label: 'ตั้งค่าระบบ', minRole: 'admin' },
+
+    // ─── ประวัติ ───
+    { type: 'divider', label: 'ประวัติ' },
+    { id: 'activity', icon: '📜', label: 'Activity Log', minRole: 'admin' },
 ];
 
 // ========== API ==========
@@ -202,10 +218,15 @@ function renderSidebar() {
     const nav = document.getElementById('sidebar-nav');
     const level = ROLE_LEVELS[admin.role] || 0;
     nav.innerHTML = NAV_ITEMS
-        .filter(item => level >= ROLE_LEVELS[item.minRole])
-        .map(item => `<div class="nav-item ${item.id === currentPage ? 'active' : ''}" onclick="navigate('${item.id}')">
-            <span class="nav-icon">${item.icon}</span> ${item.label}
-        </div>`).join('');
+        .filter(item => item.type === 'divider' || level >= ROLE_LEVELS[item.minRole])
+        .map(item => {
+            if (item.type === 'divider') {
+                return `<div class="nav-divider">${item.label}</div>`;
+            }
+            return `<div class="nav-item ${item.id === currentPage ? 'active' : ''}" onclick="navigate('${item.id}')">
+                <span class="nav-icon">${item.icon}</span> ${item.label}
+            </div>`;
+        }).join('');
     
     document.getElementById('sidebar-user-name').textContent = 'บอส';
     const roleLabels = { owner: '👑 Owner', super_admin: '⚡ Super Admin', admin: '🛡️ Admin', moderator: '📋 Moderator' };
@@ -3973,7 +3994,14 @@ function updateInboxBulkBar() {
 
 async function inboxBulkApprove() {
     const ids = Array.from(window._inboxSelected);
-    if (!confirm(`Approve ${ids.length} payment พร้อมกัน?`)) return;
+    // Phase A.2 (2026-06-27): stronger confirm with consequences
+    const msg = `✅ Approve ${ids.length} สลิป พร้อมกัน?\n\n\n` +
+        `จะเกิดอะไรขึ้น:\n` +
+        `  • ลูกค้า ${ids.length} คนจะได้ VIP/Gacha ทันที\n` +
+        `  • DM ส่งไปทุกคนพร้อม invite link\n` +
+        `  • Subscription/credit สร้างใน DB\n\n` +
+        `⚠️ Action นี้กลับไม่ได้ — ถ้ามีสลิปปลอมหลุดผ่าน ลูกค้าจะได้ VIP ฟรี`;
+    if (!confirm(msg)) return;
     try {
         const result = await api('/payments/bulk-approve', {
             method: 'POST',
@@ -3991,9 +4019,13 @@ async function inboxBulkApprove() {
 }
 
 async function inboxBulkReject() {
-    const reason = prompt('เหตุผล reject:');
-    if (reason === null) return;
     const ids = Array.from(window._inboxSelected);
+    // Phase A.2 (2026-06-27): show count + warn
+    const reason = prompt(`❌ Reject ${ids.length} สลิป พร้อมกัน\n\nกรอกเหตุผล (จะส่ง DM ให้ลูกค้าทุกคน):`);
+    if (reason === null || !reason.trim()) {
+        if (reason !== null) toast('กรุณาใส่เหตุผล', 'error');
+        return;
+    }
     try {
         const result = await api('/payments/bulk-reject', {
             method: 'POST',
@@ -5744,7 +5776,18 @@ async function loadFeatureFlags() {
 }
 
 async function toggleFlag(flagKey, newEnabled) {
+    // Phase A.2 (2026-06-27): strong confirm for enabling at scope=all
     try {
+        if (newEnabled) {
+            const flag = await api(`/feature-flags/${flagKey}`).catch(() => null);
+            const scope = flag?.scope || 'all';
+            const scopeText = scope === 'all' ? 'ลูกค้าทุกคน 🚨' : (scope === 'canary' ? 'canary list' : 'admin เท่านั้น');
+            const msg = `✅ จะเปิด feature นี้ใช่ไหม?\n\n\n` +
+                `Feature : ${flagKey}\n` +
+                `Scope   : ${scope} (${scopeText})\n\n` +
+                (scope === 'all' ? `⚠️ ระวัง: จะเปิดให้ลูกค้าทุกคนทันที! ถ้ายังไม่ทดสอบ เปลี่ยน scope = canary ก่อน` : '✓ ทดสอบกับ canary list ก่อน — ปลอดภัย');
+            if (!confirm(msg)) return;
+        }
         await api(`/feature-flags/${flagKey}`, { method: 'PATCH', body: JSON.stringify({ enabled: newEnabled }) });
         toast(`✅ ${flagKey} → ${newEnabled ? 'ON' : 'OFF'}`, 'success');
         loadFeatureFlags();
