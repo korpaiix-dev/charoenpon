@@ -325,3 +325,47 @@ async def revoke_marketing_link(link_id: int, admin=Depends(require_role("admin"
         logger.warning("marketing revoke: %s", _re_exc)
     return {"ok": True, "id": link_id, "tg_revoked": tg_revoke_result}
 
+
+
+
+@router.get("/heatmap")
+async def marketing_heatmap(days: int = 30, admin=Depends(require_role("admin"))):
+    """Conversion heatmap: 7 days × 24 hours grid.
+
+    Cells = number of joins via marketing links.
+    Returns: { grid: [[0,1,2,...], [...], ...], totals: {day: N}, peak: {dow,hour,count} }
+    """
+    rows = await pool.fetch(
+        f"""
+        SELECT
+            EXTRACT(DOW FROM joined_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::int AS dow,
+            EXTRACT(HOUR FROM joined_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::int AS hr,
+            COUNT(*) AS joins
+        FROM marketing_invite_joins
+        WHERE joined_at > NOW() - INTERVAL '{int(days)} days'
+        GROUP BY dow, hr
+        """
+    )
+
+    # Build 7×24 grid (dow 0=Sunday)
+    grid = [[0]*24 for _ in range(7)]
+    day_totals = [0]*7
+    peak = {"dow": 0, "hour": 0, "count": 0}
+    total = 0
+    for r in rows:
+        d = int(r['dow']); h = int(r['hr']); c = int(r['joins'])
+        grid[d][h] = c
+        day_totals[d] += c
+        total += c
+        if c > peak['count']:
+            peak = {"dow": d, "hour": h, "count": c}
+
+    day_labels = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัส','ศุกร์','เสาร์']
+    return {
+        "days": days,
+        "grid": grid,
+        "day_totals": day_totals,
+        "day_labels": day_labels,
+        "peak": peak,
+        "total": total,
+    }

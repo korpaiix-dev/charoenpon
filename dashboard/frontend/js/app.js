@@ -3129,13 +3129,24 @@ async function syncRelayBot(force) {
 }
 
 // ========== PAGE: GROUPS ==========
+var _groupsTab = 'all';
 async function renderGroups() {
     setTimeout(() => { try { renderRelaySync(); } catch (e) {} }, 200);
+    // Also load relay widget
+    setTimeout(() => { try { renderRelayWidget('relay-widget'); } catch (e) {} }, 100);
 
     const content = document.getElementById('page-content');
     try {
         const data = await api('/groups/categorized');
-        
+
+        // Tabs UI
+        const tabs = [
+            { id: 'all', label: '📑 ทั้งหมด' },
+            { id: 'vip', label: '👑 VIP' },
+            { id: 'free', label: '🆓 ฟรี' },
+            { id: 'chat', label: '💬 พูดคุย' },
+        ];
+
         function groupTable(groups, emoji, title, category) {
             let html = `<div class="category-section"><div class="category-header">${emoji} ${esc(title)} <span class="category-count">${groups.length}</span>
                 <button class="btn btn-sm btn-primary" style="margin-left:auto;" onclick="showAddGroupForm('${category}')">+ เพิ่มกลุ่ม</button>
@@ -3160,10 +3171,20 @@ async function renderGroups() {
             return html;
         }
         
-        content.innerHTML = 
-            groupTable(data.vip, '👑', 'กลุ่ม VIP', 'vip') +
-            groupTable(data.free, '🆓', 'กลุ่มฟรี', 'free') +
-            groupTable(data.chat, '💬', 'กลุ่มพูดคุย', 'chat');
+        // Build tab nav
+        const tabHtml = tabs.map(t =>
+            `<div class="tab ${_groupsTab===t.id?'active':''}" onclick="_groupsTab='${t.id}';renderGroups()">${t.label}</div>`
+        ).join('');
+
+        // Relay widget placeholder (loaded async)
+        const relayWidget = '<div id="relay-widget" style="margin-bottom:1rem;"><div class="loading"><div class="spinner"></div></div></div>';
+
+        let groupsHtml = '';
+        if (_groupsTab === 'all' || _groupsTab === 'vip') groupsHtml += groupTable(data.vip, '👑', 'กลุ่ม VIP', 'vip');
+        if (_groupsTab === 'all' || _groupsTab === 'free') groupsHtml += groupTable(data.free, '🆓', 'กลุ่มฟรี', 'free');
+        if (_groupsTab === 'all' || _groupsTab === 'chat') groupsHtml += groupTable(data.chat, '💬', 'กลุ่มพูดคุย', 'chat');
+
+        content.innerHTML = relayWidget + `<div class="tabs" style="margin-bottom:1rem;">${tabHtml}</div>` + groupsHtml;
         
     } catch (e) { content.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`; }
 }
@@ -3742,6 +3763,8 @@ async function renderMarketing() {
             </div>
             ` : ''}
 
+            <div id="mkt-heatmap" style="margin-top:1.5rem;"></div>
+
             <div class="card card-full" style="margin-top:1.5rem;">
                 <div class="card-label">🤖 AI Action Items</div>
                 <div style="padding:1rem;white-space:pre-wrap;color:var(--text);font-size:0.9rem;">${insights.insights || 'ยังไม่มี'}</div>
@@ -3750,6 +3773,9 @@ async function renderMarketing() {
         `;
 
         // Weekly chart
+        // Render heatmap (async; non-blocking)
+        renderMarketingHeatmap('mkt-heatmap', 30);
+
         if (weekly.length >= 1) {
             charts.weekly = new Chart(document.getElementById('weekly-chart'), {
                 type: 'bar',
@@ -6352,5 +6378,66 @@ async function checkTestMode() {
             document.body.insertBefore(banner, document.body.firstChild);
         }
     } catch (_e) {}
+}
+
+// ==================================================================
+// Phase A.3 (2026-06-27): Marketing heatmap (7 days × 24 hours)
+// ==================================================================
+async function renderMarketingHeatmap(containerId, days = 30) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    try {
+        const data = await api('/marketing/heatmap?days=' + days);
+        if (!data.total) {
+            el.innerHTML = '<div class="empty-state" style="padding:1rem;">ไม่มีข้อมูล join ใน ' + days + ' วันที่ผ่านมา</div>';
+            return;
+        }
+        const dayLabels = data.day_labels || ['อา','จ','อ','พ','พฤ','ศ','ส'];
+        const grid = data.grid; // [7][24]
+        const peak = data.peak || {};
+
+        // Find max for color scale
+        let max = 0;
+        for (let d = 0; d < 7; d++) for (let h = 0; h < 24; h++) if (grid[d][h] > max) max = grid[d][h];
+
+        const cellColor = (v) => {
+            if (v === 0) return 'var(--surface-2)';
+            const intensity = v / max;
+            // Pink gradient: surface → primary
+            const alpha = 0.15 + intensity * 0.85;
+            return `rgba(247, 176, 69, ${alpha})`;
+        };
+
+        let html = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;flex-wrap:wrap;gap:0.5rem;">
+                <h3 style="margin:0;font-size:0.95rem;font-weight:600;">🔥 Heatmap — เวลาที่ลูกค้า join (${days} วัน)</h3>
+                <div style="font-size:0.75rem;color:var(--text-muted);">
+                    🏆 Peak: ${dayLabels[peak.dow]} ${String(peak.hour).padStart(2,'0')}:00 — <b>${peak.count}</b> joins
+                </div>
+            </div>
+            <div style="overflow-x:auto;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0.75rem;">
+                <table style="border-collapse:separate;border-spacing:2px;font-size:0.7rem;">
+                    <thead><tr>
+                        <th style="padding:0.2rem 0.4rem;width:35px;"></th>`;
+        for (let h = 0; h < 24; h++) {
+            html += `<th style="padding:0.2rem;width:22px;text-align:center;color:var(--text-dim);font-weight:500;">${String(h).padStart(2,'0')}</th>`;
+        }
+        html += `<th style="padding:0.2rem 0.4rem;width:35px;color:var(--text-dim);">รวม</th></tr></thead><tbody>`;
+        for (let d = 0; d < 7; d++) {
+            html += `<tr><td style="padding:0.2rem 0.4rem;font-weight:500;color:var(--text-dim);">${dayLabels[d]}</td>`;
+            for (let h = 0; h < 24; h++) {
+                const v = grid[d][h];
+                const isPeak = (d === peak.dow && h === peak.hour);
+                html += `<td title="${dayLabels[d]} ${String(h).padStart(2,'0')}:00 — ${v} joins" style="width:22px;height:22px;background:${cellColor(v)};text-align:center;border-radius:3px;color:${v>max*0.5?'var(--text)':'var(--text-muted)'};font-size:0.65rem;${isPeak?'box-shadow:0 0 0 2px var(--error);':''}">${v||''}</td>`;
+            }
+            const dayTotal = data.day_totals[d];
+            html += `<td style="padding:0.2rem 0.4rem;font-weight:600;color:var(--text);">${dayTotal}</td></tr>`;
+        }
+        html += '</tbody></table></div>';
+        html += '<div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.4rem;text-align:right;">รวม ' + data.total + ' joins · max cell = ' + max + '</div>';
+        el.innerHTML = html;
+    } catch (e) {
+        el.innerHTML = '<div class="empty-state" style="padding:1rem;color:var(--error);">' + e.message + '</div>';
+    }
 }
 

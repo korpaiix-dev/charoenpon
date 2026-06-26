@@ -266,3 +266,40 @@ async def sync_relay_bot(admin=Depends(require_role("admin"))):
         "chat_ids": chat_ids,
     }
 
+
+
+
+@router.get("/relay-status")
+async def relay_status(admin=Depends(require_role("admin"))):
+    """Read relay-bot state.json to show sync stats in dashboard."""
+    import json as _json
+    import os as _os
+
+    state_path = '/app/bots/relay_bot/data/state.json'
+    try:
+        if not _os.path.exists(state_path):
+            return {"available": False, "reason": "state.json not found"}
+        with open(state_path) as f:
+            state = _json.load(f)
+
+        stats = state.get('stats', {})
+        disabled = state.get('destDisabled', {})
+        failures = state.get('destFailures', {})
+
+        # Compute synced groups count from group_registry (active groups that match)
+        active_groups = await pool.fetchval("SELECT COUNT(*) FROM group_registry WHERE is_active = TRUE")
+
+        return {
+            "available": True,
+            "paused": state.get('paused', False),
+            "started_at": stats.get('startedAt'),
+            "last_forward_at": stats.get('lastForwardAt'),
+            "last_closing_at": state.get('lastClosingAt'),
+            "total_forwarded": stats.get('forwarded', 0),
+            "total_failed": stats.get('failed', 0),
+            "closings_sent": stats.get('closingsSent', 0),
+            "disabled_destinations": [{"chat_id": k, "failures": failures.get(k, 0)} for k in disabled.keys()],
+            "active_groups": active_groups,
+        }
+    except Exception as exc:
+        return {"available": False, "reason": str(exc)[:200]}

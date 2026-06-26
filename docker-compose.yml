@@ -178,6 +178,7 @@ services:
       # Phase A.2 2026-06-27: mount frontend so JS/CSS/HTML changes
       # apply instantly without rebuild → zero-downtime for frontend edits
       - ./dashboard/frontend:/app/dashboard/frontend:ro
+      - ./bots/relay_bot/data/state.json:/app/bots/relay_bot/data/state.json:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -254,6 +255,7 @@ services:
       - ./.env:/app/host.env
       - ./docker-compose.yml:/app/docker-compose.yml:ro
       - ./dashboard/frontend:/app/dashboard/frontend:ro
+      - ./bots/relay_bot/data/state.json:/app/bots/relay_bot/data/state.json:ro
     depends_on:
       postgres:
         condition: service_healthy
