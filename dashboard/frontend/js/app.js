@@ -7610,6 +7610,7 @@ async function renderContentEditor() {
                 <div class="ct-actions">
                     <button class="btn btn-sm btn-outline" onclick="resetContentTemplate(${t.id})">↩️ ยกเลิก</button>
                     <button class="btn btn-sm btn-primary" onclick="saveContentTemplate(${t.id})">💾 บันทึก</button>
+                    <button class="btn btn-sm" onclick="ctDeleteTemplate(${t.id}, '${esc(t.template_key)}')" style="background:#7f1d1d;color:#fff;border:none;">🗑 ลบ</button>
                 </div>
               </div>
             `;
