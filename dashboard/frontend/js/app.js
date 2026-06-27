@@ -144,6 +144,7 @@ const NAV_ITEMS = [
 
     // ─── ประวัติ ───
     { type: 'divider', label: 'ประวัติ' },
+    { id: 'health', icon: '🚦', label: 'สถานะระบบ', minRole: 'admin' },
     { id: 'activity', icon: '📜', label: 'Activity Log', minRole: 'admin' },
 ];
 
@@ -274,7 +275,7 @@ function navigate(page) {
         dashboard: '📊 ภาพรวม', inbox: '📥 Inbox สลิป', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน', gacha: '🎰 กาชา',
         promotions: '🎁 โปรโมชั่น + ตั้งค่าบอท', journey: '📨 DM อัตโนมัติ (Customer Journey)', content: '📸 Content', groups: '📱 กลุ่ม', bot_groups: '🤖 จัดการบอท', group_analytics: '📊 สถิติกลุ่ม', bot_schedules: '⏰ ตารางเวลาบอท', content_editor: '📝 คอนเทนต์บอท',
         team: '👨‍💼 ทีมงาน', settings: '⚙️ ตั้งค่า', marketing: '📊 Marketing',
-        activity: '📋 Activity Log', prae_logs: '💬 Prae Logs',
+        activity: '📋 Activity Log', health: '🚦 สถานะระบบ (System Health)', prae_logs: '💬 Prae Logs',
     };
     document.getElementById('page-title').textContent = titles[page] || page;
     document.getElementById('sidebar').classList.remove('open');
@@ -290,7 +291,7 @@ function navigate(page) {
         today: renderToday, dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance, receivers: renderReceivers, gacha: renderGacha,
         promotions: renderPromoManager, journey: renderJourney, content: renderContent, groups: renderGroups, bot_groups: renderBotGroups, group_analytics: renderGroupAnalytics, bot_schedules: renderBotSchedules, content_editor: renderContentEditor,
         team: renderTeam, settings: renderSettings, marketing: renderMarketing,
-        activity: renderActivityLog, prae_logs: renderPraeLogs,
+        activity: renderActivityLog, health: renderSystemHealth, prae_logs: renderPraeLogs,
     };
     (pages[page] || (() => { content.innerHTML = '<div class="empty-state"><div class="icon">🚧</div><p>Coming soon</p></div>'; }))();
 }
@@ -8413,3 +8414,128 @@ async function saveJourneyTemplate(messageKey) {
         renderJourney();
     } catch (e) { toast(e.message, 'error'); }
 }
+
+
+// ============================================================
+//  🚦 System Health Dashboard — added 2026-06-28
+// ============================================================
+let _healthTimer = null;
+
+async function renderSystemHealth() {
+    const content = document.getElementById('page-content');
+    if (_healthTimer) clearInterval(_healthTimer);
+
+    async function loadAndRender() {
+        let data;
+        try {
+            data = await api('/admin/health/overview');
+        } catch (e) {
+            content.innerHTML = `<div class="err">โหลดไม่สำเร็จ: ${e.message}</div>`;
+            return;
+        }
+        const colorMap = { ok: '#10b981', warn: '#f59e0b', critical: '#ef4444', unknown: '#6b7280' };
+        const labelMap = { ok: '✅ ปกติ', warn: '⚠️ เฝ้าระวัง', critical: '🚨 วิกฤต', unknown: '❓ ไม่รู้' };
+        const overallColor = colorMap[data.overall_health] || '#6b7280';
+        const overallLabel = labelMap[data.overall_health] || '?';
+        
+        let html = `
+            <div style="display:flex;justify-content:space-between;align-items:center;background:${overallColor}22;border-left:6px solid ${overallColor};padding:1rem;border-radius:0.6rem;margin-bottom:1.5rem">
+                <div>
+                    <div style="font-size:0.8rem;opacity:0.7">สถานะรวม</div>
+                    <div style="font-size:1.4rem;font-weight:700;color:${overallColor}">${overallLabel}</div>
+                </div>
+                <div style="text-align:right;font-size:0.75rem;opacity:0.6">
+                    ตรวจล่าสุด<br>${new Date(data.checked_at).toLocaleTimeString('th-TH')}
+                </div>
+            </div>
+        `;
+
+        // Bots section
+        html += '<h3 style="margin-bottom:0.7rem">🤖 บอต (Containers)</h3>';
+        html += '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:0.7rem;margin-bottom:1.5rem">';
+        (data.bots || []).forEach(b => {
+            const c = colorMap[b.health] || '#6b7280';
+            const icon = b.is_up ? '✅' : '❌';
+            html += `
+                <div class="card" style="padding:0.8rem;border-left:4px solid ${c}">
+                    <div style="display:flex;justify-content:space-between;align-items:start">
+                        <div>
+                            <div style="font-weight:600">${icon} ${esc(b.label)}</div>
+                            <div style="font-size:0.75rem;opacity:0.6;margin-top:0.2rem">${esc(b.container)}</div>
+                        </div>
+                        ${b.critical ? '<span style="font-size:0.65rem;color:#ef4444">CRITICAL</span>' : ''}
+                    </div>
+                    <div style="font-size:0.8rem;opacity:0.8;margin-top:0.4rem">${esc((b.status||'').substring(0, 60))}</div>
+                </div>
+            `;
+        });
+        html += '</div>';
+
+        // Payment health
+        const p = data.payment || {};
+        const pc = colorMap[p.health] || '#6b7280';
+        html += '<h3 style="margin-bottom:0.7rem">💳 ระบบจ่ายเงิน</h3>';
+        html += `
+            <div class="card" style="padding:1rem;border-left:4px solid ${pc};margin-bottom:1.5rem">
+                <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1rem">
+                    <div><div style="font-size:0.75rem;opacity:0.6">Pending 24h</div><div style="font-size:1.4rem;font-weight:700">${p.pending_24h ?? '-'}</div></div>
+                    <div><div style="font-size:0.75rem;opacity:0.6">Stuck >30min</div><div style="font-size:1.4rem;font-weight:700;color:${(p.stuck_30min || 0) > 5 ? '#ef4444' : 'inherit'}">${p.stuck_30min ?? '-'}</div></div>
+                    <div><div style="font-size:0.75rem;opacity:0.6">Issues</div><div style="font-size:1.4rem;font-weight:700">${p.issues_count ?? 0}</div></div>
+                </div>
+                ${(p.issues || []).length > 0 ? `<div style="margin-top:0.7rem;padding:0.6rem;background:rgba(239,68,68,0.1);border-radius:0.4rem;font-size:0.85rem">${(p.issues || []).map(i => `• ${esc(i)}`).join('<br>')}</div>` : ''}
+            </div>
+        `;
+
+        // Slip2Go
+        const sg = data.slip2go || {};
+        const sgc = colorMap[sg.health] || '#6b7280';
+        html += '<h3 style="margin-bottom:0.7rem">📱 Slip2Go</h3>';
+        html += `
+            <div class="card" style="padding:1rem;border-left:4px solid ${sgc};margin-bottom:1.5rem">
+                <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1rem">
+                    <div><div style="font-size:0.75rem;opacity:0.6">Failures 24h</div><div style="font-size:1.4rem;font-weight:700;color:${(sg.failures_24h || 0) > 20 ? '#ef4444' : 'inherit'}">${sg.failures_24h ?? '-'}</div></div>
+                    <div><div style="font-size:0.75rem;opacity:0.6">Queued</div><div style="font-size:1.4rem;font-weight:700">${sg.queued ?? '-'}</div></div>
+                    <div><div style="font-size:0.75rem;opacity:0.6">Last Confirm</div><div style="font-size:0.85rem;font-weight:600">${sg.last_confirm ? new Date(sg.last_confirm).toLocaleString('th-TH') : '—'}</div></div>
+                </div>
+            </div>
+        `;
+
+        // Database
+        const db = data.database || {};
+        const dbc = colorMap[db.health] || '#6b7280';
+        html += '<h3 style="margin-bottom:0.7rem">💾 ฐานข้อมูล</h3>';
+        html += `
+            <div class="card" style="padding:1rem;border-left:4px solid ${dbc};margin-bottom:1.5rem">
+                <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1rem">
+                    <div><div style="font-size:0.75rem;opacity:0.6">Active connections</div><div style="font-size:1.4rem;font-weight:700">${db.active_connections ?? '-'}</div></div>
+                    <div><div style="font-size:0.75rem;opacity:0.6">DB size</div><div style="font-size:1.2rem;font-weight:700">${esc(db.db_size || '-')}</div></div>
+                    <div><div style="font-size:0.75rem;opacity:0.6">Users total</div><div style="font-size:1.4rem;font-weight:700">${fmt(db.users_total || 0)}</div></div>
+                    <div><div style="font-size:0.75rem;opacity:0.6">Active subs</div><div style="font-size:1.4rem;font-weight:700">${fmt(db.active_subs || 0)}</div></div>
+                </div>
+            </div>
+        `;
+
+        // DMs
+        const dm = data.dms || {};
+        const dmc = colorMap[dm.health] || '#6b7280';
+        html += '<h3 style="margin-bottom:0.7rem">📨 DM</h3>';
+        html += `
+            <div class="card" style="padding:1rem;border-left:4px solid ${dmc};margin-bottom:1rem">
+                <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1rem">
+                    <div><div style="font-size:0.75rem;opacity:0.6">Blocked users</div><div style="font-size:1.4rem;font-weight:700">${fmt(dm.blocked_users || 0)}</div></div>
+                    <div><div style="font-size:0.75rem;opacity:0.6">DMs sent 24h</div><div style="font-size:1.4rem;font-weight:700">${fmt(dm.dms_sent_24h || 0)}</div></div>
+                </div>
+            </div>
+        `;
+
+        html += '<div style="margin-top:1rem;text-align:center;opacity:0.6;font-size:0.8rem">🔄 รีเฟรชอัตโนมัติ ทุก 30 วินาที</div>';
+
+        content.innerHTML = html;
+    }
+
+    await loadAndRender();
+    _healthTimer = setInterval(loadAndRender, 30000);
+}
+
+// Cleanup timer on navigate
+window.addEventListener('beforeunload', () => { if (_healthTimer) clearInterval(_healthTimer); });

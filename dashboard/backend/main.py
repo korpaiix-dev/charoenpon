@@ -16,6 +16,7 @@ from .routers.promotions import router as promotions_router, ensure_promo_campai
 from .routers.promo_dayzero import router as promo_dayzero_router
 from .routers.customer_miniapp import router as customer_miniapp_router
 from .routers.journey_templates import router as journey_templates_router
+from .routers.system_health import router as system_health_router
 from .routers.content import router as content_router
 from .routers.groups import router as groups_router
 from .routers.team import router as team_router
@@ -121,6 +122,7 @@ app.include_router(payments_router)
 app.include_router(promo_dayzero_router)
 app.include_router(customer_miniapp_router)
 app.include_router(journey_templates_router)
+app.include_router(system_health_router)
 app.include_router(promotions_router)
 app.include_router(content_router)
 app.include_router(groups_router)
