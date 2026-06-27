@@ -7227,10 +7227,13 @@ async function renderBotSchedules() {
           .sched-section{margin-bottom:1.2rem;}
           .sched-section-title{font-size:0.75rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.5rem;}
           .sched-row{display:grid;grid-template-columns:auto 1fr auto auto;gap:0.75rem;align-items:center;padding:0.7rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:0.5rem;}
-          .sched-toggle{-webkit-appearance:none;-moz-appearance:none;appearance:none;width:42px;height:24px;background:#3f3f46;border:1px solid #52525b;border-radius:24px;position:relative;cursor:pointer;transition:background 0.2s;flex-shrink:0;outline:none;margin:0;}
-          .sched-toggle::before{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;background:#fff;border-radius:50%;transition:transform 0.2s;box-shadow:0 1px 2px rgba(0,0,0,0.3);}
-          .sched-toggle:checked{background:#10b981;border-color:#059669;}
-          .sched-toggle:checked::before{transform:translateX(18px);}
+          /* Toggle switch — label wrapper because input::before doesnt work */
+          .sched-switch{position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0;}
+          .sched-switch input{opacity:0;width:0;height:0;margin:0;position:absolute;}
+          .sched-slider{position:absolute;top:0;left:0;right:0;bottom:0;background:#3f3f46;border-radius:24px;cursor:pointer;transition:background 0.2s;box-shadow:inset 0 1px 2px rgba(0,0,0,0.2);}
+          .sched-slider::before{content:"";position:absolute;height:18px;width:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:transform 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.4);}
+          .sched-switch input:checked + .sched-slider{background:#10b981;}
+          .sched-switch input:checked + .sched-slider::before{transform:translateX(20px);}
           .sched-time-input{display:inline-flex;gap:0.15rem;align-items:center;background:#27272a;border:1px solid #3f3f46;border-radius:6px;padding:0.3rem 0.55rem;}
           .sched-time-input input{background:#3f3f46;border:1px solid #52525b;border-radius:4px;color:#fff;font-size:0.95rem;font-weight:600;width:42px;height:28px;text-align:center;font-variant-numeric:tabular-nums;padding:0;margin:0;}
           .sched-time-input input:focus{outline:none;border-color:#10b981;}
@@ -7256,7 +7259,10 @@ async function renderBotSchedules() {
                 <div class="sched-section-title">${catLabel(cat)}</div>
                 ${items.map(s => `
                     <div class="sched-row ${s.is_enabled?'':'sched-disabled'}" id="sched-row-${s.id}">
-                        <input type="checkbox" class="sched-toggle" ${s.is_enabled?'checked':''} onchange="toggleSchedule(${s.id}, this.checked)">
+                        <label class="sched-switch">
+                            <input type="checkbox" ${s.is_enabled?'checked':''} onchange="toggleSchedule(${s.id}, this.checked)">
+                            <span class="sched-slider"></span>
+                        </label>
                         <div>
                             <div style="font-weight:600;font-size:0.9rem;">${esc(s.display_name)}</div>
                             <div style="font-size:0.72rem;color:var(--text-muted);">${esc(s.description || '')}</div>
