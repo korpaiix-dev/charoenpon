@@ -45,6 +45,23 @@ async def list_packages_for_promo(_admin=Depends(require_role("admin"))):
     return [dict(r) for r in rows]
 
 
+
+
+@router.get("/day0-promos/groups")
+async def list_groups_for_promo(_admin=Depends(require_role("admin"))):
+    """Return active groups grouped by tier — for promo group picker."""
+    rows = await pool.fetch("""
+        SELECT slug, title, min_tier::text AS tier, is_active
+        FROM group_registry
+        WHERE is_active = TRUE
+        ORDER BY 
+          CASE WHEN min_tier::text = 'FREE' THEN 0 ELSE 1 END,
+          min_tier::text,
+          slug
+    """)
+    return [dict(r) for r in rows]
+
+
 @router.get("/day0-promos/{promo_id}")
 async def get_promotion_by_id(
     promo_id: int,

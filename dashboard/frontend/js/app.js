@@ -7828,6 +7828,7 @@ async function schedDelete(id, jobName) {
 
 let _dayZeroPromos = [];
 let _dayZeroPackages = [];
+let _dayZeroGroups = [];
 let _dayZeroEditId = null;
 
 async function loadDayZeroPromos() {
@@ -7835,12 +7836,14 @@ async function loadDayZeroPromos() {
     if (!area) return;
     area.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
     try {
-        const [promos, packages] = await Promise.all([
+        const [promos, packages, groups] = await Promise.all([
             api('/admin/day0-promos'),
             api('/admin/day0-promos/packages'),
+            api('/admin/day0-promos/groups'),
         ]);
         _dayZeroPromos = promos || [];
         _dayZeroPackages = packages || [];
+        _dayZeroGroups = groups || [];
         renderDayZeroPromoList();
     } catch (e) {
         area.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>โหลดรายการโปรไม่ได้: ${esc(e.message || e)}</p></div>`;
@@ -7854,8 +7857,8 @@ function renderDayZeroPromoList() {
     const stats = `
         <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-bottom:0.85rem;">
             <div>
-                <h2 style="margin:0;font-size:1.15rem;">🎁 จัดการโปรโมชั่น</h2>
-                <div style="font-size:0.72rem;color:var(--text-muted);">1 ที่จัดการครบ — caption + ราคา + เวลา + ปุ่ม</div>
+                <h2 style="margin:0;font-size:1.15rem;">🎁 จัดการโปรโมชั่น (ส่วนลด / แคมเปญพิเศษเท่านั้น)</h2>
+                <div style="font-size:0.72rem;color:var(--text-muted);">เฉพาะโปรที่มีส่วนลด/แคมเปญพิเศษ · โพสต์โฆษณาสินค้าปกติอยู่ที่ <b>📝 คอนเทนต์บอท</b></div>
             </div>
             <button class="btn btn-primary" onclick="openDayZeroPromoForm(null)" style="white-space:nowrap;margin-left:auto;">➕ เพิ่มโปรใหม่</button>
         </div>
@@ -8036,10 +8039,37 @@ function openDayZeroPromoForm(promoId) {
             <fieldset style="border:1px solid #3f3f46;border-radius:8px;padding:0.7rem 0.9rem;margin-bottom:0.85rem;">
                 <legend style="padding:0 0.4rem;font-size:0.75rem;color:var(--text-muted);">📢 โพสต์</legend>
                 <label class="ct-label">โพสต์ลงกลุ่ม</label>
-                <select id="dz-target" class="ct-input">
-                    <option value="all_free" ${data.target_groups==='all_free'?'selected':''}>ทุกกลุ่มฟรี (14 กลุ่ม)</option>
-                    <option value="" ${!data.target_groups||data.target_groups===''?'selected':''}>ไม่โพสต์</option>
-                </select>
+                ${(() => {
+                    const selectedRaw = (data.target_groups || '').toString();
+                    const isAllFree = selectedRaw === 'all_free';
+                    const selectedSet = new Set(isAllFree ? [] : selectedRaw.split(',').map(s => s.trim()).filter(Boolean));
+                    const freeGroups = _dayZeroGroups.filter(g => g.tier === 'FREE');
+                    const vipGroups = _dayZeroGroups.filter(g => g.tier !== 'FREE');
+                    const renderGroupBox = (gs, title) => {
+                        if (!gs.length) return '';
+                        return `<div style=\"margin-bottom:0.5rem;\">
+                            <div style=\"font-size:0.7rem;color:var(--text-muted);margin-bottom:0.25rem;\">${title}</div>
+                            <div style=\"display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:0.3rem;\">
+                                ${gs.map(g => {
+                                    const checked = selectedSet.has(g.slug) ? 'checked' : '';
+                                    return `<label style=\"display:flex;align-items:center;gap:0.35rem;padding:0.3rem 0.5rem;background:#1c1c1f;border:1px solid #3f3f46;border-radius:6px;font-size:0.77rem;cursor:pointer;\">
+                                        <input type=\"checkbox\" name=\"dz-group\" value=\"${esc(g.slug)}\" ${checked} style=\"margin:0;\">
+                                        <span style=\"flex:1;\">${esc(g.title)}</span>
+                                        <span style=\"color:var(--text-muted);font-size:0.65rem;font-family:var(--font-mono);\">${esc(g.slug)}</span>
+                                    </label>`;
+                                }).join('')}
+                            </div>
+                        </div>`;
+                    };
+                    return `<div style=\"background:#0a0a0a;border:1px solid #27272a;border-radius:6px;padding:0.5rem;max-height:280px;overflow-y:auto;\">
+                        <label style=\"display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.5rem;background:#1c2a1c;border:1px solid #2a4a2a;border-radius:6px;margin-bottom:0.4rem;font-weight:600;\">
+                            <input type=\"checkbox\" id=\"dz-target-all-free\" ${isAllFree?'checked':''} onchange=\"dzToggleAllFree(this.checked)\">
+                            <span>🟢 ทุกกลุ่มฟรี (shortcut — ${freeGroups.length} กลุ่ม)</span>
+                        </label>
+                        ${renderGroupBox(freeGroups, '🆓 กลุ่มฟรี')}
+                        ${renderGroupBox(vipGroups, '👑 กลุ่ม VIP (โพสต์ในห้องที่มีลูกค้าจ่ายแล้ว — ใช้สำหรับโปรอัพเกรด)')}
+                    </div>`;
+                })()}
                 <div style="margin-top:0.7rem;">
                     <label class="ct-label">เวลาโพสต์ (เพิ่มได้หลายเวลา)</label>
                     <div id="dz-times-area">${timeRows}</div>
@@ -8078,6 +8108,14 @@ function openDayZeroPromoForm(promoId) {
     setTimeout(() => document.getElementById('dz-name')?.focus(), 100);
 }
 
+function dzToggleAllFree(checked) {
+    // When 'ทุกกลุ่มฟรี' is checked, disable individual group checkboxes
+    document.querySelectorAll('input[name="dz-group"]').forEach(cb => {
+        if (checked) { cb.checked = false; cb.disabled = true; }
+        else { cb.disabled = false; }
+    });
+}
+
 function dzAddTime() {
     const area = document.getElementById('dz-times-area');
     if (!area) return;
@@ -8109,7 +8147,14 @@ async function submitDayZeroPromo() {
     const discountValue = parseFloat(document.getElementById('dz-discount-value').value) || 0;
     const validHours = parseInt(document.getElementById('dz-valid-hours').value) || 48;
     const caption = document.getElementById('dz-caption').value;
-    const target = document.getElementById('dz-target').value;
+    let target;
+    const allFreeChecked = document.getElementById('dz-target-all-free')?.checked;
+    if (allFreeChecked) {
+        target = 'all_free';
+    } else {
+        const slugs = Array.from(document.querySelectorAll('input[name="dz-group"]:checked')).map(cb => cb.value);
+        target = slugs.join(',');
+    }
     const isActive = document.getElementById('dz-active').checked;
     const startsStr = document.getElementById('dz-starts').value;
     const endsStr = document.getElementById('dz-ends').value;
