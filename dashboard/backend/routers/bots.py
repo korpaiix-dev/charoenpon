@@ -828,8 +828,8 @@ async def update_schedule(
         *args,
     )
     ip = request.client.host if request.client else None
-    await _log(
-        admin["id"], "update_schedule", "schedule", sched_id,
+    await _log_action(
+        admin["id"], "update_schedule", f"schedule:{sched_id}",
         {"job": row["display_name"], **payload}, ip,
     )
     return {"ok": True, "id": sched_id, "applied": payload}
@@ -945,8 +945,8 @@ async def update_content_template(
                 url = str(b.get("url", "")).strip()
                 if lab and url:
                     normalized.append({"label": lab, "url": url})
-        updates.append(f"buttons=${len(args)+1}::jsonb")
-        args.append(_json_b.dumps(normalized))
+        updates.append(f"buttons=${len(args)+1}")
+        args.append(normalized)  # codec handles JSONB encoding (was double-encoding via json.dumps)
     if "is_enabled" in payload:
         updates.append(f"is_enabled=${len(args)+1}")
         args.append(bool(payload["is_enabled"]))
@@ -962,8 +962,8 @@ async def update_content_template(
         *args,
     )
     ip = request.client.host if request.client else None
-    await _log(
-        admin["id"], "update_content_template", "content_template", tpl_id,
+    await _log_action(
+        admin["id"], "update_content_template", f"template:{tpl_id}",
         {"display_name": row["display_name"]}, ip,
     )
     return {"ok": True, "id": tpl_id}
