@@ -3531,63 +3531,134 @@ async function renderSettings() {
 
 async function loadPackages() {
     try {
-        const data = await api('/settings/packages');
+        const data = await api('/settings/packages?show_all=true');
+        // เก็บลง global เพื่อใช้ตอน edit
+        window._packagesCache = data;
         let html = '';
         if (hasRole('owner')) html += `<button class="btn btn-primary" onclick="showPkgForm()" style="margin-bottom:1rem;">+ เพิ่มแพ็กเกจ</button>`;
-        html += '<div class="table-wrap"><table><thead><tr><th>ชื่อ</th><th>ราคา</th><th>วัน</th><th>Tier</th><th>สถานะ</th><th></th></tr></thead><tbody>';
+        html += '<div class="table-wrap"><table><thead><tr><th>ชื่อ</th><th>Tier</th><th>ราคา</th><th>วัน</th><th>ห้อง</th><th>Active subs</th><th>สถานะ</th><th></th></tr></thead><tbody>';
         data.forEach(p => {
-            html += `<tr><td>${esc(p.name)}</td><td>${fmtBaht(p.price)}</td><td>${p.duration_days}</td><td>${esc(p.tier)}</td>
-                <td>${p.is_active ? '<span style="color:var(--success)">Active</span>' : 'Off'}</td>
-                <td>${hasRole('owner') ? `<button class="btn btn-sm btn-outline" onclick="editPkg(${p.id},'${esc(p.name).replace(/'/g,'\\&#39;')}',${p.price},${p.duration_days})">✏️</button>` : ''}</td></tr>`;
+            let groups = '';
+            try {
+                const arr = typeof p.groups_access === 'string' ? JSON.parse(p.groups_access || '[]') : (p.groups_access || []);
+                groups = Array.isArray(arr) ? arr.join(', ') : '—';
+            } catch(e) { groups = '—'; }
+            const dur = p.duration_days >= 36500 ? '∞ ถาวร' : (p.duration_days === 0 ? '—' : p.duration_days + ' วัน');
+            const activeBadge = p.is_active ? '<span style="color:var(--success)">✓ เปิด</span>' : '<span style="color:#888">✕ ปิด</span>';
+            const subsBadge = p.active_subs_count > 0 ? `<span style="color:var(--info);font-weight:600">${p.active_subs_count}</span>` : '<span style="color:#888">0</span>';
+            const actions = hasRole('owner') ? `
+                <button class="btn btn-sm btn-outline" onclick="editPkg(${p.id})" title="แก้ไข">✏️</button>
+                <button class="btn btn-sm" style="color:#ef4444" onclick="deletePkg(${p.id}, '${esc(p.name).replace(/'/g, "&#39;")}', ${p.active_subs_count})" title="ลบ">🗑️</button>
+            ` : '';
+            html += `<tr>
+                <td><b>${esc(p.name)}</b></td>
+                <td><code>${esc(p.tier)}</code></td>
+                <td>${fmtBaht(p.price)}</td>
+                <td>${dur}</td>
+                <td style="font-size:0.85rem">${esc(groups) || '—'}</td>
+                <td style="text-align:center">${subsBadge}</td>
+                <td>${activeBadge}</td>
+                <td>${actions}</td>
+            </tr>`;
         });
         html += '</tbody></table></div>';
+        html += '<div style="margin-top:1rem;opacity:.7;font-size:0.85rem">💡 Active subs = ลูกค้าที่กำลังใช้แพ็คเกจนี้อยู่ (ลบไม่ได้ถ้ามีคนใช้)</div>';
         document.getElementById('settings-area').innerHTML = html;
     } catch (e) { toast(e.message, 'error'); }
 }
 
-function showPkgForm() {
-    openModal('+ เพิ่มแพ็กเกจ', `
-        <div class="form-group"><label>ชื่อ</label><input id="pkg-name"></div>
+// === Helper: form fields ทั้งหมด ===
+const _PKG_TIERS = ['TIER_99', 'TIER_100', 'TIER_300', 'TIER_500', 'TIER_1299', 'TIER_2499', 'TIER_ADD500', 'GACHA_1', 'GACHA_3', 'GACHA_10'];
+const _AVAILABLE_GROUPS = ['G300', 'G500', 'SSS', 'VGOD', 'INTER', 'SERIES', 'RANDOM', 'SHAKER', 'SUMMER'];
+
+function _pkgFormHtml(pkg) {
+    const p = pkg || { name: '', tier: 'TIER_300', price: 0, duration_days: 30, description: '', groups_access: [], is_active: true, sort_order: 5 };
+    const groupsArr = (() => {
+        try { return typeof p.groups_access === 'string' ? JSON.parse(p.groups_access || '[]') : (p.groups_access || []); } catch(e) { return []; }
+    })();
+    const tierOpts = _PKG_TIERS.map(t => `<option value="${t}" ${p.tier === t ? 'selected' : ''}>${t}</option>`).join('');
+    const groupChecks = _AVAILABLE_GROUPS.map(g => `
+        <label style="display:inline-flex;align-items:center;margin:0.3rem 0.6rem 0.3rem 0;font-size:0.9rem">
+            <input type="checkbox" class="pkg-group-chk" value="${g}" ${groupsArr.includes(g) ? 'checked' : ''} style="margin-right:0.3rem">
+            ${g}
+        </label>
+    `).join('');
+    return `
+        <div class="form-group"><label>ชื่อแพ็คเกจ</label><input id="pkg-name" value="${esc(p.name || '')}" placeholder="VIP 30 วัน"></div>
         <div class="form-row">
-            <div class="form-group"><label>ราคา</label><input id="pkg-price" type="number"></div>
-            <div class="form-group"><label>วัน</label><input id="pkg-days" type="number"></div>
+            <div class="form-group"><label>Tier (รหัส)</label><select id="pkg-tier">${tierOpts}</select></div>
+            <div class="form-group"><label>ราคา (฿)</label><input id="pkg-price" type="number" min="0" step="1" value="${p.price || 0}"></div>
         </div>
-        <div class="form-group"><label>Tier</label><select id="pkg-tier"><option value="TIER_99">TIER_99</option><option value="TIER_300">TIER_300</option><option value="TIER_500">TIER_500</option><option value="TIER_1299">TIER_1299</option><option value="TIER_2499">TIER_2499</option></select></div>
-        <button class="btn btn-primary btn-full" onclick="createPkg()">💾 สร้าง</button>
+        <div class="form-row">
+            <div class="form-group"><label>จำนวนวัน (0 = กาชา, 36500 = ถาวร)</label><input id="pkg-days" type="number" min="0" value="${p.duration_days || 0}"></div>
+            <div class="form-group"><label>ลำดับแสดง (สูง = บน)</label><input id="pkg-sort" type="number" value="${p.sort_order || 5}"></div>
+        </div>
+        <div class="form-group"><label>รายละเอียด (optional)</label><input id="pkg-desc" value="${esc(p.description || '')}" placeholder="สั้นๆ สำหรับลูกค้า"></div>
+        <div class="form-group">
+            <label>ห้องที่ลูกค้าเข้าได้</label>
+            <div style="margin-top:0.4rem;padding:0.7rem;background:rgba(255,255,255,0.05);border-radius:0.5rem">${groupChecks}</div>
+        </div>
+        <div class="form-group">
+            <label style="display:flex;align-items:center"><input type="checkbox" id="pkg-active" ${p.is_active ? 'checked' : ''} style="margin-right:0.5rem"> เปิดใช้งาน (ลูกค้าซื้อได้)</label>
+        </div>
+    `;
+}
+
+function _collectPkgForm() {
+    const groups = Array.from(document.querySelectorAll('.pkg-group-chk:checked')).map(c => c.value);
+    return {
+        name: document.getElementById('pkg-name').value.trim(),
+        tier: document.getElementById('pkg-tier').value,
+        price: parseFloat(document.getElementById('pkg-price').value) || 0,
+        duration_days: parseInt(document.getElementById('pkg-days').value) || 0,
+        description: document.getElementById('pkg-desc').value.trim() || null,
+        groups_access: JSON.stringify(groups),
+        is_active: document.getElementById('pkg-active').checked,
+        sort_order: parseInt(document.getElementById('pkg-sort').value) || 5,
+    };
+}
+
+function showPkgForm() {
+    openModal('+ เพิ่มแพ็คเกจ', _pkgFormHtml(null) + `
+        <button class="btn btn-primary btn-full" onclick="createPkg()" style="margin-top:1rem">💾 สร้าง</button>
     `);
 }
 
 async function createPkg() {
+    const data = _collectPkgForm();
+    if (!data.name) { toast('กรุณาใส่ชื่อ', 'error'); return; }
     try {
-        await api('/settings/packages', { method: 'POST', body: JSON.stringify({
-            name: document.getElementById('pkg-name').value,
-            price: parseFloat(document.getElementById('pkg-price').value),
-            duration_days: parseInt(document.getElementById('pkg-days').value),
-            tier: document.getElementById('pkg-tier').value,
-        })});
-        toast('สร้างแล้ว', 'success'); closeModal(); loadPackages();
+        await api('/settings/packages', { method: 'POST', body: JSON.stringify(data) });
+        toast('สร้างแล้ว ✅', 'success'); closeModal(); loadPackages();
     } catch (e) { toast(e.message, 'error'); }
 }
 
-function editPkg(id, name, price, days) {
-    openModal('✏️ แก้ไข ' + name, `
-        <div class="form-group"><label>ชื่อ</label><input id="epkg-name" value="${esc(name)}"></div>
-        <div class="form-row">
-            <div class="form-group"><label>ราคา</label><input id="epkg-price" type="number" value="${price}"></div>
-            <div class="form-group"><label>วัน</label><input id="epkg-days" type="number" value="${days}"></div>
-        </div>
-        <button class="btn btn-primary btn-full" onclick="updatePkg(${id})">💾 บันทึก</button>
+function editPkg(id) {
+    const pkg = (window._packagesCache || []).find(p => p.id === id);
+    if (!pkg) { toast('ไม่พบแพ็คเกจ', 'error'); return; }
+    openModal('✏️ แก้ไข ' + pkg.name, _pkgFormHtml(pkg) + `
+        <button class="btn btn-primary btn-full" onclick="updatePkg(${id})" style="margin-top:1rem">💾 บันทึก</button>
     `);
 }
 
 async function updatePkg(id) {
+    const data = _collectPkgForm();
+    if (!data.name) { toast('กรุณาใส่ชื่อ', 'error'); return; }
     try {
-        await api(`/settings/packages/${id}`, { method: 'PUT', body: JSON.stringify({
-            name: document.getElementById('epkg-name').value,
-            price: parseFloat(document.getElementById('epkg-price').value),
-            duration_days: parseInt(document.getElementById('epkg-days').value),
-        })});
-        toast('อัพเดตแล้ว', 'success'); closeModal(); loadPackages();
+        await api(`/settings/packages/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+        toast('อัพเดตแล้ว ✅', 'success'); closeModal(); loadPackages();
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+async function deletePkg(id, name, activeSubs) {
+    if (activeSubs > 0) {
+        toast(`ลบไม่ได้ — มีลูกค้า ${activeSubs} คนใช้แพ็คเกจนี้อยู่`, 'error');
+        return;
+    }
+    if (!confirm(`ลบแพ็คเกจ "${name}"?\n(จะ soft-delete = is_active=false ไม่ใช่ลบจริง)`)) return;
+    try {
+        await api(`/settings/packages/${id}`, { method: 'DELETE' });
+        toast('ลบแล้ว ✅', 'success'); loadPackages();
     } catch (e) { toast(e.message, 'error'); }
 }
 

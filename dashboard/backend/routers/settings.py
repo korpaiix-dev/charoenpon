@@ -16,8 +16,24 @@ async def _log(admin_id, action, entity_type, entity_id, details, ip):
 
 # ========== PACKAGES ==========
 @router.get("/packages")
-async def list_packages(admin=Depends(require_role("admin"))):
-    rows = await pool.fetch("SELECT * FROM packages WHERE is_active = TRUE ORDER BY sort_order")
+async def list_packages(
+    show_all: bool = False,
+    admin=Depends(require_role("admin")),
+):
+    """List packages.
+    
+    show_all=True: รวม inactive ด้วย (สำหรับ admin CRUD)
+    show_all=False (default): เฉพาะ active (สำหรับ dropdowns ใน Promo Manager ฯลฯ)
+    """
+    where = "" if show_all else "WHERE is_active = TRUE"
+    rows = await pool.fetch(f"""
+        SELECT p.*, 
+               (SELECT COUNT(*) FROM subscriptions s 
+                WHERE s.package_id = p.id AND s.status = 'ACTIVE' AND s.end_date > NOW()
+               ) AS active_subs_count
+        FROM packages p {where}
+        ORDER BY p.sort_order DESC NULLS LAST, p.price
+    """)
     return [dict(r) for r in rows]
 
 @router.post("/packages")
