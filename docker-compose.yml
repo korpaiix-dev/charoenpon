@@ -178,11 +178,16 @@ services:
       # Phase A.2 2026-06-27: mount frontend so JS/CSS/HTML changes
       # apply instantly without rebuild → zero-downtime for frontend edits
       - ./dashboard/frontend:/app/dashboard/frontend:ro
+      # 2026-06-28: backend + shared as RO volume so uvicorn --reload picks up edits
+      # without container rebuild → zero downtime to boss while we work
+      - ./dashboard/backend:/app/dashboard/backend:ro
+      - ./shared:/app/shared:ro
       - ./bots/relay_bot/data/state.json:/app/bots/relay_bot/data/state.json:ro
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    command: ["uvicorn", "dashboard.backend.main:app", "--host", "0.0.0.0", "--port", "8010", "--reload", "--reload-dir", "/app/dashboard/backend", "--reload-dir", "/app/shared"]
 
   # fb-manager removed 2026-05-01: Facebook auto-post no longer used
 

@@ -152,7 +152,21 @@ async function api(path, options = {}) {
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
     
-    const resp = await fetch(`/api${path}`, { ...options, headers: { ...headers, ...options.headers } });
+    // 2026-06-28: retry on network errors (e.g. brief dashboard restarts during hot reload)
+    let resp = null;
+    let _retryAttempts = 0;
+    const MAX_RETRY = 3;
+    while (true) {
+        try {
+            resp = await fetch(`/api${path}`, { ...options, headers: { ...headers, ...options.headers } });
+            break; // got a response (even if not 2xx)
+        } catch (netErr) {
+            // TypeError "Failed to fetch" = network/connection error
+            _retryAttempts++;
+            if (_retryAttempts >= MAX_RETRY) throw netErr;
+            await new Promise(r => setTimeout(r, 1500));
+        }
+    }
     if (resp.status === 401) {
         if (!_loggingOut) { _loggingOut = true; logout(); _loggingOut = false; }
         throw new Error('Session expired');
