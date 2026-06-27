@@ -8001,8 +8001,13 @@ function renderDayZeroPromoList() {
         const times = Array.isArray(p.post_times) ? p.post_times : [];
         const timeLabels = times.map(t => `${String(t.hour||0).padStart(2,'0')}:${String(t.minute||0).padStart(2,'0')}`).join(', ') || '— ไม่ตั้งเวลา —';
 
+        const _fmtBkk = (iso) => {
+            if (!iso) return null;
+            const d = new Date(iso);
+            return d.toLocaleString('th-TH', {timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
+        };
         const dateRange = (p.starts_at || p.ends_at)
-            ? `${p.starts_at ? new Date(p.starts_at).toLocaleDateString('th') : 'ตอนนี้'} → ${p.ends_at ? new Date(p.ends_at).toLocaleDateString('th') : 'ตลอดไป'}`
+            ? `${_fmtBkk(p.starts_at) || 'ตอนนี้'} → ${_fmtBkk(p.ends_at) || 'ตลอดไป'}`
             : 'ตลอดไป';
 
         const onCls = p.is_active ? 'active' : '';
@@ -8064,8 +8069,15 @@ function openDayZeroPromoForm(promoId) {
         </label>`;
     }).join('');
 
-    const startsStr = data.starts_at ? new Date(data.starts_at).toISOString().slice(0, 16) : '';
-    const endsStr = data.ends_at ? new Date(data.ends_at).toISOString().slice(0, 16) : '';
+    // Convert UTC date to Bangkok local time for the datetime-local input
+    const _toBkkLocal = (iso) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        const bkk = new Date(d.getTime() + (7 * 60 - d.getTimezoneOffset()) * 60000);
+        return bkk.toISOString().slice(0, 16);
+    };
+    const startsStr = _toBkkLocal(data.starts_at);
+    const endsStr = _toBkkLocal(data.ends_at);
 
     const modal = document.createElement('div');
     modal.id = 'dzPromoModal';
@@ -8185,8 +8197,10 @@ async function submitDayZeroPromo() {
     const discountValue = parseFloat(document.getElementById('dz-discount-value').value) || 0;
     const validHours = parseInt(document.getElementById('dz-valid-hours').value) || 48;
     const isActive = document.getElementById('dz-active').checked;
-    const startsStr = document.getElementById('dz-starts').value;
-    const endsStr = document.getElementById('dz-ends').value;
+    // Treat datetime-local input as Bangkok time (UTC+7), send with explicit offset
+    const _appendBkkTz = (s) => s ? (s.length === 16 ? s + ':00+07:00' : s + '+07:00') : null;
+    const startsStr = _appendBkkTz(document.getElementById('dz-starts').value);
+    const endsStr = _appendBkkTz(document.getElementById('dz-ends').value);
 
     const payload = {
         code: code,
