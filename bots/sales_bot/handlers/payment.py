@@ -111,6 +111,38 @@ async def _get_effective_price(tier: str, context_user_data: dict) -> Decimal:
     """
     from shared.pricing import effective_price as _hub_effective_price, TIER_PRICES as _HUB_TIER_PRICES
     base_price = _HUB_TIER_PRICES.get(tier, Decimal("0"))
+    
+    # DAY 0 (2026-06-28): Day-0 promo discount has HIGHEST priority — overrides everything else
+    # Check active promo for this tier; if found, lower base_price BEFORE other discounts stack
+    try:
+        from shared.promotion_service import list_active_promotions, calculate_price as _dz_calc
+        _dz_promos = await list_active_promotions()
+        TIER_KEY = f"TIER_{tier}"
+        _best_dz = None
+        for _pm in _dz_promos:
+            _pkg_codes = _pm.get("package_codes") or []
+            if isinstance(_pkg_codes, str):
+                import json as _json_dz
+                try: _pkg_codes = _json_dz.loads(_pkg_codes)
+                except: _pkg_codes = []
+            if TIER_KEY in _pkg_codes:
+                _calc = _dz_calc(_pm, TIER_KEY, float(base_price))
+                if _calc.get("applied") and _calc["savings"] > 0:
+                    if _best_dz is None or _calc["savings"] > _best_dz["savings"]:
+                        _best_dz = _calc
+        if _best_dz:
+            # Day-0 promo applies — return discounted price minus any gacha credit
+            _dz_price = Decimal(str(int(_best_dz["discounted"])))
+            _credit_use = context_user_data.get("gacha_credit_use") or 0
+            try:
+                _credit_use = Decimal(str(_credit_use))
+            except Exception:
+                _credit_use = Decimal("0")
+            return max(Decimal("0"), _dz_price - _credit_use)
+    except Exception as _dz_exc:
+        import logging
+        logging.getLogger(__name__).warning("dayzero price check failed (non-fatal): %s", _dz_exc)
+    
 
     # 1. Comeback promo — per-user (validates against comeback_dm_log)
     comeback_promo = context_user_data.get("comeback_promo")
