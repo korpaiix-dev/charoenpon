@@ -506,3 +506,131 @@ async def list_bots_registry(_admin=Depends(require_role("admin"))):
     """)
     return [dict(r) for r in rows]
 
+
+# ==================================================================
+# Phase A.7 (2026-06-27): Group member analytics
+# ==================================================================
+import httpx as _httpx_an
+import logging as _log_an
+_log_an_logger = _log_an.getLogger(__name__)
+
+
+async def _snapshot_one_group(bot_token: str, chat_id: int) -> int | None:
+    """Call Telegram getChatMemberCount via guardian-bot token. Returns None on fail."""
+    try:
+        url = f"https://api.telegram.org/bot{bot_token}/getChatMemberCount?chat_id={chat_id}"
+        async with _httpx_an.AsyncClient(timeout=10) as c:
+            r = await c.get(url)
+            j = r.json()
+            if not j.get("ok"):
+                return None
+            return int(j["result"])
+    except Exception as exc:
+        _log_an_logger.warning("snapshot %s failed: %s", chat_id, exc)
+        return None
+
+
+@router.post("/snapshot-group-members")
+async def snapshot_group_members(_admin=Depends(require_role("admin"))):
+    """Snapshot member_count for ALL active groups.
+
+    Called by cron hourly + manual via Dashboard "Refresh".
+    Uses GUARDIAN_BOT_TOKEN (already in all groups for moderation).
+    """
+    import os as _os_an
+    bot_token = _os_an.environ.get("GUARDIAN_BOT_TOKEN", "") or _os_an.environ.get("SALES_BOT_TOKEN", "")
+    if not bot_token:
+        raise HTTPException(500, "GUARDIAN_BOT_TOKEN not configured")
+
+    groups = await pool.fetch(
+        "SELECT chat_id FROM group_registry WHERE is_active = TRUE"
+    )
+    snapshots = []
+    failed = []
+    for g in groups:
+        cnt = await _snapshot_one_group(bot_token, int(g["chat_id"]))
+        if cnt is None:
+            failed.append(int(g["chat_id"]))
+        else:
+            snapshots.append((int(g["chat_id"]), cnt))
+
+    if snapshots:
+        await pool.executemany(
+            "INSERT INTO group_member_snapshots (chat_id, member_count) VALUES ($1, $2)",
+            snapshots,
+        )
+        # Update group_registry.member_count to latest value (denorm for fast queries)
+        for cid, cnt in snapshots:
+            await pool.execute(
+                "UPDATE group_registry SET member_count=$1, updated_at=NOW() WHERE chat_id=$2",
+                cnt, cid,
+            )
+
+    return {
+        "ok": True,
+        "snapshotted": len(snapshots),
+        "failed": failed,
+        "total_groups": len(groups),
+    }
+
+
+@router.get("/groups/analytics")
+async def group_analytics(_admin=Depends(require_role("admin"))):
+    """Return per-group: now / delta today / week / month.
+
+    Uses group_member_snapshots time series with window functions.
+    """
+    rows = await pool.fetch("""
+        WITH latest AS (
+            SELECT DISTINCT ON (chat_id) chat_id, member_count, snapshot_at
+            FROM group_member_snapshots
+            ORDER BY chat_id, snapshot_at DESC
+        ),
+        day_ago AS (
+            SELECT DISTINCT ON (chat_id) chat_id, member_count
+            FROM group_member_snapshots
+            WHERE snapshot_at <= NOW() - INTERVAL '1 day'
+            ORDER BY chat_id, snapshot_at DESC
+        ),
+        week_ago AS (
+            SELECT DISTINCT ON (chat_id) chat_id, member_count
+            FROM group_member_snapshots
+            WHERE snapshot_at <= NOW() - INTERVAL '7 days'
+            ORDER BY chat_id, snapshot_at DESC
+        ),
+        month_ago AS (
+            SELECT DISTINCT ON (chat_id) chat_id, member_count
+            FROM group_member_snapshots
+            WHERE snapshot_at <= NOW() - INTERVAL '30 days'
+            ORDER BY chat_id, snapshot_at DESC
+        )
+        SELECT
+            g.chat_id, g.slug::text AS slug, g.title, g.min_tier::text AS min_tier, g.is_active,
+            COALESCE(l.member_count, g.member_count, 0) AS current,
+            l.snapshot_at AS last_snapshot,
+            (COALESCE(l.member_count, g.member_count, 0) - d.member_count) AS delta_day,
+            (COALESCE(l.member_count, g.member_count, 0) - w.member_count) AS delta_week,
+            (COALESCE(l.member_count, g.member_count, 0) - m.member_count) AS delta_month
+        FROM group_registry g
+        LEFT JOIN latest    l ON l.chat_id = g.chat_id
+        LEFT JOIN day_ago   d ON d.chat_id = g.chat_id
+        LEFT JOIN week_ago  w ON w.chat_id = g.chat_id
+        LEFT JOIN month_ago m ON m.chat_id = g.chat_id
+        WHERE g.is_active = TRUE
+        ORDER BY g.min_tier, g.slug
+    """)
+    return [dict(r) for r in rows]
+
+
+@router.get("/groups/{chat_id}/timeseries")
+async def group_timeseries(chat_id: int, days: int = 30, _admin=Depends(require_role("admin"))):
+    """Return member_count time series for a single group (for chart)."""
+    days = max(1, min(days, 365))
+    rows = await pool.fetch(
+        "SELECT snapshot_at, member_count FROM group_member_snapshots "
+        "WHERE chat_id=$1 AND snapshot_at > NOW() - INTERVAL '%d days' "
+        "ORDER BY snapshot_at" % days,
+        chat_id,
+    )
+    return [{"t": r["snapshot_at"].isoformat(), "n": int(r["member_count"])} for r in rows]
+

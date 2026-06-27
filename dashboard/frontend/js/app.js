@@ -136,6 +136,7 @@ const NAV_ITEMS = [
     { id: 'team', icon: '👨‍💼', label: 'ทีมงาน', minRole: 'admin' },
     { id: 'groups', icon: '🏛', label: 'กลุ่ม VIP/ฟรี', minRole: 'admin' },
     { id: 'bot_groups', icon: '🤖', label: 'จัดการบอท', minRole: 'admin' },
+    { id: 'group_analytics', icon: '📊', label: 'สถิติกลุ่ม', minRole: 'admin' },
     { id: 'settings', icon: '⚙️', label: 'ตั้งค่าระบบ', minRole: 'admin' },
 
     // ─── ประวัติ ───
@@ -247,7 +248,7 @@ function navigate(page) {
     renderSidebar();
     const titles = {
         dashboard: '📊 ภาพรวม', inbox: '📥 Inbox สลิป', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน', gacha: '🎰 กาชา',
-        promotions: '🎁 โปรโมชั่น + ตั้งค่าบอท', content: '📸 Content', groups: '📱 กลุ่ม', bot_groups: '🤖 จัดการบอท',
+        promotions: '🎁 โปรโมชั่น + ตั้งค่าบอท', content: '📸 Content', groups: '📱 กลุ่ม', bot_groups: '🤖 จัดการบอท', group_analytics: '📊 สถิติกลุ่ม',
         team: '👨‍💼 ทีมงาน', settings: '⚙️ ตั้งค่า', marketing: '📊 Marketing',
         activity: '📋 Activity Log', prae_logs: '💬 Prae Logs',
     };
@@ -263,7 +264,7 @@ function navigate(page) {
     
     const pages = {
         today: renderToday, dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance, receivers: renderReceivers, gacha: renderGacha,
-        promotions: renderPromoManager, content: renderContent, groups: renderGroups, bot_groups: renderBotGroups,
+        promotions: renderPromoManager, content: renderContent, groups: renderGroups, bot_groups: renderBotGroups, group_analytics: renderGroupAnalytics,
         team: renderTeam, settings: renderSettings, marketing: renderMarketing,
         activity: renderActivityLog, prae_logs: renderPraeLogs,
     };
@@ -6937,5 +6938,176 @@ async function saveBotGroups() {
         closeModal();
         if (typeof renderBotGroups === 'function') await renderBotGroups();
     } catch (e) { toast(e.message, 'error'); }
+}
+
+// ==================================================================
+// Phase A.7 (2026-06-27): Group Member Analytics page
+// ==================================================================
+var _analyticsCache = null;
+
+async function renderGroupAnalytics() {
+    const content = document.getElementById('page-content');
+    content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+    try {
+        const data = await api('/admin/groups/analytics');
+        _analyticsCache = data;
+
+        // Summary
+        const totalNow = data.reduce((s, r) => s + (r.current || 0), 0);
+        const totalDay = data.reduce((s, r) => s + (r.delta_day || 0), 0);
+        const totalWeek = data.reduce((s, r) => s + (r.delta_week || 0), 0);
+        const totalMonth = data.reduce((s, r) => s + (r.delta_month || 0), 0);
+
+        const fmtDelta = (v) => {
+            if (v == null) return '<span style="color:var(--text-muted);">—</span>';
+            if (v > 0) return `<span style="color:var(--success);">+${v.toLocaleString()}</span>`;
+            if (v < 0) return `<span style="color:var(--error);">${v.toLocaleString()}</span>`;
+            return `<span style="color:var(--text-muted);">0</span>`;
+        };
+        const fmtTrend = (d, w, m) => {
+            const recent = d;
+            if (recent > 5) return '↗📈';
+            if (recent > 0) return '↗';
+            if (recent < -5) return '↘📉';
+            if (recent < 0) return '↘';
+            return '→';
+        };
+        const tierLabel = (t) => t === 'FREE' ? '🆓 ฟรี'
+                              : t === 'TIER_100' ? '🔵 100'
+                              : t === 'TIER_300' ? '👑 300'
+                              : t === 'TIER_500' ? '👑 500'
+                              : t === 'TIER_1299' ? '👑 1299'
+                              : t === 'TIER_2499' ? '💎 2499' : t;
+
+        const lastSnapshot = data.find(r => r.last_snapshot)?.last_snapshot;
+        const lastText = lastSnapshot ? new Date(lastSnapshot).toLocaleString('th-TH') : '—';
+
+        let html = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+                <div>
+                    <h2 style="margin:0;font-size:1.2rem;">📊 สถิติกลุ่ม</h2>
+                    <div style="font-size:0.75rem;color:var(--text-muted);">snapshot ล่าสุด: ${lastText}</div>
+                </div>
+                <div style="display:flex;gap:0.5rem;">
+                    <button class="btn btn-outline btn-sm" onclick="exportGroupAnalytics()">📥 Export Excel</button>
+                    <button class="btn btn-primary btn-sm" onclick="refreshSnapshots()">🔄 Refresh ตอนนี้</button>
+                </div>
+            </div>
+
+            <div class="mini-cards">
+                <div class="mini-card"><div class="mini-card-label">รวมทั้งหมด</div><div class="mini-card-value" style="color:var(--primary);">${totalNow.toLocaleString()}</div></div>
+                <div class="mini-card"><div class="mini-card-label">+ วันนี้</div><div class="mini-card-value" style="color:${totalDay >= 0 ? 'var(--success)' : 'var(--error)'};">${totalDay >= 0 ? '+' : ''}${totalDay.toLocaleString()}</div></div>
+                <div class="mini-card"><div class="mini-card-label">+ สัปดาห์</div><div class="mini-card-value" style="color:${totalWeek >= 0 ? 'var(--success)' : 'var(--error)'};">${totalWeek >= 0 ? '+' : ''}${totalWeek.toLocaleString()}</div></div>
+                <div class="mini-card"><div class="mini-card-label">+ เดือน</div><div class="mini-card-value" style="color:${totalMonth >= 0 ? 'var(--success)' : 'var(--error)'};">${totalMonth >= 0 ? '+' : ''}${totalMonth.toLocaleString()}</div></div>
+            </div>
+
+            <div class="tabs" style="margin-top:1rem;margin-bottom:0.5rem;">
+                <div class="tab active" data-filter="all" onclick="filterAnalyticsTab(this)">📑 ทั้งหมด (${data.length})</div>
+                <div class="tab" data-filter="FREE" onclick="filterAnalyticsTab(this)">🆓 ฟรี (${data.filter(r=>r.min_tier==='FREE').length})</div>
+                <div class="tab" data-filter="VIP" onclick="filterAnalyticsTab(this)">👑 VIP (${data.filter(r=>r.min_tier!=='FREE').length})</div>
+            </div>
+
+            <div class="table-wrap"><table><thead><tr>
+                <th>กลุ่ม</th><th>Tier</th><th style="text-align:right;">ตอนนี้</th>
+                <th style="text-align:right;">+ วัน</th><th style="text-align:right;">+ สัปดาห์</th><th style="text-align:right;">+ เดือน</th>
+                <th>แนวโน้ม</th><th></th>
+            </tr></thead><tbody id="analytics-tbody">
+        `;
+
+        data.forEach(r => {
+            const tierClass = r.min_tier === 'FREE' ? 'free' : 'vip';
+            html += `<tr class="row-tier-${tierClass}">
+                <td><b>${esc(r.slug)}</b><br><span style="font-size:0.75rem;color:var(--text-muted);">${esc(r.title)}</span></td>
+                <td>${tierLabel(r.min_tier)}</td>
+                <td style="text-align:right;font-weight:600;">${(r.current || 0).toLocaleString()}</td>
+                <td style="text-align:right;">${fmtDelta(r.delta_day)}</td>
+                <td style="text-align:right;">${fmtDelta(r.delta_week)}</td>
+                <td style="text-align:right;">${fmtDelta(r.delta_month)}</td>
+                <td style="font-size:1.1rem;">${fmtTrend(r.delta_day, r.delta_week, r.delta_month)}</td>
+                <td><button class="btn btn-sm btn-outline" onclick="showGroupChart(${r.chat_id}, '${esc(r.slug)}')" title="ดูกราฟ">📈</button></td>
+            </tr>`;
+        });
+        html += '</tbody></table></div>';
+
+        if (data.every(r => r.last_snapshot == null)) {
+            html += `<div style="margin-top:1rem;padding:1rem;background:rgba(247,176,69,0.1);border:1px solid var(--warning);border-radius:8px;font-size:0.85rem;">
+                ⚠️ ยังไม่มี snapshot — คลิก "🔄 Refresh ตอนนี้" เพื่อ snapshot ครั้งแรก
+                <br>หลังจากนั้นระบบจะ snapshot อัตโนมัติทุก 1 ชั่วโมง
+            </div>`;
+        }
+
+        content.innerHTML = html;
+    } catch (e) {
+        content.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`;
+    }
+}
+
+function filterAnalyticsTab(el) {
+    const filter = el.dataset.filter;
+    document.querySelectorAll('.tabs .tab').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+    const rows = document.querySelectorAll('#analytics-tbody tr');
+    rows.forEach(r => {
+        if (filter === 'all') r.style.display = '';
+        else if (filter === 'FREE') r.style.display = r.classList.contains('row-tier-free') ? '' : 'none';
+        else if (filter === 'VIP') r.style.display = r.classList.contains('row-tier-vip') ? '' : 'none';
+    });
+}
+
+async function refreshSnapshots() {
+    const btn = event?.target;
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ กำลัง snapshot...'; }
+    try {
+        const r = await api('/admin/snapshot-group-members', { method: 'POST' });
+        toast(`✅ snapshot ${r.snapshotted}/${r.total_groups} กลุ่ม${r.failed.length ? ` (fail ${r.failed.length})` : ''}`, 'success');
+        await renderGroupAnalytics();
+    } catch (e) { toast(e.message, 'error'); }
+    finally { if (btn) { btn.disabled = false; } }
+}
+
+async function showGroupChart(chatId, slug) {
+    try {
+        const data = await api(`/admin/groups/${chatId}/timeseries?days=30`);
+        if (!data.length) {
+            openModal('📈 กราฟ', '<div class="empty-state">ยังไม่มี snapshot สำหรับกลุ่มนี้</div>');
+            return;
+        }
+        // Simple ASCII-like SVG sparkline
+        const maxN = Math.max(...data.map(d => d.n));
+        const minN = Math.min(...data.map(d => d.n));
+        const range = maxN - minN || 1;
+        const points = data.map((d, i) => {
+            const x = (i / (data.length - 1)) * 600 + 20;
+            const y = 180 - ((d.n - minN) / range) * 160 + 10;
+            return `${x},${y}`;
+        }).join(' ');
+        openModal(`📈 ${esc(slug)} — กราฟ 30 วัน`, `
+            <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;">
+                ${data.length} snapshot · จุดต่ำสุด ${minN} → สูงสุด ${maxN}
+            </div>
+            <svg viewBox="0 0 640 200" style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;">
+                <polyline points="${points}" fill="none" stroke="var(--primary)" stroke-width="2" />
+                ${data.map((d, i) => {
+                    const x = (i / (data.length - 1)) * 600 + 20;
+                    const y = 180 - ((d.n - minN) / range) * 160 + 10;
+                    return `<circle cx="${x}" cy="${y}" r="3" fill="var(--primary)"><title>${new Date(d.t).toLocaleString('th-TH')} — ${d.n}</title></circle>`;
+                }).join('')}
+            </svg>
+        `);
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+function exportGroupAnalytics() {
+    if (!_analyticsCache) { toast('โหลดข้อมูลก่อน', 'warning'); return; }
+    const rows = [['กลุ่ม', 'ชื่อ', 'Tier', 'ตอนนี้', '+วัน', '+สัปดาห์', '+เดือน']];
+    _analyticsCache.forEach(r => {
+        rows.push([r.slug, r.title, r.min_tier, r.current || 0, r.delta_day || 0, r.delta_week || 0, r.delta_month || 0]);
+    });
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `group-analytics-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
 }
 
