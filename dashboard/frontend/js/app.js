@@ -6050,6 +6050,7 @@ async function renderPromoManager() {
     const content = document.getElementById('page-content');
     content.innerHTML = `
         <div class="tabs">
+            <div class="tab ${promoTab==='campaigns_new'?'active':''}" onclick="promoTab='campaigns_new';renderPromoManager()">🎁 จัดการโปร</div>
             <div class="tab ${promoTab==='comeback'?'active':''}" onclick="promoTab='comeback';renderPromoManager()">📩 Comeback DM</div>
             <div class="tab ${promoTab==='quickbuy'?'active':''}" onclick="promoTab='quickbuy';renderPromoManager()">⚡ ซื้อเร็ว /start</div>
             <div class="tab ${promoTab==='gacha_discount'?'active':''}" onclick="promoTab='gacha_discount';renderPromoManager()">💰 ส่วนลดกาชา</div>
@@ -6061,7 +6062,8 @@ async function renderPromoManager() {
         </div>
         <div id="promo-area"><div class="loading"><div class="spinner"></div></div></div>
     `;
-    if (promoTab === 'comeback') loadComebackConfig();
+    if (promoTab === 'campaigns_new') loadDayZeroPromos();
+    else if (promoTab === 'comeback') loadComebackConfig();
     else if (promoTab === 'quickbuy') loadQuickBuyConfig();
     else if (promoTab === 'gacha_discount') loadGachaDiscountConfig();
     else if (promoTab === 'welcome_journey') loadWelcomeConfig();
@@ -7813,6 +7815,383 @@ async function schedDelete(id, jobName) {
         toast('🗑 ลบแล้ว + กำลัง restart...');
         try { await api(`/admin/bots/charoenpon-${(_schedBot||'content_bot').replace('_','-')}/restart`, { method: 'POST' }); } catch (e) {}
         setTimeout(() => renderBotSchedules(), 4000);
+    } catch (e) {
+        alert('❌ ' + (e.message || 'ลบไม่สำเร็จ'));
+    }
+}
+
+
+// =============================================================
+// DAY 0 (2026-06-28): Promo Manager UI (Day-0 unified promotions)
+// Renders inside #promo-area when promoTab === 'campaigns_new'
+// =============================================================
+
+let _dayZeroPromos = [];
+let _dayZeroPackages = [];
+let _dayZeroEditId = null;
+
+async function loadDayZeroPromos() {
+    const area = document.getElementById('promo-area');
+    if (!area) return;
+    area.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+    try {
+        const [promos, packages] = await Promise.all([
+            api('/admin/day0-promos'),
+            api('/admin/day0-promos/packages'),
+        ]);
+        _dayZeroPromos = promos || [];
+        _dayZeroPackages = packages || [];
+        renderDayZeroPromoList();
+    } catch (e) {
+        area.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>โหลดรายการโปรไม่ได้: ${esc(e.message || e)}</p></div>`;
+    }
+}
+
+function renderDayZeroPromoList() {
+    const area = document.getElementById('promo-area');
+    if (!area) return;
+
+    const stats = `
+        <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-bottom:0.85rem;">
+            <div>
+                <h2 style="margin:0;font-size:1.15rem;">🎁 จัดการโปรโมชั่น</h2>
+                <div style="font-size:0.72rem;color:var(--text-muted);">1 ที่จัดการครบ — caption + ราคา + เวลา + ปุ่ม</div>
+            </div>
+            <button class="btn btn-primary" onclick="openDayZeroPromoForm(null)" style="white-space:nowrap;margin-left:auto;">➕ เพิ่มโปรใหม่</button>
+        </div>
+    `;
+
+    if (_dayZeroPromos.length === 0) {
+        area.innerHTML = stats + '<div class="empty-state"><div class="icon">🎁</div><p>ยังไม่มีโปร — กดปุ่ม "เพิ่มโปรใหม่" เพื่อเริ่ม</p></div>';
+        return;
+    }
+
+    const rows = _dayZeroPromos.map(p => {
+        const pkgs = Array.isArray(p.package_codes) ? p.package_codes : [];
+        const pkgLabels = pkgs.map(c => {
+            const pkg = _dayZeroPackages.find(x => x.tier === c);
+            return pkg ? pkg.name : c;
+        }).slice(0, 3).join(', ') + (pkgs.length > 3 ? ` +${pkgs.length - 3}` : '');
+
+        let discountLabel = 'ราคาเต็ม';
+        if (p.discount_type === 'percent') discountLabel = `ลด ${p.discount_value}%`;
+        else if (p.discount_type === 'fixed_off') discountLabel = `ลด ฿${p.discount_value}`;
+        else if (p.discount_type === 'fixed_price') discountLabel = `ราคา ฿${p.discount_value}`;
+
+        const times = Array.isArray(p.post_times) ? p.post_times : [];
+        const timeLabels = times.map(t => `${String(t.hour||0).padStart(2,'0')}:${String(t.minute||0).padStart(2,'0')}`).join(', ') || '— ไม่ตั้งเวลา —';
+
+        const dateRange = (p.starts_at || p.ends_at)
+            ? `${p.starts_at ? new Date(p.starts_at).toLocaleDateString('th') : 'ตอนนี้'} → ${p.ends_at ? new Date(p.ends_at).toLocaleDateString('th') : 'ตลอดไป'}`
+            : 'ตลอดไป';
+
+        const onCls = p.is_active ? 'active' : '';
+        const onLabel = p.is_active ? '🟢 เปิด' : '⚪ ปิด';
+
+        return `
+        <div class="dz-promo-card" data-id="${p.id}" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:0.9rem 1rem;margin-bottom:0.6rem;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.5rem;">
+                <div style="flex:1;">
+                    <div style="font-weight:600;font-size:1rem;">${esc(p.name)}</div>
+                    <div style="font-size:0.7rem;color:var(--text-muted);font-family:var(--font-mono,monospace);margin-top:0.15rem;">${esc(p.code)}</div>
+                </div>
+                <div style="display:flex;gap:0.4rem;flex-shrink:0;align-items:center;">
+                    <button class="btn btn-sm ${onCls}" onclick="toggleDayZeroPromo(${p.id}, ${!p.is_active})" style="font-size:0.7rem;padding:0.3rem 0.55rem;background:${p.is_active?'#10b981':'#3f3f46'};color:#fff;border:none;border-radius:6px;cursor:pointer;">${onLabel}</button>
+                    <button class="btn btn-sm" onclick="openDayZeroPromoForm(${p.id})" style="font-size:0.7rem;padding:0.3rem 0.55rem;background:#3f3f46;color:#fff;border:none;border-radius:6px;cursor:pointer;">✏️ แก้ไข</button>
+                    <button class="btn btn-sm" onclick="deleteDayZeroPromo(${p.id}, '${esc(p.code)}')" style="font-size:0.7rem;padding:0.3rem 0.55rem;background:#7f1d1d;color:#fff;border:none;border-radius:6px;cursor:pointer;">🗑</button>
+                </div>
+            </div>
+            <div style="margin-top:0.55rem;display:grid;grid-template-columns:auto 1fr;gap:0.35rem 0.65rem;font-size:0.78rem;color:var(--text-muted);">
+                <div>📦 แพ็คเกจ:</div><div style="color:var(--text);">${esc(pkgLabels) || '— ยังไม่ได้เลือก —'}</div>
+                <div>💰 ราคา:</div><div style="color:var(--text);">${esc(discountLabel)} · ใช้ได้ ${p.valid_hours||48} ชม.</div>
+                <div>⏰ เวลาโพสต์:</div><div style="color:var(--text);">${esc(timeLabels)}</div>
+                <div>📅 ระยะ:</div><div style="color:var(--text);">${esc(dateRange)}</div>
+            </div>
+        </div>`;
+    }).join('');
+
+    area.innerHTML = stats + '<div id="dz-promo-list">' + rows + '</div>';
+}
+
+
+// ──────────────────────────────────────────────────────────────
+// CREATE/EDIT MODAL
+// ──────────────────────────────────────────────────────────────
+function openDayZeroPromoForm(promoId) {
+    _dayZeroEditId = promoId;
+    const existing = promoId ? _dayZeroPromos.find(p => p.id === promoId) : null;
+
+    const data = existing || {
+        code: '',
+        name: '',
+        is_active: false,
+        package_codes: [],
+        discount_type: 'none',
+        discount_value: 0,
+        valid_hours: 48,
+        caption_html: '',
+        image_path: '',
+        extra_buttons: [],
+        target_groups: 'all_free',
+        post_times: [],
+        starts_at: null,
+        ends_at: null,
+    };
+
+    const title = existing ? `✏️ แก้ไขโปร — ${esc(existing.name)}` : '➕ เพิ่มโปรใหม่';
+    const codeReadonly = existing ? 'readonly' : '';
+
+    const pkgCheckboxes = _dayZeroPackages.map(pkg => {
+        const checked = (data.package_codes || []).includes(pkg.tier) ? 'checked' : '';
+        return `
+            <label style="display:flex;align-items:center;gap:0.4rem;padding:0.35rem 0.6rem;background:#1c1c1f;border:1px solid #3f3f46;border-radius:6px;cursor:pointer;font-size:0.8rem;margin-bottom:0.3rem;">
+                <input type="checkbox" name="dz-pkg" value="${esc(pkg.tier)}" ${checked} style="margin:0;">
+                <span style="flex:1;">${esc(pkg.name)}</span>
+                <span style="color:var(--text-muted);font-size:0.7rem;font-family:var(--font-mono);">${esc(pkg.tier)} · ฿${pkg.price}</span>
+            </label>`;
+    }).join('');
+
+    const postTimes = data.post_times || [];
+    const timeRows = postTimes.map((t, i) => `
+        <div class="dz-time-row" style="display:flex;gap:0.3rem;align-items:center;margin-bottom:0.3rem;">
+            <input type="number" min="0" max="23" value="${t.hour||0}" data-idx="${i}" data-fld="hour" class="dz-time-input" style="width:55px;text-align:center;">
+            <span>:</span>
+            <input type="number" min="0" max="59" value="${t.minute||0}" data-idx="${i}" data-fld="minute" class="dz-time-input" style="width:55px;text-align:center;">
+            <button class="btn btn-sm" onclick="dzRemoveTime(${i})" style="font-size:0.75rem;padding:0.2rem 0.5rem;background:#7f1d1d;color:#fff;border:none;border-radius:4px;">×</button>
+        </div>`).join('');
+
+    const startsStr = data.starts_at ? new Date(data.starts_at).toISOString().slice(0, 16) : '';
+    const endsStr = data.ends_at ? new Date(data.ends_at).toISOString().slice(0, 16) : '';
+
+    const imgPreview = data.image_path
+        ? `<div style="margin-top:0.35rem;font-size:0.72rem;color:var(--text-muted);">รูปปัจจุบัน: <code>${esc(data.image_path)}</code></div>`
+        : '';
+
+    const modal = document.createElement('div');
+    modal.id = 'dzPromoModal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99999;display:flex;align-items:flex-start;justify-content:center;padding:1.5rem;overflow-y:auto;';
+    modal.innerHTML = `
+        <div style="background:#1c1c1f;border:1px solid #3f3f46;border-radius:12px;padding:1.5rem;max-width:700px;width:100%;margin:auto;">
+            <h3 style="margin:0 0 1rem;font-size:1.15rem;">${title}</h3>
+
+            <!-- BASIC -->
+            <fieldset style="border:1px solid #3f3f46;border-radius:8px;padding:0.7rem 0.9rem;margin-bottom:0.85rem;">
+                <legend style="padding:0 0.4rem;font-size:0.75rem;color:var(--text-muted);">📝 ข้อมูลพื้นฐาน</legend>
+                <div style="margin-bottom:0.6rem;">
+                    <label class="ct-label">ชื่อโปร *</label>
+                    <input id="dz-name" class="ct-input" value="${esc(data.name)}" placeholder="เช่น โปรสิ้นเดือน ลด 20%">
+                </div>
+                <div style="margin-bottom:0.6rem;">
+                    <label class="ct-label">รหัส (a-z, 0-9, _) *</label>
+                    <input id="dz-code" class="ct-input" value="${esc(data.code)}" placeholder="เช่น promo_end_summer" ${codeReadonly}
+                        oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9_]+/g,'_')">
+                </div>
+                <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;">
+                    <input type="checkbox" id="dz-active" ${data.is_active ? 'checked' : ''}>
+                    <span>เปิดใช้งานโปรนี้</span>
+                </label>
+            </fieldset>
+
+            <!-- PRICING -->
+            <fieldset style="border:1px solid #3f3f46;border-radius:8px;padding:0.7rem 0.9rem;margin-bottom:0.85rem;">
+                <legend style="padding:0 0.4rem;font-size:0.75rem;color:var(--text-muted);">💰 ราคา + ส่วนลด</legend>
+                <label class="ct-label">ใช้กับแพ็คเกจ (เลือกได้หลาย):</label>
+                <div style="max-height:180px;overflow-y:auto;padding:0.3rem;background:#0a0a0a;border:1px solid #27272a;border-radius:6px;">
+                    ${pkgCheckboxes}
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-top:0.7rem;">
+                    <div>
+                        <label class="ct-label">ประเภทส่วนลด</label>
+                        <select id="dz-discount-type" class="ct-input">
+                            <option value="none" ${data.discount_type==='none'?'selected':''}>ราคาเต็ม (ไม่ลด)</option>
+                            <option value="percent" ${data.discount_type==='percent'?'selected':''}>ลด %</option>
+                            <option value="fixed_off" ${data.discount_type==='fixed_off'?'selected':''}>ลด ฿ ตายตัว</option>
+                            <option value="fixed_price" ${data.discount_type==='fixed_price'?'selected':''}>ราคาตายตัว (ทุกแพ็ค)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="ct-label">จำนวน</label>
+                        <input id="dz-discount-value" type="number" min="0" class="ct-input" value="${data.discount_value || 0}">
+                    </div>
+                </div>
+                <div style="margin-top:0.7rem;">
+                    <label class="ct-label">ใช้ได้ภายใน (ชั่วโมง หลังลูกค้ากด)</label>
+                    <input id="dz-valid-hours" type="number" min="1" max="240" class="ct-input" value="${data.valid_hours || 48}">
+                </div>
+            </fieldset>
+
+            <!-- DISPLAY -->
+            <fieldset style="border:1px solid #3f3f46;border-radius:8px;padding:0.7rem 0.9rem;margin-bottom:0.85rem;">
+                <legend style="padding:0 0.4rem;font-size:0.75rem;color:var(--text-muted);">🖼 หน้าตา</legend>
+                <label class="ct-label">caption (HTML รองรับ &lt;b&gt; &lt;i&gt;)</label>
+                <textarea id="dz-caption" class="ct-textarea" style="min-height:140px;">${esc(data.caption_html)}</textarea>
+                <div style="margin-top:0.7rem;">
+                    <label class="ct-label">รูปประกอบ</label>
+                    <input type="file" id="dz-image-file" accept="image/*" style="font-size:0.8rem;">
+                    ${imgPreview}
+                </div>
+            </fieldset>
+
+            <!-- DISTRIBUTION -->
+            <fieldset style="border:1px solid #3f3f46;border-radius:8px;padding:0.7rem 0.9rem;margin-bottom:0.85rem;">
+                <legend style="padding:0 0.4rem;font-size:0.75rem;color:var(--text-muted);">📢 โพสต์</legend>
+                <label class="ct-label">โพสต์ลงกลุ่ม</label>
+                <select id="dz-target" class="ct-input">
+                    <option value="all_free" ${data.target_groups==='all_free'?'selected':''}>ทุกกลุ่มฟรี (14 กลุ่ม)</option>
+                    <option value="" ${!data.target_groups||data.target_groups===''?'selected':''}>ไม่โพสต์</option>
+                </select>
+                <div style="margin-top:0.7rem;">
+                    <label class="ct-label">เวลาโพสต์ (เพิ่มได้หลายเวลา)</label>
+                    <div id="dz-times-area">${timeRows}</div>
+                    <button class="btn btn-sm" onclick="dzAddTime()" style="font-size:0.78rem;padding:0.3rem 0.65rem;background:#27272a;color:#fff;border:1px solid #3f3f46;border-radius:6px;margin-top:0.3rem;">➕ เพิ่มเวลา</button>
+                </div>
+            </fieldset>
+
+            <!-- DATE RANGE -->
+            <fieldset style="border:1px solid #3f3f46;border-radius:8px;padding:0.7rem 0.9rem;margin-bottom:1rem;">
+                <legend style="padding:0 0.4rem;font-size:0.75rem;color:var(--text-muted);">📅 ระยะเวลา (ไม่จำเป็น)</legend>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;">
+                    <div>
+                        <label class="ct-label">เริ่ม</label>
+                        <input id="dz-starts" type="datetime-local" class="ct-input" value="${startsStr}">
+                    </div>
+                    <div>
+                        <label class="ct-label">จบ</label>
+                        <input id="dz-ends" type="datetime-local" class="ct-input" value="${endsStr}">
+                    </div>
+                </div>
+            </fieldset>
+
+            <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+                <button class="btn" onclick="document.getElementById('dzPromoModal').remove()" style="background:#3f3f46;color:#fff;">ยกเลิก</button>
+                <button class="btn btn-primary" onclick="submitDayZeroPromo()">💾 บันทึก</button>
+            </div>
+        </div>
+        <style>
+            #dzPromoModal .dz-time-input { background:#27272a;color:#fff;border:1px solid #3f3f46;border-radius:4px;padding:0.25rem;font-size:0.85rem; }
+            #dzPromoModal .ct-input { background:#27272a;color:#fff;border:1px solid #3f3f46;border-radius:6px;padding:0.4rem 0.55rem;font-size:0.85rem;width:100%; }
+            #dzPromoModal .ct-textarea { background:#27272a;color:#fff;border:1px solid #3f3f46;border-radius:6px;padding:0.6rem;font-size:0.85rem;width:100%;font-family:var(--font-mono);resize:vertical; }
+            #dzPromoModal .ct-label { display:block;font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.25rem; }
+        </style>
+    `;
+    document.body.appendChild(modal);
+    setTimeout(() => document.getElementById('dz-name')?.focus(), 100);
+}
+
+function dzAddTime() {
+    const area = document.getElementById('dz-times-area');
+    if (!area) return;
+    const idx = area.querySelectorAll('.dz-time-row').length;
+    const row = document.createElement('div');
+    row.className = 'dz-time-row';
+    row.style.cssText = 'display:flex;gap:0.3rem;align-items:center;margin-bottom:0.3rem;';
+    row.innerHTML = `
+        <input type="number" min="0" max="23" value="9" data-idx="${idx}" data-fld="hour" class="dz-time-input" style="width:55px;text-align:center;">
+        <span>:</span>
+        <input type="number" min="0" max="59" value="0" data-idx="${idx}" data-fld="minute" class="dz-time-input" style="width:55px;text-align:center;">
+        <button class="btn btn-sm" onclick="this.parentElement.remove()" style="font-size:0.75rem;padding:0.2rem 0.5rem;background:#7f1d1d;color:#fff;border:none;border-radius:4px;">×</button>
+    `;
+    area.appendChild(row);
+}
+
+function dzRemoveTime(idx) {
+    const rows = document.querySelectorAll('#dz-times-area .dz-time-row');
+    if (rows[idx]) rows[idx].remove();
+}
+
+async function submitDayZeroPromo() {
+    const name = document.getElementById('dz-name').value.trim();
+    const code = document.getElementById('dz-code').value.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_');
+    if (!name || !code) { alert('กรอกชื่อโปร + รหัส'); return; }
+
+    const pkgCodes = Array.from(document.querySelectorAll('input[name="dz-pkg"]:checked')).map(x => x.value);
+    const discountType = document.getElementById('dz-discount-type').value;
+    const discountValue = parseFloat(document.getElementById('dz-discount-value').value) || 0;
+    const validHours = parseInt(document.getElementById('dz-valid-hours').value) || 48;
+    const caption = document.getElementById('dz-caption').value;
+    const target = document.getElementById('dz-target').value;
+    const isActive = document.getElementById('dz-active').checked;
+    const startsStr = document.getElementById('dz-starts').value;
+    const endsStr = document.getElementById('dz-ends').value;
+
+    const postTimes = [];
+    document.querySelectorAll('#dz-times-area .dz-time-row').forEach(row => {
+        const hourInput = row.querySelector('[data-fld="hour"]');
+        const minInput = row.querySelector('[data-fld="minute"]');
+        postTimes.push({
+            hour: parseInt(hourInput.value) || 0,
+            minute: parseInt(minInput.value) || 0,
+        });
+    });
+
+    // Upload image first if file selected
+    let imagePath = (_dayZeroEditId ? _dayZeroPromos.find(p => p.id === _dayZeroEditId)?.image_path : '') || '';
+    const fileInput = document.getElementById('dz-image-file');
+    if (fileInput && fileInput.files && fileInput.files[0]) {
+        try {
+            const fd = new FormData();
+            fd.append('file', fileInput.files[0]);
+            const resp = await fetch('/api/admin/day0-promos/upload-image', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+                body: fd,
+            });
+            if (!resp.ok) throw new Error('upload failed');
+            const j = await resp.json();
+            imagePath = j.path;
+        } catch (e) {
+            alert('อัปโหลดรูปไม่สำเร็จ: ' + e.message);
+            return;
+        }
+    }
+
+    const payload = {
+        code: code,
+        name: name,
+        is_active: isActive,
+        package_codes: pkgCodes,
+        discount_type: discountType,
+        discount_value: discountValue,
+        valid_hours: validHours,
+        caption_html: caption,
+        image_path: imagePath,
+        target_groups: target,
+        post_times: postTimes,
+        starts_at: startsStr || null,
+        ends_at: endsStr || null,
+    };
+
+    try {
+        if (_dayZeroEditId) {
+            await api(`/admin/day0-promos/${_dayZeroEditId}`, { method: 'PATCH', body: JSON.stringify(payload) });
+            toast('✅ บันทึกแล้ว');
+        } else {
+            await api('/admin/day0-promos', { method: 'POST', body: JSON.stringify(payload) });
+            toast('✅ สร้างโปรใหม่แล้ว');
+        }
+        document.getElementById('dzPromoModal')?.remove();
+        await loadDayZeroPromos();
+    } catch (e) {
+        alert('❌ ' + (e.message || 'บันทึกไม่สำเร็จ'));
+    }
+}
+
+async function toggleDayZeroPromo(id, newState) {
+    try {
+        await api(`/admin/day0-promos/${id}`, { method: 'PATCH', body: JSON.stringify({ is_active: newState }) });
+        toast(newState ? '🟢 เปิดโปรแล้ว' : '⚪ ปิดโปรแล้ว');
+        await loadDayZeroPromos();
+    } catch (e) {
+        alert('❌ ' + (e.message || 'เปลี่ยนสถานะไม่สำเร็จ'));
+    }
+}
+
+async function deleteDayZeroPromo(id, code) {
+    if (!confirm(`ลบโปร "${code}" ?\n\nการลบนี้จะลบข้อมูลทุก click ของลูกค้าที่กดโปรนี้ด้วย`)) return;
+    try {
+        await api(`/admin/day0-promos/${id}`, { method: 'DELETE' });
+        toast('🗑 ลบแล้ว');
+        await loadDayZeroPromos();
     } catch (e) {
         alert('❌ ' + (e.message || 'ลบไม่สำเร็จ'));
     }
