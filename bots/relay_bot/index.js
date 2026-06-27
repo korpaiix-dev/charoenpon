@@ -17,11 +17,17 @@ const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const { Client } = require('pg');  // B.2 (2026-06-27): DB-driven DEST list
 
 // ─── ENV configuration ──────────────────────────
 const TOKEN = process.env.BOT_TOKEN;
 const SOURCE_CHAT_ID = process.env.SOURCE_CHAT_ID || '-1003625687303';
-const DEST_CHAT_IDS = (process.env.DEST_CHAT_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+// B.2 (2026-06-27): DEST list is now refreshed from bot_group_targets DB every 60s.
+// Env DEST_CHAT_IDS retained as cold-start fallback only.
+const FALLBACK_DEST_CHAT_IDS = (process.env.DEST_CHAT_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+let DEST_CHAT_IDS = [...FALLBACK_DEST_CHAT_IDS];
+const DATABASE_URL = process.env.DATABASE_URL || '';
+const DEST_REFRESH_MS = 60 * 1000;
 const SALES_BOT_URL = process.env.SALES_BOT_URL || 'https://t.me/NamwarnJarern_bot';
 const WELCOME_PHOTO = process.env.WELCOME_PHOTO || 'https://img5.pic.in.th/file/secure-sv1/Gemini_Generated_Image_o52ch3o52ch3o52c-copy.jpg';
 const CLOSING_COOLDOWN_MS = parseInt(process.env.CLOSING_COOLDOWN_MS || '300000'); // 5 min
@@ -30,6 +36,36 @@ const PORT = process.env.PORT || 3010;
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const DEDUPE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const MAX_DEST_FAILURES = 5; // disable after 5 consecutive failures
+
+
+// ─── B.2: DB-driven DEST refresh ─────────────
+async function refreshDestsFromDb() {
+  if (!DATABASE_URL) return;
+  const client = new Client({ connectionString: DATABASE_URL.replace('postgresql+asyncpg://', 'postgresql://') });
+  try {
+    await client.connect();
+    const r = await client.query(
+      "SELECT chat_id::text AS chat_id FROM bot_group_targets " +
+      "WHERE bot_key = $1 AND target_role = $2 AND is_active = TRUE",
+      ['relay_bot', 'distribution']
+    );
+    const fresh = r.rows.map(row => row.chat_id);
+    if (fresh.length > 0) {
+      const prev = DEST_CHAT_IDS.join(',');
+      const next = fresh.join(',');
+      if (prev !== next) {
+        log(`\u{1F4CB} DEST list refreshed from DB: ${fresh.length} groups (was ${DEST_CHAT_IDS.length})`);
+        DEST_CHAT_IDS = fresh;
+      }
+    } else {
+      log(`\u26A0\uFE0F DB returned 0 dest groups — keeping current list (${DEST_CHAT_IDS.length})`);
+    }
+  } catch (e) {
+    log(`\u26A0\uFE0F DB dest refresh failed: ${e.message} — keeping current list (${DEST_CHAT_IDS.length})`);
+  } finally {
+    try { await client.end(); } catch (_) {}
+  }
+}
 
 if (!TOKEN) {
   console.error('FATAL: BOT_TOKEN env var not set');
@@ -123,6 +159,10 @@ app.get('/status', (req, res) => res.json({
   uptimeSec: Math.floor((Date.now() - state.stats.startedAt) / 1000),
 }));
 app.listen(PORT, () => log(`HTTP server on :${PORT}`));
+
+// B.2: Initial DB load + 60s refresh
+refreshDestsFromDb().catch(() => {});
+setInterval(() => refreshDestsFromDb().catch(() => {}), DEST_REFRESH_MS);
 
 log(`Relay Bot v2 starting — source=${SOURCE_CHAT_ID}, dests=${DEST_CHAT_IDS.length}, admins=${ADMIN_IDS.length}`);
 

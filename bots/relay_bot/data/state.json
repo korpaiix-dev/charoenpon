@@ -1,5 +1,5 @@
 {
-  "lastClosingAt": 1782559173823,
+  "lastClosingAt": 1782565233341,
   "destFailures": {
     "-1004267333548": 5
   },
@@ -8,22 +8,13 @@
   },
   "paused": false,
   "stats": {
-    "forwarded": 2280,
+    "forwarded": 2286,
     "failed": 56,
-    "closingsSent": 464,
+    "closingsSent": 470,
     "startedAt": 1781533034372,
-    "lastForwardAt": 1782559166817
+    "lastForwardAt": 1782565226334
   },
   "recentHashes": {
-    "e1c8a77a85f1a2daa67b02e4752c12f7": 1782558925579,
-    "af6dc3cf1373f014c15e95551f45b3b8": 1782558925582,
-    "ba4d1b8a4ed13de719008cdcd6549585": 1782558925582,
-    "3cc2999e4cd0b82c9ef5cb9b26ea1e29": 1782558925582,
-    "33ab5a87cb625797c1f9135446387554": 1782558925583,
-    "d32cd0631dae0dcec3008c2346a5961e": 1782558925583,
-    "18c3393f9125f69f3f5c3ee51e715096": 1782558925583,
-    "2caa8b1f58c6a87fe5a95e2789485b67": 1782558925583,
-    "805d8e771ca93fa3ee92e48998dbd1c7": 1782558925583,
-    "89f83078b1e75438d563d88a7fa0f6dc": 1782558925584
+    "8d05bafe0643d7cf05359b26547fc876": 1782565207760
   }
 }
