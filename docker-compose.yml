@@ -262,6 +262,26 @@ services:
     restart: unless-stopped
 
 
+  # ──────────────────────────────────────────────────────────────────────────
+  # Clip Poster Bot (2026-06-27): admin DM video → watermark + post FREE groups
+  # ──────────────────────────────────────────────────────────────────────────
+  clip-poster-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: charoenpon-clip-poster-bot
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      BOT_MODULE: bots.clip_poster_bot
+      CLIP_POSTER_LOGO_PATH: /app/assets/clip_logo.png
+    command: python -m bots.clip_poster_bot
+    volumes:
+      - ./assets:/app/assets:ro
+
 volumes:
   postgres_data:
     driver: local
