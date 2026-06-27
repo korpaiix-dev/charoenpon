@@ -542,7 +542,12 @@ async def send_comeback_dm(
     """
     promo_code = _generate_promo_code()
 
-    if variant_func:
+    # 2026-06-28: DB-first message build (variant_name → DB key); fallback to variant_func/legacy
+    if variant_name:
+        message = await _build_comeback_from_db_or_fallback(
+            dm_round, variant_name, user["first_name"], discount_pct, promo_code, new_clips
+        )
+    elif variant_func:
         message = variant_func(user["first_name"], discount_pct, promo_code, new_clips)
     elif dm_round == 2:
         message = _build_comeback_message_round2(user["first_name"], discount_pct, promo_code, new_clips)

@@ -285,7 +285,7 @@ async def run_exit_survey_job(context) -> dict:
                 tier_code, discount_pct, promo_code,
             )
 
-            msg = build_exit_survey_message(u["first_name"], tier_code)
+            msg = await _build_exit_survey_from_db_or_fallback(u["first_name"], tier_code)
             buttons = [
                 [InlineKeyboardButton(REASON_LABELS["content"],
                                       callback_data=f"exitsv:{log_id}:content")],
