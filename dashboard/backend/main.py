@@ -36,11 +36,57 @@ from .routers.bot_messages_admin import router as bot_messages_admin_router
 from .routers.promo_manager import router as promo_manager_router
 from .routers.customer_notes import router as customer_notes_router
 
+_snapshot_task = None
+
+
+async def _periodic_snapshot_loop():
+    """Background task: snapshot member counts every 30 minutes."""
+    import asyncio as _aio
+    import logging as _log
+    _logger = _log.getLogger("snapshot-loop")
+    await _aio.sleep(30)  # initial delay so app finishes startup
+    while True:
+        try:
+            from .routers.bots import _snapshot_one_group
+            from .database import pool
+            import os as _os
+            bot_token = _os.environ.get("GUARDIAN_BOT_TOKEN", "") or _os.environ.get("SALES_BOT_TOKEN", "")
+            if bot_token:
+                groups = await pool.fetch(
+                    "SELECT chat_id FROM group_registry WHERE is_active = TRUE"
+                )
+                rows = []
+                for g in groups:
+                    cnt = await _snapshot_one_group(bot_token, int(g["chat_id"]))
+                    if cnt is not None:
+                        rows.append((int(g["chat_id"]), cnt))
+                if rows:
+                    await pool.executemany(
+                        "INSERT INTO group_member_snapshots (chat_id, member_count, source) VALUES ($1, $2, 'auto')",
+                        rows,
+                    )
+                    for cid, cnt in rows:
+                        await pool.execute(
+                            "UPDATE group_registry SET member_count=$1, updated_at=NOW() WHERE chat_id=$2",
+                            cnt, cid,
+                        )
+                    _logger.info("auto-snapshotted %d groups", len(rows))
+        except Exception as exc:
+            _logger.warning("periodic snapshot failed: %s", exc)
+        await _aio.sleep(1800)  # 30 minutes
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio as _aio
     await init_db()
     await ensure_promo_campaign_tables()
+    # Start background snapshot loop
+    global _snapshot_task
+    _snapshot_task = _aio.create_task(_periodic_snapshot_loop())
     yield
+    if _snapshot_task:
+        _snapshot_task.cancel()
     await close_db()
 
 app = FastAPI(title="เจริญพร Dashboard", version="1.0", lifespan=lifespan)

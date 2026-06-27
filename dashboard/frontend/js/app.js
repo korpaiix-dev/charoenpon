@@ -6838,8 +6838,80 @@ async function renderBotGroups() {
         }
         html += '</div>';
         content.innerHTML = html;
+
+        // Silent auto-refresh every 30s — refetch + repaint without spinner.
+        // Only active while user stays on this page (cleared on next renderGroupAnalytics or nav).
+        _gaAutoRefresh = setInterval(async () => {
+            try {
+                const fresh = await api('/admin/groups/analytics');
+                // Detect if user is still on the analytics page
+                const tbody = document.getElementById('analytics-tbody');
+                if (!tbody) { clearInterval(_gaAutoRefresh); _gaAutoRefresh = null; return; }
+                // Trigger a quiet redraw by calling renderGroupAnalytics() but skipping setInterval re-spawn
+                _gaSilentRender(fresh);
+            } catch (e) { /* silent */ }
+        }, 30000);
     } catch (e) {
         content.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`;
+    }
+}
+
+// Silent in-place repaint — avoids full-page spinner/flash
+function _gaSilentRender(data) {
+    _analyticsCache = data;
+    const tbody = document.getElementById('analytics-tbody');
+    if (!tbody) return;
+    const fmtDelta = (v) => {
+        if (v == null) return '<span style="color:var(--text-muted);">—</span>';
+        if (v > 0) return `<span style="color:var(--success);">+${v.toLocaleString()}</span>`;
+        if (v < 0) return `<span style="color:var(--error);">${v.toLocaleString()}</span>`;
+        return `<span style="color:var(--text-muted);">0</span>`;
+    };
+    const fmtTrend = (d) => d > 5 ? '↗📈' : d > 0 ? '↗' : d < -5 ? '↘📉' : d < 0 ? '↘' : '→';
+    const tierLabel = (t) => t === 'FREE' ? '🆓 ฟรี'
+                          : t === 'TIER_100' ? '🔵 100'
+                          : t === 'TIER_300' ? '👑 300'
+                          : t === 'TIER_500' ? '👑 500'
+                          : t === 'TIER_1299' ? '👑 1299'
+                          : t === 'TIER_2499' ? '💎 2499' : t;
+
+    let rowsHtml = '';
+    data.forEach(r => {
+        const tierClass = r.min_tier === 'FREE' ? 'free' : 'vip';
+        rowsHtml += `<tr class="row-tier-${tierClass}">
+            <td><b>${esc(r.slug)}</b><br><span style="font-size:0.75rem;color:var(--text-muted);">${esc(r.title)}</span></td>
+            <td>${tierLabel(r.min_tier)}</td>
+            <td style="text-align:right;font-weight:600;">${(r.current || 0).toLocaleString()}</td>
+            <td style="text-align:right;">${fmtDelta(r.delta_day)}</td>
+            <td style="text-align:right;">${fmtDelta(r.delta_week)}</td>
+            <td style="text-align:right;">${fmtDelta(r.delta_month)}</td>
+            <td style="font-size:1.1rem;">${fmtTrend(r.delta_day || 0)}</td>
+            <td><button class="btn btn-sm btn-outline" onclick="showGroupChart(${r.chat_id}, '${esc(r.slug)}')" title="ดูกราฟ">📈</button></td>
+        </tr>`;
+    });
+    tbody.innerHTML = rowsHtml;
+
+    // Update top mini-cards too
+    const totalNow = data.reduce((s, r) => s + (r.current || 0), 0);
+    const totalDay = data.reduce((s, r) => s + (r.delta_day || 0), 0);
+    const totalWeek = data.reduce((s, r) => s + (r.delta_week || 0), 0);
+    const totalMonth = data.reduce((s, r) => s + (r.delta_month || 0), 0);
+    const cardVals = document.querySelectorAll('.mini-card-value');
+    if (cardVals.length >= 4) {
+        cardVals[0].textContent = totalNow.toLocaleString();
+        cardVals[1].textContent = (totalDay >= 0 ? '+' : '') + totalDay.toLocaleString();
+        cardVals[1].style.color = totalDay >= 0 ? 'var(--success)' : 'var(--error)';
+        cardVals[2].textContent = (totalWeek >= 0 ? '+' : '') + totalWeek.toLocaleString();
+        cardVals[2].style.color = totalWeek >= 0 ? 'var(--success)' : 'var(--error)';
+        cardVals[3].textContent = (totalMonth >= 0 ? '+' : '') + totalMonth.toLocaleString();
+        cardVals[3].style.color = totalMonth >= 0 ? 'var(--success)' : 'var(--error)';
+    }
+
+    // Update "snapshot ล่าสุด" caption
+    const lastSnap = data.find(r => r.last_snapshot)?.last_snapshot;
+    if (lastSnap) {
+        const cap = document.querySelector('#page-content [data-last-snapshot]');
+        if (cap) cap.textContent = 'snapshot ล่าสุด: ' + new Date(lastSnap).toLocaleString('th-TH');
     }
 }
 
@@ -6945,7 +7017,10 @@ async function saveBotGroups() {
 // ==================================================================
 var _analyticsCache = null;
 
+var _gaAutoRefresh = null;
 async function renderGroupAnalytics() {
+    // Clear any existing auto-refresh on this re-entry
+    if (_gaAutoRefresh) { clearInterval(_gaAutoRefresh); _gaAutoRefresh = null; }
     const content = document.getElementById('page-content');
     content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
     try {
@@ -6986,13 +7061,17 @@ async function renderGroupAnalytics() {
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
                 <div>
                     <h2 style="margin:0;font-size:1.2rem;">📊 สถิติกลุ่ม</h2>
-                    <div style="font-size:0.75rem;color:var(--text-muted);">snapshot ล่าสุด: ${lastText}</div>
+                    <div style="font-size:0.75rem;color:var(--text-muted);display:flex;align-items:center;gap:0.4rem;">
+                        <span style="display:inline-block;width:8px;height:8px;background:#10b981;border-radius:50%;animation:gaPulse 2s infinite;"></span>
+                        <span data-last-snapshot>snapshot ล่าสุด: ${lastText}</span>
+                        <span style="opacity:0.6;">· auto-update ทุก 30 วิ</span>
+                    </div>
                 </div>
                 <div style="display:flex;gap:0.5rem;">
                     <button class="btn btn-outline btn-sm" onclick="exportGroupAnalytics()">📥 Export Excel</button>
-                    <button class="btn btn-primary btn-sm" onclick="refreshSnapshots()">🔄 Refresh ตอนนี้</button>
                 </div>
             </div>
+            <style>@keyframes gaPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }</style>
 
             <div class="mini-cards">
                 <div class="mini-card"><div class="mini-card-label">รวมทั้งหมด</div><div class="mini-card-value" style="color:var(--primary);">${totalNow.toLocaleString()}</div></div>
@@ -7031,8 +7110,8 @@ async function renderGroupAnalytics() {
 
         if (data.every(r => r.last_snapshot == null)) {
             html += `<div style="margin-top:1rem;padding:1rem;background:rgba(247,176,69,0.1);border:1px solid var(--warning);border-radius:8px;font-size:0.85rem;">
-                ⚠️ ยังไม่มี snapshot — คลิก "🔄 Refresh ตอนนี้" เพื่อ snapshot ครั้งแรก
-                <br>หลังจากนั้นระบบจะ snapshot อัตโนมัติทุก 1 ชั่วโมง
+                ⏳ ระบบกำลัง snapshot กลุ่มทั้งหมดในรอบแรก (~30 วินาที)
+                <br>หน้านี้จะอัปเดตอัตโนมัติเมื่อมีข้อมูลเข้ามา
             </div>`;
         }
 

@@ -634,3 +634,77 @@ async def group_timeseries(chat_id: int, days: int = 30, _admin=Depends(require_
     )
     return [{"t": r["snapshot_at"].isoformat(), "n": int(r["member_count"])} for r in rows]
 
+
+@router.get("/groups/analytics-v2")
+async def group_analytics_v2(range_days: int = 7, _admin=Depends(require_role("admin"))):
+    """Modern analytics: per-group current, delta_range, growth%, sparkline points.
+
+    Single query — no extra round trips for sparklines.
+    range_days: 1 (24h) / 7 / 30 / 90 — drives delta + sparkline window.
+    """
+    range_days = max(1, min(int(range_days), 365))
+    rows = await pool.fetch(f"""
+        WITH latest AS (
+            SELECT DISTINCT ON (chat_id) chat_id, member_count, snapshot_at
+            FROM group_member_snapshots
+            ORDER BY chat_id, snapshot_at DESC
+        ),
+        range_ago AS (
+            SELECT DISTINCT ON (chat_id) chat_id, member_count
+            FROM group_member_snapshots
+            WHERE snapshot_at <= NOW() - INTERVAL '{int(range_days)} days'
+            ORDER BY chat_id, snapshot_at DESC
+        ),
+        spark AS (
+            SELECT chat_id,
+                   json_agg(member_count ORDER BY snapshot_at) AS series,
+                   COUNT(*) AS pts
+            FROM (
+                SELECT chat_id, member_count, snapshot_at,
+                       ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY snapshot_at) AS rn,
+                       COUNT(*) OVER (PARTITION BY chat_id) AS tot
+                FROM group_member_snapshots
+                WHERE snapshot_at > NOW() - INTERVAL '{int(range_days)} days'
+            ) t
+            -- sample 20 points if >20 snapshots
+            WHERE rn % GREATEST(1, tot/20) = 0 OR rn = 1 OR rn = tot
+            GROUP BY chat_id
+        )
+        SELECT
+            g.chat_id, g.slug::text AS slug, g.title, g.min_tier::text AS min_tier,
+            COALESCE(l.member_count, g.member_count, 0) AS current,
+            l.snapshot_at AS last_snapshot,
+            (COALESCE(l.member_count, g.member_count, 0) - COALESCE(r.member_count, l.member_count)) AS delta,
+            CASE
+                WHEN r.member_count IS NULL OR r.member_count = 0 THEN NULL
+                ELSE ROUND(100.0 * (COALESCE(l.member_count, g.member_count, 0) - r.member_count) / r.member_count, 1)
+            END AS delta_pct,
+            COALESCE(s.series, '[]'::json) AS spark,
+            COALESCE(s.pts, 0) AS spark_points
+        FROM group_registry g
+        LEFT JOIN latest    l ON l.chat_id = g.chat_id
+        LEFT JOIN range_ago r ON r.chat_id = g.chat_id
+        LEFT JOIN spark     s ON s.chat_id = g.chat_id
+        WHERE g.is_active = TRUE
+        ORDER BY g.min_tier, g.slug
+    """)
+    # Build summary
+    items = [dict(r) for r in rows]
+    total = sum(r["current"] or 0 for r in items)
+    total_delta = sum((r["delta"] or 0) for r in items)
+    gainers = sorted([r for r in items if (r["delta"] or 0) > 0], key=lambda r: -(r["delta"] or 0))[:3]
+    losers = sorted([r for r in items if (r["delta"] or 0) < 0], key=lambda r: (r["delta"] or 0))[:3]
+    last_snap = max((r["last_snapshot"] for r in items if r["last_snapshot"]), default=None)
+    return {
+        "range_days": range_days,
+        "total_now": total,
+        "total_delta": total_delta,
+        "groups_gaining": len([r for r in items if (r["delta"] or 0) > 0]),
+        "groups_losing": len([r for r in items if (r["delta"] or 0) < 0]),
+        "groups_flat": len([r for r in items if (r["delta"] or 0) == 0]),
+        "last_snapshot": last_snap.isoformat() if last_snap else None,
+        "top_gainers": [{"slug": g["slug"], "title": g["title"], "delta": g["delta"]} for g in gainers],
+        "top_losers": [{"slug": g["slug"], "title": g["title"], "delta": g["delta"]} for g in losers],
+        "groups": items,
+    }
+
