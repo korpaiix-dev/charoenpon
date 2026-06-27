@@ -7227,13 +7227,15 @@ async function renderBotSchedules() {
           .sched-section{margin-bottom:1.2rem;}
           .sched-section-title{font-size:0.75rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.5rem;}
           .sched-row{display:grid;grid-template-columns:auto 1fr auto auto;gap:0.75rem;align-items:center;padding:0.7rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:0.5rem;}
-          .sched-toggle{appearance:none;width:36px;height:20px;background:var(--surface-2);border:1px solid var(--border);border-radius:20px;position:relative;cursor:pointer;transition:background 0.2s;}
-          .sched-toggle:checked{background:#10b981;border-color:#10b981;}
-          .sched-toggle::before{content:'';position:absolute;top:1px;left:1px;width:16px;height:16px;background:white;border-radius:50%;transition:transform 0.2s;}
-          .sched-toggle:checked::before{transform:translateX(16px);}
-          .sched-time-input{display:inline-flex;gap:0.25rem;align-items:center;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:0.2rem 0.4rem;}
-          .sched-time-input input{background:transparent;border:none;color:var(--text);font-size:0.85rem;width:34px;text-align:center;font-variant-numeric:tabular-nums;}
-          .sched-time-input input:focus{outline:none;}
+          .sched-toggle{-webkit-appearance:none;-moz-appearance:none;appearance:none;width:42px;height:24px;background:#3f3f46;border:1px solid #52525b;border-radius:24px;position:relative;cursor:pointer;transition:background 0.2s;flex-shrink:0;outline:none;margin:0;}
+          .sched-toggle::before{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;background:#fff;border-radius:50%;transition:transform 0.2s;box-shadow:0 1px 2px rgba(0,0,0,0.3);}
+          .sched-toggle:checked{background:#10b981;border-color:#059669;}
+          .sched-toggle:checked::before{transform:translateX(18px);}
+          .sched-time-input{display:inline-flex;gap:0.15rem;align-items:center;background:#27272a;border:1px solid #3f3f46;border-radius:6px;padding:0.3rem 0.55rem;}
+          .sched-time-input input{background:#3f3f46;border:1px solid #52525b;border-radius:4px;color:#fff;font-size:0.95rem;font-weight:600;width:42px;height:28px;text-align:center;font-variant-numeric:tabular-nums;padding:0;margin:0;}
+          .sched-time-input input:focus{outline:none;border-color:#10b981;}
+          .sched-time-input input::-webkit-inner-spin-button,.sched-time-input input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
+          .sched-time-input span{color:#9ca3af;font-weight:600;font-size:1rem;}
           .sched-disabled{opacity:0.5;}
         </style>
 
@@ -7260,7 +7262,7 @@ async function renderBotSchedules() {
                             <div style="font-size:0.72rem;color:var(--text-muted);">${esc(s.description || '')}</div>
                         </div>
                         <div class="sched-time-input">
-                            <input type="number" min="0" max="23" value="${s.schedule_hour}" data-sched="${s.id}" data-field="hour" onchange="updateSchedTime(${s.id},'hour',this.value)">
+                            <input type="number" min="0" max="23" value="${String(s.schedule_hour).padStart(2,\'0\')}" data-sched="${s.id}" data-field="hour" onchange="updateSchedTime(${s.id},'hour',this.value)">
                             <span style="color:var(--text-muted);">:</span>
                             <input type="number" min="0" max="59" value="${String(s.schedule_minute).padStart(2,'0')}" data-sched="${s.id}" data-field="minute" onchange="updateSchedTime(${s.id},'minute',this.value)">
                         </div>
