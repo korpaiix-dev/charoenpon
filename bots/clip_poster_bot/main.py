@@ -107,13 +107,61 @@ def build_url(tier: Optional[str]) -> str:
     return f"https://t.me/{SALES_BOT_USERNAME}?start={code}"
 
 
-def pick_caption(tier: Optional[str]) -> str:
+def _credit_block(credit_url: Optional[str]) -> str:
+    """Append a credit/review group link if available."""
+    if not credit_url:
+        return ""
+    return f'\n\n📋 <a href="{credit_url}">เช็คเครดิต / รีวิวลูกค้าจริง</a>'
+
+
+async def pick_caption(tier: Optional[str]) -> str:
+    """Build caption: tier-aware CTA + credit-group link appended."""
     url = build_url(tier)
+    credit_url = await get_credit_group_url()
+    credit = _credit_block(credit_url)
     if tier:
         tmpl = random.choice(CAPTION_TEMPLATES)
-        return tmpl.format(tier=tier, url=url)
+        return tmpl.format(tier=tier, url=url) + credit
     tmpl = random.choice(CAPTION_GENERIC)
-    return tmpl.format(url=url)
+    return tmpl.format(url=url) + credit
+
+
+
+
+# Credit group URL — fetched from promo_config table (cached 60s)
+_credit_cache = {"val": None, "expires": 0}
+
+
+async def get_credit_group_url() -> Optional[str]:
+    """Read credit_group_url from promo_config (60s cache). Return None on fail."""
+    import time as _t
+    now = _t.time()
+    if _credit_cache["val"] and _credit_cache["expires"] > now:
+        return _credit_cache["val"]
+    try:
+        import asyncpg
+        db_url = os.environ.get("DATABASE_URL", "").replace("postgresql+asyncpg://", "postgresql://")
+        if not db_url:
+            return None
+        conn = await asyncpg.connect(db_url)
+        try:
+            row = await conn.fetchrow(
+                "SELECT value_json FROM promo_config WHERE config_key = 'credit_group_url'"
+            )
+            if row:
+                data = row["value_json"]
+                if isinstance(data, str):
+                    import json as _json
+                    data = _json.loads(data)
+                url = data.get("url") if data else None
+                _credit_cache["val"] = url
+                _credit_cache["expires"] = now + 60
+                return url
+        finally:
+            await conn.close()
+    except Exception as exc:
+        logger.warning("get_credit_group_url failed: %s", exc)
+    return None
 
 
 # ─── Watermark via ffmpeg ────────────────────────────────────────────────────
@@ -336,7 +384,7 @@ async def on_tier_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await q.answer(f"กำลังส่ง tier ฿{choice if choice != 'generic' else 'ทั่วไป'}...")
 
     tier_hint = None if choice == "generic" else choice
-    caption_text = pick_caption(tier_hint)
+    caption_text = await pick_caption(tier_hint)
 
     # Update status message
     status_msg = q.message
