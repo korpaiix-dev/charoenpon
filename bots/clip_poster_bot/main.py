@@ -264,13 +264,66 @@ async def log_job(
 
 
 # ─── Handlers ────────────────────────────────────────────────────────────────
+# DB-backed admin whitelist with 60s cache.
+# Allows owner/super_admin/admin with can_post_clips=TRUE in dashboard_admins.
+# Falls back to ENV CLIP_POSTER_ADMIN_IDS if DB unreachable.
+_admin_cache = {"ids": None, "expires": 0}
+
+
+async def get_allowed_admins() -> set[int]:
+    """Return tg_ids allowed to use the bot.
+
+    SOURCE OF TRUTH: dashboard_admins table (no env fallback, no hardcoded).
+    Boss manages permissions via Dashboard → Team page → toggle 🎬 column.
+    Cached 60s.
+
+    Fail-closed: if DB unreachable → returns empty set → bot rejects all users.
+    Safer than env fallback because admin can always re-enable via web UI.
+    """
+    import time as _t
+    now = _t.time()
+    if _admin_cache["ids"] is not None and _admin_cache["expires"] > now:
+        return _admin_cache["ids"]
+    try:
+        import asyncpg
+        db_url = os.environ.get("DATABASE_URL", "").replace("postgresql+asyncpg://", "postgresql://")
+        if not db_url:
+            logger.error("DATABASE_URL not set — fail-closed (no permissions)")
+            return set()
+        conn = await asyncpg.connect(db_url)
+        try:
+            rows = await conn.fetch(
+                "SELECT telegram_id FROM dashboard_admins "
+                "WHERE is_active = TRUE AND can_post_clips = TRUE"
+            )
+            allowed = {int(r["telegram_id"]) for r in rows}
+            _admin_cache["ids"] = allowed
+            _admin_cache["expires"] = now + 60
+            return allowed
+        finally:
+            await conn.close()
+    except Exception as exc:
+        logger.warning("get_allowed_admins failed: %s — fail-closed (no permissions)", exc)
+        return set()
+
+
+async def is_admin_async(tg_id: int) -> bool:
+    allowed = await get_allowed_admins()
+    return tg_id in allowed
+
+
 def is_admin(tg_id: int) -> bool:
-    return tg_id in ADMIN_IDS
+    """Deprecated sync helper — always returns False.
+
+    DO NOT USE — call is_admin_async() instead (DB-driven, single source of truth).
+    Kept only to preserve callsite signatures during refactor.
+    """
+    return False
 
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    if not user or not is_admin(user.id):
+    if not user or not await is_admin_async(user.id):
         await update.message.reply_text("🚫 บอตนี้สำหรับแอดมินเท่านั้น")
         return
     await update.message.reply_text(
@@ -286,7 +339,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    if not user or not is_admin(user.id):
+    if not user or not await is_admin_async(user.id):
         return
     groups = await get_free_groups()
     logo_exists = Path(LOGO_PATH).exists()
@@ -307,7 +360,7 @@ async def on_video(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not msg or not msg.from_user:
         return
     user = msg.from_user
-    if not is_admin(user.id):
+    if not await is_admin_async(user.id):
         await msg.reply_text("🚫 แอดมินเท่านั้นค่ะ")
         return
 
@@ -356,7 +409,7 @@ async def on_tier_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not q or not q.from_user:
         return
     user = q.from_user
-    if not is_admin(user.id):
+    if not await is_admin_async(user.id):
         await q.answer("🚫 แอดมินเท่านั้น", show_alert=True)
         return
 
@@ -499,7 +552,7 @@ async def on_tier_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def on_unknown(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.from_user:
         return
-    if not is_admin(update.message.from_user.id):
+    if not await is_admin_async(update.message.from_user.id):
         return
     await update.message.reply_text(
         "💡 ส่งวิดีโอมาได้เลย\n"
@@ -510,11 +563,11 @@ async def on_unknown(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 def main():
     if not BOT_TOKEN:
         raise SystemExit("CLIP_POSTER_BOT_TOKEN not set in env")
-    if not ADMIN_IDS:
-        raise SystemExit("CLIP_POSTER_ADMIN_IDS not set in env")
 
-    logger.info("Clip Poster Bot starting — admins=%s, logo=%s",
-                ADMIN_IDS, LOGO_PATH)
+    logger.info(
+        "Clip Poster Bot starting — permissions=DB (dashboard_admins), logo=%s",
+        LOGO_PATH,
+    )
 
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))

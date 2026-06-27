@@ -21,7 +21,7 @@ async def _log(admin_id, action, entity_type, entity_id, details, ip):
 @router.get("")
 async def list_team(admin=Depends(require_role("admin"))):
     rows = await pool.fetch("""
-        SELECT id, telegram_id, username, display_name, role, is_active, last_login_at, created_at
+        SELECT id, telegram_id, username, display_name, role, is_active, last_login_at, created_at, can_post_clips
         FROM dashboard_admins ORDER BY
         CASE role WHEN 'owner' THEN 1 WHEN 'admin' THEN 2 ELSE 3 END, display_name
     """)
@@ -149,3 +149,42 @@ async def member_activity(member_id: int, limit: int = 50, admin=Depends(require
         "items": [dict(r) for r in rows],
         "total": len(rows),
     }
+
+
+# Phase A.4 (2026-06-27): toggle can_post_clips permission for clip_poster_bot
+@router.patch("/{member_id}/can-post-clips")
+async def toggle_can_post_clips(
+    member_id: int,
+    payload: dict,
+    request: Request,
+    admin=Depends(require_role("super_admin")),
+):
+    """Owner/super_admin: toggle clip_poster_bot access for a team member.
+
+    Body: {"enabled": true|false}
+    Returns: {ok, member_id, can_post_clips, display_name}
+    """
+    target = await pool.fetchrow(
+        "SELECT id, display_name, role FROM dashboard_admins WHERE id=$1", member_id
+    )
+    if not target:
+        raise HTTPException(404, "Member not found")
+    enabled = bool(payload.get("enabled", False))
+    # Owner is always allowed — cannot toggle off
+    if target['role'] == 'owner' and not enabled:
+        raise HTTPException(400, "Cannot revoke owner's clip-post permission")
+    await pool.execute(
+        "UPDATE dashboard_admins SET can_post_clips=$1, updated_at=NOW() WHERE id=$2",
+        enabled, member_id,
+    )
+    ip = request.client.host if request.client else None
+    await _log(
+        admin['id'], 'toggle_can_post_clips', 'admin', member_id,
+        {'display_name': target['display_name'], 'enabled': enabled}, ip,
+    )
+    return {
+        'ok': True, 'member_id': member_id,
+        'display_name': target['display_name'],
+        'can_post_clips': enabled,
+    }
+

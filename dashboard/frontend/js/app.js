@@ -3306,7 +3306,7 @@ async function renderTeam() {
             <div class="alert-box-item">📋 <b>Moderator (10)</b> — ดู + อนุมัติสลิป</div>
         </div>`;
 
-        html += '<div class="table-wrap"><table><thead><tr><th>ชื่อ</th><th>Telegram ID</th><th>ยศ</th><th>สถานะ</th><th>Login ล่าสุด</th><th style="text-align:right;">จัดการ</th></tr></thead><tbody>';
+        html += '<div class="table-wrap"><table><thead><tr><th>ชื่อ</th><th>Telegram ID</th><th>ยศ</th><th>สถานะ</th><th title="สิทธิ์ใช้บอตโพสต์คลิป @examplejarern_bot">🎬 คลิป</th><th>Login ล่าสุด</th><th style="text-align:right;">จัดการ</th></tr></thead><tbody>';
         data.forEach(m => {
             const roleIcons = { owner: '👑', super_admin: '⚡', admin: '🛡️', moderator: '📋' };
             const roleIcon = roleIcons[m.role] || '📋';
@@ -3340,6 +3340,7 @@ async function renderTeam() {
                 <td style="font-family:var(--font-mono);">${m.telegram_id}</td>
                 <td>${roleIcon} ${esc(m.role)}</td>
                 <td>${m.is_active ? '<span style="color:var(--success)">🟢 Active</span>' : '<span style="color:var(--error)">🔴 Disabled</span>'}</td>
+                <td>${clipPermBadge(m.can_post_clips, m.id, m.display_name, m.role, hasRole('super_admin') || hasRole('owner'))}</td>
                 <td>${fmtDateTime(m.last_login_at)}</td>
                 <td style="text-align:right;"><div class="btn-group" style="justify-content:flex-end;">${actions}</div></td>
             </tr>`;
@@ -6704,5 +6705,38 @@ async function restartBotContainer(container) {
     } catch (e) {
         showToast('❌ ' + e.message, 'error');
     }
+}
+
+// ==================================================================
+// Phase A.4 (2026-06-27): Toggle clip_poster_bot permission per admin
+// ==================================================================
+async function toggleClipPermission(memberId, currentEnabled, displayName) {
+    const verb = currentEnabled ? 'ปิดสิทธิ์' : 'เปิดสิทธิ์';
+    if (!confirm(`${verb}ใช้บอตโพสต์คลิป สำหรับ ${displayName}?`)) return;
+    try {
+        await api(`/admins/${memberId}/can-post-clips`, {
+            method: 'PATCH',
+            body: JSON.stringify({ enabled: !currentEnabled }),
+        });
+        showToast(`✅ ${verb} ${displayName} สำเร็จ`, 'success');
+        if (typeof renderTeam === 'function') renderTeam();
+    } catch (e) {
+        showToast('❌ ' + e.message, 'error');
+    }
+}
+
+function clipPermBadge(canPost, memberId, displayName, role, canManage) {
+    const isOwner = role === 'owner';
+    const safeName = esc(displayName).replace(/'/g, "\\'");
+    if (canPost) {
+        if (isOwner || !canManage) {
+            return `<span class="btn btn-sm btn-success" style="cursor:default;opacity:0.7;" title="${isOwner ? 'Owner ใช้บอตได้เสมอ' : 'ต้องเป็น super_admin ขึ้นไปถึงจะปรับได้'}">🎬 ON</span>`;
+        }
+        return `<button class="btn btn-sm btn-success" onclick="toggleClipPermission(${memberId}, true, '${safeName}')" title="คลิกเพื่อปิดสิทธิ์">🎬 ON</button>`;
+    }
+    if (!canManage) {
+        return `<span class="btn btn-sm btn-outline" style="cursor:default;opacity:0.7;" title="ต้องเป็น super_admin ขึ้นไปถึงจะปรับได้">⚪ OFF</span>`;
+    }
+    return `<button class="btn btn-sm btn-outline" onclick="toggleClipPermission(${memberId}, false, '${safeName}')" title="คลิกเพื่อเปิดสิทธิ์">⚪ OFF</button>`;
 }
 
