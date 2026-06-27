@@ -7319,6 +7319,130 @@ async function updateSchedTime(schedId, field, value) {
 // ==================================================================
 // Phase B.1.B (2026-06-27): Content Editor page
 // ==================================================================
+const CT_EMOJIS = [
+    "🔥","💎","💰","💸","✨","⭐","🎉","🎁","🎰","🎲","👑","💕","❤️","💯","🚀","⚡",
+    "✅","❌","👉","👈","👀","🥵","🍑","🌶","🍒","🌸","💋","😍","😘","😊","😎","🤤",
+    "📢","📌","📍","🏷","💬","💌","🔔","📲","📱","💻","🎬","📸","🎥","🎞","📷","🖼"
+];
+
+function ctInsertAt(textareaEl, before, after) {
+    if (!textareaEl) return;
+    const start = textareaEl.selectionStart;
+    const end = textareaEl.selectionEnd;
+    const text = textareaEl.value;
+    const selected = text.slice(start, end);
+    textareaEl.value = text.slice(0, start) + before + selected + after + text.slice(end);
+    textareaEl.focus();
+    const newPos = start + before.length + selected.length + (selected.length === 0 ? 0 : after.length);
+    textareaEl.selectionStart = textareaEl.selectionEnd = selected.length === 0 ? start + before.length : newPos;
+    textareaEl.dispatchEvent(new Event("input"));
+}
+
+function ctTextareaFor(btn) {
+    return btn.closest(".ct-card").querySelector("[data-field='caption_html']");
+}
+
+function ctImageInputFor(btn) {
+    return btn.closest(".ct-card").querySelector("[data-field='image_path']");
+}
+
+function ctFormat(btn, tag) {
+    ctInsertAt(ctTextareaFor(btn), "<" + tag + ">", "</" + tag + ">");
+}
+
+function ctInsertText(btn, text) {
+    ctInsertAt(ctTextareaFor(btn), text, "");
+}
+
+function ctInsertLink(btn) {
+    const url = prompt("ใส่ URL ลิ้ง:", "https://t.me/NamwarnJarern_bot");
+    if (!url) return;
+    const label = prompt("ข้อความที่ลูกค้าเห็น:", "กดที่นี่") || url;
+    const ta = ctTextareaFor(btn);
+    ctInsertAt(ta, '<a href="' + url + '">' + label + '</a>', "");
+}
+
+function ctInsertDivider(btn) {
+    ctInsertText(btn, "\n━━━━━━━━━━━━━━━━━━\n");
+}
+
+function ctOpenEmoji(btn) {
+    // Toggle existing popover if any
+    document.querySelectorAll(".ct-emoji-popover").forEach(p => p.remove());
+    const ta = ctTextareaFor(btn);
+    const pop = document.createElement("div");
+    pop.className = "ct-emoji-popover";
+    pop.style.cssText = "position:absolute;background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:0.4rem;display:grid;grid-template-columns:repeat(8,1fr);gap:0.2rem;z-index:1000;box-shadow:0 4px 16px rgba(0,0,0,0.4);";
+    CT_EMOJIS.forEach(emoji => {
+        const b = document.createElement("button");
+        b.textContent = emoji;
+        b.type = "button";
+        b.style.cssText = "background:transparent;border:none;font-size:1.2rem;cursor:pointer;padding:0.25rem;border-radius:4px;";
+        b.onmouseover = () => b.style.background = "#3f3f46";
+        b.onmouseout = () => b.style.background = "transparent";
+        b.onclick = (e) => {
+            e.stopPropagation();
+            ctInsertAt(ta, emoji, "");
+            pop.remove();
+        };
+        pop.appendChild(b);
+    });
+    const rect = btn.getBoundingClientRect();
+    pop.style.left = (rect.left + window.scrollX) + "px";
+    pop.style.top = (rect.bottom + window.scrollY + 4) + "px";
+    document.body.appendChild(pop);
+    setTimeout(() => {
+        const close = (ev) => {
+            if (!pop.contains(ev.target) && ev.target !== btn) {
+                pop.remove();
+                document.removeEventListener("click", close);
+            }
+        };
+        document.addEventListener("click", close);
+    }, 50);
+}
+
+async function ctUploadImage(btn) {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/png,image/jpeg,image/webp,image/gif";
+    input.onchange = async (e) => {
+        const f = e.target.files[0];
+        if (!f) return;
+        if (f.size > 10 * 1024 * 1024) { toast("ไฟล์ใหญ่เกิน 10 MB", "error"); return; }
+        const fd = new FormData();
+        fd.append("file", f);
+        btn.disabled = true;
+        const oldText = btn.textContent;
+        btn.textContent = "⏳ กำลังอัพ...";
+        try {
+            const r = await fetch("/api/admin/upload-content-image", {
+                method: "POST",
+                headers: { "Authorization": "Bearer " + (typeof token !== "undefined" ? token : localStorage.getItem("jwt") || "") },
+                body: fd,
+            });
+            if (!r.ok) throw new Error("upload failed: " + r.status);
+            const j = await r.json();
+            const imgEl = ctImageInputFor(btn);
+            if (imgEl) imgEl.value = j.path;
+            toast("📷 อัพโหลดสำเร็จ: " + j.path, "success");
+        } catch (err) { toast(err.message, "error"); }
+        finally { btn.disabled = false; btn.textContent = oldText; }
+    };
+    input.click();
+}
+
+function ctPreview(btn) {
+    const ta = ctTextareaFor(btn);
+    if (!ta) return;
+    const html = ta.value;
+    const imgPath = (ctImageInputFor(btn) || {}).value || "";
+    openModal("👁 Preview", `
+        ${imgPath ? '<div style="background:#27272a;padding:0.5rem;border-radius:6px;margin-bottom:0.5rem;text-align:center;color:var(--text-muted);font-size:0.8rem;">📷 รูป: <code>' + esc(imgPath) + '</code></div>' : ''}
+        <div style="background:#1a1a1a;border:1px solid #3f3f46;border-radius:8px;padding:1rem;color:#fff;white-space:pre-wrap;font-size:0.9rem;line-height:1.5;">${html}</div>
+        <div style="margin-top:0.5rem;font-size:0.72rem;color:var(--text-muted);">↑ คือสิ่งที่ลูกค้าจะเห็นในกลุ่ม (HTML render ตามที่ Telegram จะแสดง)</div>
+    `);
+}
 var _ctTab = 'promo';
 
 async function renderContentEditor() {
@@ -7344,6 +7468,11 @@ async function renderContentEditor() {
           .ct-input{width:100%;background:#27272a;color:#fff;border:1px solid #3f3f46;border-radius:6px;padding:0.45rem 0.6rem;font-size:0.85rem;}
           .ct-input:focus{outline:none;border-color:var(--primary);}
           .ct-actions{display:flex;gap:0.5rem;justify-content:flex-end;margin-top:0.7rem;}
+          .ct-toolbar{display:flex;gap:0.25rem;align-items:center;background:#1c1c1f;border:1px solid #3f3f46;border-bottom:none;border-radius:6px 6px 0 0;padding:0.35rem 0.45rem;flex-wrap:wrap;margin-top:0.2rem;}
+          .ct-toolbar button{background:#27272a;border:1px solid #3f3f46;color:#fff;padding:0.2rem 0.55rem;border-radius:4px;cursor:pointer;font-size:0.8rem;display:inline-flex;align-items:center;gap:0.25rem;}
+          .ct-toolbar button:hover{background:#3f3f46;border-color:#52525b;}
+          .ct-tb-sep{color:#52525b;margin:0 0.15rem;}
+          .ct-card .ct-toolbar + .ct-textarea{border-top-left-radius:0;border-top-right-radius:0;border-top-color:#3f3f46;}
         </style>
 
         <div style="margin-bottom:1rem;">
@@ -7375,11 +7504,27 @@ async function renderContentEditor() {
                 </div>
 
                 <label class="ct-label">${isPromo ? 'ข้อความ caption (HTML รองรับ &lt;b&gt;)' : 'AI Prompt (บอกแนวให้ AI ใช้สร้าง caption)'}</label>
+                ${isPromo ? `<div class="ct-toolbar">
+                    <button type="button" onclick="ctFormat(this,'b')" title="ตัวหนา"><b>B</b></button>
+                    <button type="button" onclick="ctFormat(this,'i')" title="ตัวเอียง"><i>I</i></button>
+                    <button type="button" onclick="ctFormat(this,'u')" title="ขีดเส้นใต้"><u>U</u></button>
+                    <button type="button" onclick="ctFormat(this,'s')" title="ขีดทับ"><s>S</s></button>
+                    <span class="ct-tb-sep">|</span>
+                    <button type="button" onclick="ctInsertLink(this)" title="ลิ้ง">🔗 ลิ้ง</button>
+                    <button type="button" onclick="ctInsertDivider(this)" title="เส้นคั่น">〰️ เส้นคั่น</button>
+                    <button type="button" onclick="ctOpenEmoji(this)" title="อีโมจิ">😊 อีโมจิ</button>
+                    <span class="ct-tb-sep">|</span>
+                    <button type="button" onclick="ctPreview(this)" title="ดูตัวอย่าง">👁 Preview</button>
+                </div>` : ''}
                 <textarea class="ct-textarea" data-field="caption_html">${esc(t.caption_html)}</textarea>
 
                 ${isPromo ? `
-                <label class="ct-label" style="margin-top:0.6rem;">รูปภาพ (path บน server)</label>
-                <input type="text" class="ct-input" data-field="image_path" value="${esc(t.image_path)}" placeholder="/app/assets/...">
+                <label class="ct-label" style="margin-top:0.6rem;">รูปภาพ</label>
+                <div style="display:flex;gap:0.5rem;">
+                    <input type="text" class="ct-input" data-field="image_path" value="${esc(t.image_path)}" placeholder="/app/assets/..." style="flex:1;">
+                    <button type="button" class="btn btn-sm btn-outline" onclick="ctUploadImage(this)" title="อัพโหลดรูปใหม่">📷 อัพโหลด</button>
+                </div>
+                ${t.image_path ? `<div style="margin-top:0.4rem;font-size:0.7rem;color:var(--text-muted);">รูปปัจจุบัน: <code>${esc(t.image_path)}</code></div>` : ''}
                 ` : ''}
 
                 <div class="ct-actions">

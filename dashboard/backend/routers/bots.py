@@ -841,3 +841,46 @@ async def update_content_template(
     )
     return {"ok": True, "id": tpl_id}
 
+
+@router.post("/upload-content-image")
+async def upload_content_image(
+    request: Request,
+    admin=Depends(require_role("admin")),
+):
+    """Upload an image for content_templates. Saves to /app/assets/uploads/.
+
+    Returns {path: "/app/assets/uploads/...png", url: "/assets/uploads/...png"}
+    """
+    import os as _os_up
+    from fastapi import UploadFile, File
+    form = await request.form()
+    file = form.get("file")
+    if not file:
+        raise HTTPException(400, "no file uploaded")
+
+    upload_dir = "/app/assets/uploads"
+    _os_up.makedirs(upload_dir, exist_ok=True)
+
+    # Generate safe filename: timestamp + original ext
+    import time as _t_up, uuid as _uu
+    ext = ".png"
+    fname = getattr(file, "filename", "")
+    if "." in fname:
+        ext = "." + fname.rsplit(".", 1)[-1].lower()
+        if ext not in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
+            ext = ".png"
+    safe = f"{int(_t_up.time())}_{str(_uu.uuid4())[:8]}{ext}"
+    full_path = f"{upload_dir}/{safe}"
+
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(400, "file too large (max 10MB)")
+    with open(full_path, "wb") as f:
+        f.write(content)
+
+    return {
+        "path": full_path,
+        "url": f"/assets/uploads/{safe}",
+        "size": len(content),
+    }
+

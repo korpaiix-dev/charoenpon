@@ -280,7 +280,7 @@ services:
       CLIP_POSTER_LOGO_PATH: /app/assets/clip_logo.png
     command: python -m bots.clip_poster_bot
     volumes:
-      - ./assets:/app/assets:ro
+      - ./assets:/app/assets
 
 volumes:
   postgres_data:
