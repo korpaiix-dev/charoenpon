@@ -138,6 +138,7 @@ const NAV_ITEMS = [
     { id: 'bot_groups', icon: '🤖', label: 'จัดการบอท', minRole: 'admin' },
     { id: 'group_analytics', icon: '📊', label: 'สถิติกลุ่ม', minRole: 'admin' },
     { id: 'bot_schedules', icon: '⏰', label: 'ตารางเวลาบอท', minRole: 'admin' },
+    { id: 'content_editor', icon: '📝', label: 'คอนเทนต์บอท', minRole: 'admin' },
     { id: 'settings', icon: '⚙️', label: 'ตั้งค่าระบบ', minRole: 'admin' },
 
     // ─── ประวัติ ───
@@ -249,7 +250,7 @@ function navigate(page) {
     renderSidebar();
     const titles = {
         dashboard: '📊 ภาพรวม', inbox: '📥 Inbox สลิป', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน', gacha: '🎰 กาชา',
-        promotions: '🎁 โปรโมชั่น + ตั้งค่าบอท', content: '📸 Content', groups: '📱 กลุ่ม', bot_groups: '🤖 จัดการบอท', group_analytics: '📊 สถิติกลุ่ม', bot_schedules: '⏰ ตารางเวลาบอท',
+        promotions: '🎁 โปรโมชั่น + ตั้งค่าบอท', content: '📸 Content', groups: '📱 กลุ่ม', bot_groups: '🤖 จัดการบอท', group_analytics: '📊 สถิติกลุ่ม', bot_schedules: '⏰ ตารางเวลาบอท', content_editor: '📝 คอนเทนต์บอท',
         team: '👨‍💼 ทีมงาน', settings: '⚙️ ตั้งค่า', marketing: '📊 Marketing',
         activity: '📋 Activity Log', prae_logs: '💬 Prae Logs',
     };
@@ -265,7 +266,7 @@ function navigate(page) {
     
     const pages = {
         today: renderToday, dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance, receivers: renderReceivers, gacha: renderGacha,
-        promotions: renderPromoManager, content: renderContent, groups: renderGroups, bot_groups: renderBotGroups, group_analytics: renderGroupAnalytics, bot_schedules: renderBotSchedules,
+        promotions: renderPromoManager, content: renderContent, groups: renderGroups, bot_groups: renderBotGroups, group_analytics: renderGroupAnalytics, bot_schedules: renderBotSchedules, content_editor: renderContentEditor,
         team: renderTeam, settings: renderSettings, marketing: renderMarketing,
         activity: renderActivityLog, prae_logs: renderPraeLogs,
     };
@@ -7313,5 +7314,115 @@ async function updateSchedTime(schedId, field, value) {
         });
         toast('💾 บันทึกเวลา · บอตจะใช้รอบถัดไปหลัง restart', 'success');
     } catch (e) { toast(e.message, 'error'); }
+}
+
+// ==================================================================
+// Phase B.1.B (2026-06-27): Content Editor page
+// ==================================================================
+var _ctTab = 'promo';
+
+async function renderContentEditor() {
+    const content = document.getElementById('page-content');
+    content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+    try {
+        const all = await api('/admin/content-templates');
+        const promos = all.filter(t => t.category === 'promo');
+        const styles = all.filter(t => t.category === 'teaser_style');
+
+        let html = `
+        <style>
+          .ct-tabs{display:inline-flex;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:2px;margin-bottom:1rem;}
+          .ct-tab{background:transparent;border:none;padding:0.4rem 1rem;font-size:0.85rem;border-radius:6px;cursor:pointer;color:var(--text-muted);font-weight:500;}
+          .ct-tab.active{background:var(--primary);color:#000;font-weight:600;}
+          .ct-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1rem;margin-bottom:0.75rem;}
+          .ct-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.6rem;gap:0.5rem;}
+          .ct-title{font-weight:600;font-size:0.95rem;}
+          .ct-desc{font-size:0.75rem;color:var(--text-muted);margin-top:0.15rem;}
+          .ct-label{font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.3rem;display:block;}
+          .ct-textarea{width:100%;min-height:120px;background:#27272a;color:#fff;border:1px solid #3f3f46;border-radius:6px;padding:0.6rem;font-family:var(--font-mono,monospace);font-size:0.8rem;resize:vertical;}
+          .ct-textarea:focus{outline:none;border-color:var(--primary);}
+          .ct-input{width:100%;background:#27272a;color:#fff;border:1px solid #3f3f46;border-radius:6px;padding:0.45rem 0.6rem;font-size:0.85rem;}
+          .ct-input:focus{outline:none;border-color:var(--primary);}
+          .ct-actions{display:flex;gap:0.5rem;justify-content:flex-end;margin-top:0.7rem;}
+        </style>
+
+        <div style="margin-bottom:1rem;">
+            <h2 style="margin:0;font-size:1.2rem;">📝 คอนเทนต์ที่บอตจะโพสต์</h2>
+            <div style="font-size:0.75rem;color:var(--text-muted);">แก้ข้อความ + รูป — บอตจะใช้ทันทีในรอบโพสต์ถัดไป</div>
+        </div>
+
+        <div class="ct-tabs">
+            <button class="ct-tab ${_ctTab==='promo'?'active':''}" onclick="_ctTab='promo';renderContentEditor()">🎁 โปรโมชั่น (${promos.length})</button>
+            <button class="ct-tab ${_ctTab==='teaser_style'?'active':''}" onclick="_ctTab='teaser_style';renderContentEditor()">📸 สไตล์ตัวอย่าง (${styles.length})</button>
+        </div>
+
+        <div id="ct-list">
+        `;
+
+        const items = _ctTab === 'promo' ? promos : styles;
+        items.forEach(t => {
+            const safeName = esc(t.display_name);
+            const safeDesc = esc(t.description);
+            const isPromo = _ctTab === 'promo';
+            html += `
+              <div class="ct-card" data-tpl="${t.id}">
+                <div class="ct-head">
+                    <div>
+                        <div class="ct-title">${safeName}</div>
+                        <div class="ct-desc">${safeDesc}</div>
+                    </div>
+                    <span style="font-family:var(--font-mono);font-size:0.7rem;color:var(--text-dim);">${esc(t.template_key)}</span>
+                </div>
+
+                <label class="ct-label">${isPromo ? 'ข้อความ caption (HTML รองรับ &lt;b&gt;)' : 'AI Prompt (บอกแนวให้ AI ใช้สร้าง caption)'}</label>
+                <textarea class="ct-textarea" data-field="caption_html">${esc(t.caption_html)}</textarea>
+
+                ${isPromo ? `
+                <label class="ct-label" style="margin-top:0.6rem;">รูปภาพ (path บน server)</label>
+                <input type="text" class="ct-input" data-field="image_path" value="${esc(t.image_path)}" placeholder="/app/assets/...">
+                ` : ''}
+
+                <div class="ct-actions">
+                    <button class="btn btn-sm btn-outline" onclick="resetContentTemplate(${t.id})">↩️ ยกเลิก</button>
+                    <button class="btn btn-sm btn-primary" onclick="saveContentTemplate(${t.id})">💾 บันทึก</button>
+                </div>
+              </div>
+            `;
+        });
+        html += '</div>';
+
+        content.innerHTML = html;
+        // Cache originals for reset
+        window._ctOriginals = {};
+        items.forEach(t => { window._ctOriginals[t.id] = { caption: t.caption_html, image: t.image_path }; });
+    } catch (e) {
+        content.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`;
+    }
+}
+
+async function saveContentTemplate(id) {
+    const card = document.querySelector(`.ct-card[data-tpl="${id}"]`);
+    if (!card) return;
+    const cap = card.querySelector('[data-field="caption_html"]').value;
+    const imgEl = card.querySelector('[data-field="image_path"]');
+    const body = { caption_html: cap };
+    if (imgEl) body.image_path = imgEl.value;
+    try {
+        await api(`/admin/content-templates/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(body),
+        });
+        toast('💾 บันทึกสำเร็จ — บอตจะใช้รอบถัดไป', 'success');
+        if (window._ctOriginals) window._ctOriginals[id] = { caption: cap, image: imgEl ? imgEl.value : '' };
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+function resetContentTemplate(id) {
+    const card = document.querySelector(`.ct-card[data-tpl="${id}"]`);
+    if (!card || !window._ctOriginals || !window._ctOriginals[id]) return;
+    card.querySelector('[data-field="caption_html"]').value = window._ctOriginals[id].caption;
+    const imgEl = card.querySelector('[data-field="image_path"]');
+    if (imgEl) imgEl.value = window._ctOriginals[id].image;
+    toast('↩️ ยกเลิกการแก้ — กลับเป็นค่าเดิม', 'info');
 }
 

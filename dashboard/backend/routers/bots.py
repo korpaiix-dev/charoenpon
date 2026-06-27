@@ -777,3 +777,67 @@ async def update_schedule(
     )
     return {"ok": True, "id": sched_id, "applied": payload}
 
+
+# ==================================================================
+# Phase B.1.B (2026-06-27): Content templates editor
+# ==================================================================
+
+@router.get("/content-templates")
+async def list_content_templates(category: str = None, _admin=Depends(require_role("admin"))):
+    """List all content templates, optionally filtered by category."""
+    if category:
+        rows = await pool.fetch(
+            "SELECT * FROM content_templates WHERE category=$1 "
+            "AND bot_key='content_bot' ORDER BY sort_order, id",
+            category,
+        )
+    else:
+        rows = await pool.fetch(
+            "SELECT * FROM content_templates WHERE bot_key='content_bot' "
+            "ORDER BY category, sort_order, id"
+        )
+    return [dict(r) for r in rows]
+
+
+@router.patch("/content-templates/{tpl_id}")
+async def update_content_template(
+    tpl_id: int,
+    payload: dict,
+    request: Request,
+    admin=Depends(require_role("admin")),
+):
+    """Update template caption / image / is_enabled.
+
+    Body (any subset): { caption_html, image_path, is_enabled }
+    """
+    row = await pool.fetchrow("SELECT id, display_name FROM content_templates WHERE id=$1", tpl_id)
+    if not row:
+        raise HTTPException(404, "template not found")
+
+    updates = []
+    args = []
+    for field in ("caption_html", "image_path"):
+        if field in payload:
+            updates.append(f"{field}=${len(args)+1}")
+            args.append(str(payload[field]))
+    if "is_enabled" in payload:
+        updates.append(f"is_enabled=${len(args)+1}")
+        args.append(bool(payload["is_enabled"]))
+    if not updates:
+        raise HTTPException(400, "no fields to update")
+    updates.append("updated_at=NOW()")
+    updates.append(f"updated_by=${len(args)+1}")
+    args.append(int(admin["telegram_id"]))
+    args.append(tpl_id)
+
+    await pool.execute(
+        f"UPDATE content_templates SET {', '.join(updates)} WHERE id=${len(args)}",
+        *args,
+    )
+    ip = request.client.host if request.client else None
+    await _log(
+        admin["id"], "update_content_template", "content_template", tpl_id,
+        {"display_name": row["display_name"]}, ip,
+    )
+    return {"ok": True, "id": tpl_id}
+
