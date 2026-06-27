@@ -6702,10 +6702,10 @@ async function restartBotContainer(container) {
     if (!confirm('⚠️ Restart ' + container + '?\n\nบอตจะ offline ~5-10 วินาที\nลูกค้าที่กำลังใช้งานอาจเจอ timeout 1 ครั้ง\n\nยืนยัน?')) return;
     try {
         const r = await api('/bots/' + encodeURIComponent(container) + '/restart', { method: 'POST' });
-        showToast('✅ ' + container + ' restarting...', 'success');
+        toast('✅ ' + container + ' restarting...', 'success');
         setTimeout(() => loadBotsStatus(), 2000);
     } catch (e) {
-        showToast('❌ ' + e.message, 'error');
+        toast('❌ ' + e.message, 'error');
     }
 }
 
@@ -6773,7 +6773,7 @@ async function showBotPermsModal(memberId, displayName) {
             </div>
         `);
     } catch (e) {
-        showToast('❌ ' + e.message, 'error');
+        toast('❌ ' + e.message, 'error');
     }
 }
 
@@ -6785,11 +6785,11 @@ async function saveBotPerms(memberId) {
             method: 'PATCH',
             body: JSON.stringify({ bot_keys }),
         });
-        showToast(`💾 บันทึกสิทธิ์ ${bot_keys.length} บอท สำเร็จ`, 'success');
+        toast(`💾 บันทึกสิทธิ์ ${bot_keys.length} บอท สำเร็จ`, 'success');
         closeModal();
         if (typeof renderTeam === 'function') await renderTeam();
     } catch (e) {
-        showToast('❌ ' + e.message, 'error');
+        toast('❌ ' + e.message, 'error');
     }
 }
 
