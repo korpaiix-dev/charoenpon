@@ -6801,7 +6801,7 @@ async function renderBotGroups() {
     const content = document.getElementById('page-content');
     content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
     try {
-        const bots = await api('/bots-registry');
+        const bots = await api("/admin/bots-registry");
         const gc = (g, role) => (g && g[role]) ? g[role] : 0;
 
         let html = `
@@ -6875,7 +6875,7 @@ function _bgmRenderPanel(allGroups, role, targets) {
 
 async function openBotGroupsModal(botKey) {
     try {
-        const data = await api(`/bots/${encodeURIComponent(botKey)}/groups`);
+        const data = await api(`/admin/bots/${encodeURIComponent(botKey)}/groups`);
         const bot = data.bot;
         const defaultRole = botKey === 'guardian_bot' ? 'monitor' : 'distribution';
         const tabsHtml = botKey === 'relay_bot'
@@ -6916,7 +6916,7 @@ async function switchBotGroupTab(el) {
     el.classList.add('active');
     panel.dataset.role = role;
     try {
-        const data = await api(`/bots/${encodeURIComponent(botKey)}/groups`);
+        const data = await api(`/admin/bots/${encodeURIComponent(botKey)}/groups`);
         panel.innerHTML = _bgmRenderPanel(data.all_groups, role, data.targets);
     } catch (e) { toast(e.message, 'error'); }
 }
@@ -6929,7 +6929,7 @@ async function saveBotGroups() {
     const checkboxes = panel.querySelectorAll('input[type="checkbox"]:checked');
     const chat_ids = Array.from(checkboxes).map(cb => parseInt(cb.dataset.chatId, 10)).filter(x => !isNaN(x));
     try {
-        await api(`/bots/${encodeURIComponent(botKey)}/groups`, {
+        await api(`/admin/bots/${encodeURIComponent(botKey)}/groups`, {
             method: 'PATCH',
             body: JSON.stringify({ target_role: role, chat_ids }),
         });
