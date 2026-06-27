@@ -7624,3 +7624,37 @@ function resetContentTemplate(id) {
     toast('↩️ ยกเลิกการแก้ — กลับเป็นค่าเดิม', 'info');
 }
 
+
+function ctRenderBtnRow(btn, idx) {
+    const safeLabel = (btn && btn.label || '').replace(/"/g, '&quot;');
+    const safeUrl = (btn && btn.url || '').replace(/"/g, '&quot;');
+    return `<div class="ct-btn-row" style="display:flex;gap:0.4rem;align-items:center;margin-bottom:0.4rem;">
+        <input type="text" class="ct-input" data-btn-field="label" placeholder="ข้อความปุ่ม" value="${safeLabel}" style="flex:1;min-width:140px;">
+        <span style="color:var(--text-muted);">→</span>
+        <input type="text" class="ct-input" data-btn-field="url" placeholder="https://t.me/..." value="${safeUrl}" style="flex:2;min-width:200px;">
+        <button type="button" class="btn btn-sm btn-danger" onclick="ctDeleteButton(this)" title="ลบปุ่มนี้">×</button>
+    </div>`;
+}
+
+function ctAddButton(btn) {
+    const list = btn.previousElementSibling;
+    if (!list || !list.classList.contains('ct-buttons-list')) return;
+    list.insertAdjacentHTML('beforeend', ctRenderBtnRow({label:'', url:''}, list.children.length));
+    list.lastElementChild.querySelector('input').focus();
+}
+
+function ctDeleteButton(btn) {
+    btn.closest('.ct-btn-row').remove();
+}
+
+function ctCollectButtons(card) {
+    const rows = card.querySelectorAll('.ct-btn-row');
+    const out = [];
+    rows.forEach(r => {
+        const lab = r.querySelector('[data-btn-field="label"]').value.trim();
+        const url = r.querySelector('[data-btn-field="url"]').value.trim();
+        if (lab && url) out.push({label: lab, url: url});
+    });
+    return out;
+}
+
