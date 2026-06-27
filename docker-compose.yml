@@ -187,7 +187,7 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    command: ["uvicorn", "dashboard.backend.main:app", "--host", "0.0.0.0", "--port", "8010", "--reload", "--reload-dir", "/app/dashboard/backend", "--reload-dir", "/app/shared"]
+    command: ["uvicorn", "dashboard.backend.main:app", "--host", "0.0.0.0", "--port", "8010", "--workers", "1"]
 
   # fb-manager removed 2026-05-01: Facebook auto-post no longer used
 

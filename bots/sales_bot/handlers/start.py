@@ -31,7 +31,7 @@ WELCOME_TEXT = (
 MAIN_KEYBOARD = InlineKeyboardMarkup(
     [
         [InlineKeyboardButton("⚡ Flash Sale", callback_data="view_flashsale")],
-        [InlineKeyboardButton("🛒 เลือกแพ็คเกจ + โปร", web_app=WebAppInfo(url="https://telebord.net/webapp/customer/packages"))],
+        [InlineKeyboardButton("🛒 เลือกแพ็คเกจ + โปร", web_app=WebAppInfo(url="https://telebord.net/webapp/customer/packages?v=1782591275"))],
         [InlineKeyboardButton("📦 ดูแพ็กเกจ (ปกติ)", callback_data="view_packages")],
         [InlineKeyboardButton("📊 ข้อมูลของฉัน", web_app=WebAppInfo(url="https://telebord.net/webapp/customer"))],
         [
@@ -298,7 +298,7 @@ async def _handle_comeback_start(update: Update, context: ContextTypes.DEFAULT_T
 
     keyboard = InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("🛒 เลือกแพ็คเกจ + โปร (ใหม่)", web_app=WebAppInfo(url="https://telebord.net/webapp/customer/packages"))],
+            [InlineKeyboardButton("🛒 เลือกแพ็คเกจ + โปร (ใหม่)", web_app=WebAppInfo(url="https://telebord.net/webapp/customer/packages?v=1782591275"))],
             [InlineKeyboardButton("📦 ดูแพ็กเกจอื่น (ปกติ)", callback_data="view_packages")],
             [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
         ]
@@ -395,7 +395,7 @@ async def _build_main_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton("🎁 เติมสิทธิ์หมุนกาชาปอง", callback_data="view_gacha_buy")])
 
     # ดูแพ็กเกจ — moved to position 4 (per boss)
-    rows.append([InlineKeyboardButton("🛒 เลือกแพ็คเกจ + โปร (ใหม่)", web_app=WebAppInfo(url="https://telebord.net/webapp/customer/packages"))])
+    rows.append([InlineKeyboardButton("🛒 เลือกแพ็คเกจ + โปร (ใหม่)", web_app=WebAppInfo(url="https://telebord.net/webapp/customer/packages?v=1782591275"))])
     rows.append([InlineKeyboardButton("📦 ดูแพ็กเกจ (ปกติ)", callback_data="view_packages")])
     rows.append([InlineKeyboardButton("📊 ข้อมูลของฉัน", web_app=WebAppInfo(url="https://telebord.net/webapp/customer"))])
 
@@ -589,7 +589,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             # Msg 2: GIF banner + main menu (with 👑 ดูแพ็กเกจ on top)
             cap2 = "หรือเลือกเมนูได้เลย ⬇️"
             kb2 = _IKM([
-                [_IKB("🛒 เลือกแพ็คเกจ + โปร (ใหม่)", web_app=WebAppInfo(url="https://telebord.net/webapp/customer/packages"))],
+                [_IKB("🛒 เลือกแพ็คเกจ + โปร (ใหม่)", web_app=WebAppInfo(url="https://telebord.net/webapp/customer/packages?v=1782591275"))],
                 [_IKB("👑 ดูแพ็กเกจ VIP ทั้งหมด 👑 (ปกติ)", callback_data="view_packages")],
                 [_IKB("🎰 VIPมีคนชัก ฿100 — ลุ้น GOD ทุกจันทร์!", callback_data="view_shaker")],
                 [_IKB("🎁 เติมสิทธิ์หมุนกาชาปอง", callback_data="view_gacha_buy")],
@@ -784,7 +784,7 @@ async def free_room_callback(
     )
     keyboard = InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("🛒 เลือกแพ็คเกจ + โปร (ใหม่)", web_app=WebAppInfo(url="https://telebord.net/webapp/customer/packages"))],
+            [InlineKeyboardButton("🛒 เลือกแพ็คเกจ + โปร (ใหม่)", web_app=WebAppInfo(url="https://telebord.net/webapp/customer/packages?v=1782591275"))],
             [InlineKeyboardButton("📦 ดูแพ็กเกจ VIP (ปกติ)", callback_data="view_packages")],
             [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
         ]
@@ -844,7 +844,7 @@ async def referral_menu_callback(update: Update, context: ContextTypes.DEFAULT_T
             "👉 กดดูแพ็กเกจ VIP เจริญพร แล้วสมัครได้เลย"
         )
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🛒 เลือกแพ็คเกจ + โปร", web_app=WebAppInfo(url="https://telebord.net/webapp/customer/packages"))],
+            [InlineKeyboardButton("🛒 เลือกแพ็คเกจ + โปร", web_app=WebAppInfo(url="https://telebord.net/webapp/customer/packages?v=1782591275"))],
         [InlineKeyboardButton("📦 ดูแพ็กเกจ (ปกติ)", callback_data="view_packages")],
             [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
         ])

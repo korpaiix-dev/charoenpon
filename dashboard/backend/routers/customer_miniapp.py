@@ -26,7 +26,14 @@ async def customer_packages_page():
         # Fallback: look in customer dir
         html_path = Path("/app/dashboard/frontend/customer/packages.html")
     if html_path.exists():
-        return HTMLResponse(html_path.read_text(encoding="utf-8"))
+        return HTMLResponse(
+            html_path.read_text(encoding="utf-8"),
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
     return HTMLResponse("<h1>Mini App not deployed</h1>", status_code=404)
 
 
