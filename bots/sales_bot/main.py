@@ -627,8 +627,11 @@ async def _handle_webapp_data(update, context):
     2. JSON {action: "buy", tier, package_id, price, name, promo_id} -> start payment
     """
     if not update.message or not getattr(update.message, "web_app_data", None):
+        logger.warning("WEBAPP_DATA: handler fired but no web_app_data on message")
         return
     data = update.message.web_app_data.data or ""
+    tg_id = update.effective_user.id if update.effective_user else "?"
+    logger.info("WEBAPP_DATA: received from tg=%s, data=%s", tg_id, data[:200])
     from bots.sales_bot.handlers.packages import view_packages_command
     
     # Legacy string commands
@@ -640,11 +643,15 @@ async def _handle_webapp_data(update, context):
     import json as _json
     try:
         payload = _json.loads(data)
-    except Exception:
+    except Exception as exc:
+        logger.warning("WEBAPP_DATA: JSON parse failed for tg=%s data=%r exc=%s", tg_id, data[:100], exc)
         await update.message.reply_text("ข้อมูลจาก WebApp ไม่ถูกต้องค่ะ")
         return
     
+    logger.info("WEBAPP_DATA: parsed payload tg=%s action=%s tier=%s",
+                tg_id, payload.get("action"), payload.get("tier"))
     if payload.get("action") != "buy":
+        logger.info("WEBAPP_DATA: action != buy, returning")
         return
     
     tier_full = payload.get("tier", "")  # e.g. "TIER_300" or "GACHA_1"
