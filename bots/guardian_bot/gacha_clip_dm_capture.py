@@ -23,7 +23,20 @@ from shared.database import get_session
 logger = logging.getLogger(__name__)
 
 # Only these admin telegram_ids are allowed to capture via DM
-ADMIN_IDS = {8502597269, 7387557933}  # บอส + แอดมินอีกคน
+# B.3 (2026-06-27): Migrated to DB-driven admin perms via shared.admin_perms
+# Hardcoded set replaced — kept here only as legacy doc:
+# Was: {8502597269 บอสไผ่, 7387557933 wasu}
+from shared.admin_perms import is_admin_for_bot as _is_admin_for_bot
+
+class _DBAdminSet:
+    """Set-like object that checks admin_bot_permissions (guardian_bot key) live."""
+    def __contains__(self, uid: int) -> bool:
+        try:
+            return _is_admin_for_bot(int(uid), "guardian_bot")
+        except Exception:
+            return False
+
+ADMIN_IDS = _DBAdminSet()
 
 # Allowed source chat IDs (CLIP groups)
 ALLOWED_SOURCES = {

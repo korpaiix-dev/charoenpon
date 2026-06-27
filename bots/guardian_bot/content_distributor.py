@@ -26,9 +26,21 @@ from shared.database import get_session
 
 logger = logging.getLogger(__name__)
 
-ADMIN_IDS = set(
-    int(x) for x in os.environ.get("ADMIN_TELEGRAM_IDS", "").split(",") if x.strip().lstrip("-").isdigit()
-)
+# B.3 (2026-06-27): Migrated to DB-driven admin perms via shared.admin_perms
+from shared.admin_perms import is_admin_for_bot as _is_admin_for_bot
+
+class _DBAdminSet:
+    """Set-like object that checks admin_bot_permissions (guardian_bot key) live."""
+    def __contains__(self, uid: int) -> bool:
+        try:
+            return _is_admin_for_bot(int(uid), "guardian_bot")
+        except Exception:
+            return False
+    def __bool__(self):
+        # Always truthy so the guard "and ADMIN_IDS and ..." still works
+        return True
+
+ADMIN_IDS = _DBAdminSet()
 
 # ── Tag definitions ─────────────────────────────────────────────────────────
 # Order matters for button display
