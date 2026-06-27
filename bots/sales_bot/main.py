@@ -117,6 +117,7 @@ from bots.sales_bot.handlers.upsell import get_upsell_handlers, run_upsell_dm_jo
 from bots.sales_bot.comeback_dm import run_comeback_dm_job
 from shared.welcome_journey import run_welcome_journey_job
 from shared.exit_survey import run_exit_survey_job, handle_exit_survey_callback
+from bots.sales_bot.handlers.promo_purchase import get_promo_purchase_handlers
 from shared.slip_review import get_slip_review_handlers
 # DEAD (Phase 1) from bots.sales_bot.trial_promo_dm import run_trial_promo_dm_job
 from bots.sales_bot.flash_sale_scheduler import start_flash_sale, end_flash_sale, remind_flash_sale
@@ -329,6 +330,10 @@ def create_application() -> Application:
         CallbackQueryHandler(handle_exit_survey_callback, pattern=r"^exitsv:"),
         group=0,
     )
+
+    # DAY 0 (2026-06-28): Promo buy callbacks (promo_buy:<promo_id>:<pkg_id>)
+    for handler in get_promo_purchase_handlers():
+        app.add_handler(handler, group=0)
 
     # Birthday Promo /upgrade — เฉพาะลูกค้าที่มี birthday_upgrade_offers
     for handler in get_birthday_upgrade_handlers():
