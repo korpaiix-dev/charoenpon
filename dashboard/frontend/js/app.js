@@ -7437,10 +7437,13 @@ function ctPreview(btn) {
     if (!ta) return;
     const html = ta.value;
     const imgPath = (ctImageInputFor(btn) || {}).value || "";
+    const card = btn.closest(".ct-card");
+    const btns = ctCollectButtons(card);
     openModal("👁 Preview", `
         ${imgPath ? '<div style="background:#27272a;padding:0.5rem;border-radius:6px;margin-bottom:0.5rem;text-align:center;color:var(--text-muted);font-size:0.8rem;">📷 รูป: <code>' + esc(imgPath) + '</code></div>' : ''}
         <div style="background:#1a1a1a;border:1px solid #3f3f46;border-radius:8px;padding:1rem;color:#fff;white-space:pre-wrap;font-size:0.9rem;line-height:1.5;">${html}</div>
-        <div style="margin-top:0.5rem;font-size:0.72rem;color:var(--text-muted);">↑ คือสิ่งที่ลูกค้าจะเห็นในกลุ่ม (HTML render ตามที่ Telegram จะแสดง)</div>
+        ${btns && btns.length ? '<div style="margin-top:0.4rem;display:flex;flex-direction:column;gap:0.3rem;">' + btns.map(b => '<button style="background:#27272a;border:1px solid #3f3f46;color:#fff;padding:0.5rem;border-radius:6px;cursor:pointer;text-align:center;">' + esc(b.label) + '</button>').join('') + '</div>' : ''}
+        <div style="margin-top:0.5rem;font-size:0.72rem;color:var(--text-muted);">↑ คือสิ่งที่ลูกค้าจะเห็นในกลุ่ม</div>
     `);
 }
 var _ctTab = 'promo';
@@ -7525,6 +7528,12 @@ async function renderContentEditor() {
                     <button type="button" class="btn btn-sm btn-outline" onclick="ctUploadImage(this)" title="อัพโหลดรูปใหม่">📷 อัพโหลด</button>
                 </div>
                 ${t.image_path ? `<div style="margin-top:0.4rem;font-size:0.7rem;color:var(--text-muted);">รูปปัจจุบัน: <code>${esc(t.image_path)}</code></div>` : ''}
+
+                <label class="ct-label" style="margin-top:0.8rem;">🔘 ปุ่มใต้โพสต์ Telegram</label>
+                <div class="ct-buttons-list" data-tpl-buttons="${t.id}">
+                    ${(t.buttons || []).map((b, i) => ctRenderBtnRow(b, i)).join('')}
+                </div>
+                <button type="button" class="btn btn-sm btn-outline" onclick="ctAddButton(this)" style="margin-top:0.3rem;">+ เพิ่มปุ่ม</button>
                 ` : ''}
 
                 <div class="ct-actions">
@@ -7552,6 +7561,8 @@ async function saveContentTemplate(id) {
     const imgEl = card.querySelector('[data-field="image_path"]');
     const body = { caption_html: cap };
     if (imgEl) body.image_path = imgEl.value;
+    const btns = ctCollectButtons(card);
+    body.buttons = btns;
     try {
         await api(`/admin/content-templates/${id}`, {
             method: 'PATCH',

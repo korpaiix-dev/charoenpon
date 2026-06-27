@@ -820,6 +820,21 @@ async def update_content_template(
         if field in payload:
             updates.append(f"{field}=${len(args)+1}")
             args.append(str(payload[field]))
+    if "buttons" in payload:
+        import json as _json_b
+        # Validate: list of {label,url} or [[{label,url}]]
+        btns = payload["buttons"]
+        if not isinstance(btns, list):
+            raise HTTPException(400, "buttons must be array")
+        normalized = []
+        for b in btns:
+            if isinstance(b, dict):
+                lab = str(b.get("label", "")).strip()
+                url = str(b.get("url", "")).strip()
+                if lab and url:
+                    normalized.append({"label": lab, "url": url})
+        updates.append(f"buttons=${len(args)+1}::jsonb")
+        args.append(_json_b.dumps(normalized))
     if "is_enabled" in payload:
         updates.append(f"is_enabled=${len(args)+1}")
         args.append(bool(payload["is_enabled"]))
