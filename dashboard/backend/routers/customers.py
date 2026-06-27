@@ -229,9 +229,18 @@ async def customer_payments(user_id: int, admin=Depends(get_current_admin)):
 
 @router.get("/{user_id}/subscriptions")
 async def customer_subscriptions(user_id: int, admin=Depends(get_current_admin)):
+    """DAY 0: returns subscriptions with promotion + payment info (if any)."""
     rows = await pool.fetch("""
-        SELECT s.*, p.name as package_name FROM subscriptions s
+        SELECT s.*, p.name AS package_name, p.tier::text AS tier,
+               pay.amount AS amount_paid,
+               promo.code AS promo_code, promo.name AS promo_name,
+               promo.discount_type AS promo_discount_type,
+               promo.discount_value AS promo_discount_value
+        FROM subscriptions s
         JOIN packages p ON s.package_id = p.id
+        LEFT JOIN payments pay ON pay.id = s.payment_id
+        LEFT JOIN promotion_clicks pc ON pc.consumed_payment_id = s.payment_id
+        LEFT JOIN promotions promo ON promo.id = pc.promotion_id
         WHERE s.user_id = $1 ORDER BY s.created_at DESC LIMIT 50
     """, user_id)
     return [dict(r) for r in rows]

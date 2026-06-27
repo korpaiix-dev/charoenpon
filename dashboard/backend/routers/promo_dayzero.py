@@ -133,17 +133,13 @@ async def create_promotion(
             INSERT INTO promotions (
                 code, name, is_active,
                 package_codes, discount_type, discount_value, valid_hours,
-                caption_html, image_path, extra_buttons,
-                target_groups, post_times,
                 starts_at, ends_at,
                 updated_by
             ) VALUES (
                 $1, $2, $3,
                 $4, $5, $6, $7,
-                $8, $9, $10,
-                $11, $12,
-                $13, $14,
-                $15
+                $8, $9,
+                $10
             ) RETURNING id, code
         """,
             code, name, bool(payload.get("is_active", False)),
@@ -151,11 +147,6 @@ async def create_promotion(
             discount_type,
             float(payload.get("discount_value") or 0),
             int(payload.get("valid_hours") or 48),
-            payload.get("caption_html") or "",
-            payload.get("image_path") or "",
-            payload.get("extra_buttons") or [],
-            payload.get("target_groups") or "all_free",
-            payload.get("post_times") or [],
             _parse_dt(payload.get("starts_at")),
             _parse_dt(payload.get("ends_at")),
             int(admin.get("telegram_id") or 0) or None,
@@ -192,9 +183,8 @@ async def update_promotion(
         raise HTTPException(404, "promotion not found")
 
     SCALAR_FIELDS = ("name", "is_active", "discount_type", "discount_value",
-                     "valid_hours", "caption_html", "image_path",
-                     "target_groups", "starts_at", "ends_at")
-    JSONB_FIELDS = ("package_codes", "extra_buttons", "post_times")
+                     "valid_hours", "starts_at", "ends_at")
+    JSONB_FIELDS = ("package_codes",)
 
     updates = []
     args = []

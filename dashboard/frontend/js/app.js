@@ -7643,10 +7643,11 @@ function resetContentTemplate(id) {
 function ctRenderBtnRow(btn, idx) {
     const safeLabel = (btn && btn.label || '').replace(/"/g, '&quot;');
     const safeUrl = (btn && btn.url || '').replace(/"/g, '&quot;');
-    return `<div class="ct-btn-row" style="display:flex;gap:0.4rem;align-items:center;margin-bottom:0.4rem;">
+    return `<div class="ct-btn-row" style="display:flex;gap:0.4rem;align-items:center;margin-bottom:0.4rem;flex-wrap:wrap;">
         <input type="text" class="ct-input" data-btn-field="label" placeholder="ข้อความปุ่ม" value="${safeLabel}" style="flex:1;min-width:140px;">
         <span style="color:var(--text-muted);">→</span>
-        <input type="text" class="ct-input" data-btn-field="url" placeholder="https://t.me/..." value="${safeUrl}" style="flex:2;min-width:200px;">
+        <input type="text" class="ct-input" data-btn-field="url" placeholder="https://t.me/... หรือกด '🎁 เลือกโปร'" value="${safeUrl}" style="flex:2;min-width:200px;">
+        <button type="button" class="btn btn-sm" onclick="ctPickPromoLink(this)" style="background:#a16207;color:#fff;border:none;border-radius:4px;padding:0.3rem 0.55rem;font-size:0.78rem;white-space:nowrap;">🎁 เลือกโปร</button>
         <button type="button" class="btn btn-sm btn-danger" onclick="ctDeleteButton(this)" title="ลบปุ่มนี้">×</button>
     </div>`;
 }
@@ -7656,6 +7657,72 @@ function ctAddButton(btn) {
     if (!list || !list.classList.contains('ct-buttons-list')) return;
     list.insertAdjacentHTML('beforeend', ctRenderBtnRow({label:'', url:''}, list.children.length));
     list.lastElementChild.querySelector('input').focus();
+}
+
+
+
+// DAY 0 (2026-06-28): Pick a promotion to auto-generate sales_bot deep link
+let _ctPromoPickerCache = null;
+async function ctPickPromoLink(btnEl) {
+    // Get URL input next to the picker button
+    const row = btnEl.closest('.ct-btn-row');
+    const urlInput = row?.querySelector('input[data-btn-field="url"]');
+    if (!urlInput) return;
+    
+    // Cache promo list
+    if (!_ctPromoPickerCache) {
+        try {
+            _ctPromoPickerCache = await api('/admin/day0-promos');
+        } catch (e) {
+            alert('โหลดโปรไม่สำเร็จ');
+            return;
+        }
+    }
+    const promos = _ctPromoPickerCache.filter(p => p.is_active);
+    
+    if (promos.length === 0) {
+        alert('ยังไม่มีโปรที่เปิดใช้งาน — สร้างที่หน้า 🎁 จัดการโปร ก่อน');
+        return;
+    }
+    
+    // Show selection modal
+    const modal = document.createElement('div');
+    modal.id = 'ctPromoPickerModal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99999;display:flex;align-items:center;justify-content:center;padding:1rem;';
+    
+    const items = promos.map(p => {
+        let discountLabel = '';
+        if (p.discount_type === 'percent') discountLabel = `ลด ${p.discount_value}%`;
+        else if (p.discount_type === 'fixed_off') discountLabel = `ลด ฿${p.discount_value}`;
+        else if (p.discount_type === 'fixed_price') discountLabel = `฿${p.discount_value}`;
+        return `<div onclick="ctApplyPromoLink('${esc(p.code)}'); document.getElementById('ctPromoPickerModal').remove();" 
+            style="padding:0.7rem 0.9rem;background:#27272a;border:1px solid #3f3f46;border-radius:6px;cursor:pointer;margin-bottom:0.4rem;"
+            onmouseover="this.style.background='#3f3f46'" onmouseout="this.style.background='#27272a'">
+            <div style="font-weight:600;font-size:0.9rem;">${esc(p.name)}</div>
+            <div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.2rem;font-family:var(--font-mono);">${esc(p.code)} · ${discountLabel}</div>
+        </div>`;
+    }).join('');
+    
+    modal.innerHTML = `<div style="background:#1c1c1f;border:1px solid #3f3f46;border-radius:12px;padding:1.2rem;max-width:480px;width:100%;max-height:80vh;overflow-y:auto;">
+        <h3 style="margin:0 0 0.6rem;font-size:1rem;">🎁 เลือกโปรโมชั่นสำหรับปุ่มนี้</h3>
+        <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.8rem;">เลือกแล้วระบบจะใส่ลิงก์เปิด sales bot ให้อัตโนมัติ</div>
+        ${items}
+        <button class="btn btn-sm" onclick="document.getElementById('ctPromoPickerModal').remove()" style="margin-top:0.5rem;background:#3f3f46;color:#fff;width:100%;">ยกเลิก</button>
+    </div>`;
+    
+    // Store ref to URL input for the apply function
+    window._ctPickerTargetInput = urlInput;
+    document.body.appendChild(modal);
+}
+
+function ctApplyPromoLink(promoCode) {
+    const inp = window._ctPickerTargetInput;
+    if (!inp) return;
+    const SALES_BOT = 'NamwarnJarern_bot';
+    inp.value = `https://t.me/${SALES_BOT}?start=${promoCode}`;
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    inp.dispatchEvent(new Event('change', { bubbles: true }));
+    window._ctPickerTargetInput = null;
 }
 
 function ctDeleteButton(btn) {
@@ -7907,7 +7974,6 @@ function renderDayZeroPromoList() {
             <div style="margin-top:0.55rem;display:grid;grid-template-columns:auto 1fr;gap:0.35rem 0.65rem;font-size:0.78rem;color:var(--text-muted);">
                 <div>📦 แพ็คเกจ:</div><div style="color:var(--text);">${esc(pkgLabels) || '— ยังไม่ได้เลือก —'}</div>
                 <div>💰 ราคา:</div><div style="color:var(--text);">${esc(discountLabel)} · ใช้ได้ ${p.valid_hours||48} ชม.</div>
-                <div>⏰ เวลาโพสต์:</div><div style="color:var(--text);">${esc(timeLabels)}</div>
                 <div>📅 ระยะ:</div><div style="color:var(--text);">${esc(dateRange)}</div>
             </div>
         </div>`;
@@ -7923,93 +7989,76 @@ function renderDayZeroPromoList() {
 function openDayZeroPromoForm(promoId) {
     _dayZeroEditId = promoId;
     const existing = promoId ? _dayZeroPromos.find(p => p.id === promoId) : null;
-
     const data = existing || {
         code: '',
         name: '',
         is_active: false,
         package_codes: [],
-        discount_type: 'none',
+        discount_type: 'percent',
         discount_value: 0,
         valid_hours: 48,
-        caption_html: '',
-        image_path: '',
-        extra_buttons: [],
-        target_groups: 'all_free',
-        post_times: [],
         starts_at: null,
         ends_at: null,
     };
 
-    const title = existing ? `✏️ แก้ไขโปร — ${esc(existing.name)}` : '➕ เพิ่มโปรใหม่';
+    const title = existing ? `✏️ แก้ไขโปร — ${esc(existing.name)}` : '➕ เพิ่มโปรโมชั่นใหม่';
     const codeReadonly = existing ? 'readonly' : '';
 
+    // Multi-select packages
     const pkgCheckboxes = _dayZeroPackages.map(pkg => {
         const checked = (data.package_codes || []).includes(pkg.tier) ? 'checked' : '';
-        return `
-            <label style="display:flex;align-items:center;gap:0.4rem;padding:0.35rem 0.6rem;background:#1c1c1f;border:1px solid #3f3f46;border-radius:6px;cursor:pointer;font-size:0.8rem;margin-bottom:0.3rem;">
-                <input type="checkbox" name="dz-pkg" value="${esc(pkg.tier)}" ${checked} style="margin:0;">
-                <span style="flex:1;">${esc(pkg.name)}</span>
-                <span style="color:var(--text-muted);font-size:0.7rem;font-family:var(--font-mono);">${esc(pkg.tier)} · ฿${pkg.price}</span>
-            </label>`;
+        return `<label style="display:flex;align-items:center;gap:0.4rem;padding:0.35rem 0.6rem;background:#1c1c1f;border:1px solid #3f3f46;border-radius:6px;cursor:pointer;font-size:0.8rem;margin-bottom:0.3rem;">
+            <input type="checkbox" name="dz-pkg" value="${esc(pkg.tier)}" ${checked} style="margin:0;">
+            <span style="flex:1;">${esc(pkg.name)}</span>
+            <span style="color:var(--text-muted);font-size:0.7rem;font-family:var(--font-mono);">${esc(pkg.tier)} · ฿${pkg.price}</span>
+        </label>`;
     }).join('');
-
-    const postTimes = data.post_times || [];
-    const timeRows = postTimes.map((t, i) => `
-        <div class="dz-time-row" style="display:flex;gap:0.3rem;align-items:center;margin-bottom:0.3rem;">
-            <input type="number" min="0" max="23" value="${t.hour||0}" data-idx="${i}" data-fld="hour" class="dz-time-input" style="width:55px;text-align:center;">
-            <span>:</span>
-            <input type="number" min="0" max="59" value="${t.minute||0}" data-idx="${i}" data-fld="minute" class="dz-time-input" style="width:55px;text-align:center;">
-            <button class="btn btn-sm" onclick="dzRemoveTime(${i})" style="font-size:0.75rem;padding:0.2rem 0.5rem;background:#7f1d1d;color:#fff;border:none;border-radius:4px;">×</button>
-        </div>`).join('');
 
     const startsStr = data.starts_at ? new Date(data.starts_at).toISOString().slice(0, 16) : '';
     const endsStr = data.ends_at ? new Date(data.ends_at).toISOString().slice(0, 16) : '';
-
-    const imgPreview = data.image_path
-        ? `<div style="margin-top:0.35rem;font-size:0.72rem;color:var(--text-muted);">รูปปัจจุบัน: <code>${esc(data.image_path)}</code></div>`
-        : '';
 
     const modal = document.createElement('div');
     modal.id = 'dzPromoModal';
     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99999;display:flex;align-items:flex-start;justify-content:center;padding:1.5rem;overflow-y:auto;';
     modal.innerHTML = `
-        <div style="background:#1c1c1f;border:1px solid #3f3f46;border-radius:12px;padding:1.5rem;max-width:700px;width:100%;margin:auto;">
-            <h3 style="margin:0 0 1rem;font-size:1.15rem;">${title}</h3>
+        <div style="background:#1c1c1f;border:1px solid #3f3f46;border-radius:12px;padding:1.5rem;max-width:580px;width:100%;margin:auto;">
+            <h3 style="margin:0 0 0.5rem;font-size:1.15rem;">${title}</h3>
+            <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:1rem;">
+                ⚠️ <b>โปรโมชั่นแค่ตั้งส่วนลด</b> — โพสต์โฆษณาไปทำที่ <b>📝 คอนเทนต์บอท</b>
+            </div>
 
             <!-- BASIC -->
             <fieldset style="border:1px solid #3f3f46;border-radius:8px;padding:0.7rem 0.9rem;margin-bottom:0.85rem;">
-                <legend style="padding:0 0.4rem;font-size:0.75rem;color:var(--text-muted);">📝 ข้อมูลพื้นฐาน</legend>
+                <legend style="padding:0 0.4rem;font-size:0.75rem;color:var(--text-muted);">📝 ชื่อ + รหัส</legend>
                 <div style="margin-bottom:0.6rem;">
                     <label class="ct-label">ชื่อโปร *</label>
-                    <input id="dz-name" class="ct-input" value="${esc(data.name)}" placeholder="เช่น โปรสิ้นเดือน ลด 20%">
+                    <input id="dz-name" class="ct-input" value="${esc(data.name)}" placeholder="เช่น ลด 50% สิ้นเดือน">
                 </div>
                 <div style="margin-bottom:0.6rem;">
                     <label class="ct-label">รหัส (a-z, 0-9, _) *</label>
-                    <input id="dz-code" class="ct-input" value="${esc(data.code)}" placeholder="เช่น promo_end_summer" ${codeReadonly}
+                    <input id="dz-code" class="ct-input" value="${esc(data.code)}" placeholder="เช่น end_50" ${codeReadonly}
                         oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9_]+/g,'_')">
                 </div>
                 <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;">
                     <input type="checkbox" id="dz-active" ${data.is_active ? 'checked' : ''}>
-                    <span>เปิดใช้งานโปรนี้</span>
+                    <span>✅ เปิดใช้งานโปรนี้ (ราคา sales bot จะลดทันที)</span>
                 </label>
             </fieldset>
 
             <!-- PRICING -->
             <fieldset style="border:1px solid #3f3f46;border-radius:8px;padding:0.7rem 0.9rem;margin-bottom:0.85rem;">
-                <legend style="padding:0 0.4rem;font-size:0.75rem;color:var(--text-muted);">💰 ราคา + ส่วนลด</legend>
+                <legend style="padding:0 0.4rem;font-size:0.75rem;color:var(--text-muted);">💰 ส่วนลด</legend>
                 <label class="ct-label">ใช้กับแพ็คเกจ (เลือกได้หลาย):</label>
-                <div style="max-height:180px;overflow-y:auto;padding:0.3rem;background:#0a0a0a;border:1px solid #27272a;border-radius:6px;">
+                <div style="max-height:200px;overflow-y:auto;padding:0.3rem;background:#0a0a0a;border:1px solid #27272a;border-radius:6px;">
                     ${pkgCheckboxes}
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-top:0.7rem;">
                     <div>
                         <label class="ct-label">ประเภทส่วนลด</label>
                         <select id="dz-discount-type" class="ct-input">
-                            <option value="none" ${data.discount_type==='none'?'selected':''}>ราคาเต็ม (ไม่ลด)</option>
                             <option value="percent" ${data.discount_type==='percent'?'selected':''}>ลด %</option>
                             <option value="fixed_off" ${data.discount_type==='fixed_off'?'selected':''}>ลด ฿ ตายตัว</option>
-                            <option value="fixed_price" ${data.discount_type==='fixed_price'?'selected':''}>ราคาตายตัว (ทุกแพ็ค)</option>
+                            <option value="fixed_price" ${data.discount_type==='fixed_price'?'selected':''}>ราคาตายตัว</option>
                         </select>
                     </div>
                     <div>
@@ -8023,63 +8072,9 @@ function openDayZeroPromoForm(promoId) {
                 </div>
             </fieldset>
 
-            <!-- DISPLAY -->
-            <fieldset style="border:1px solid #3f3f46;border-radius:8px;padding:0.7rem 0.9rem;margin-bottom:0.85rem;">
-                <legend style="padding:0 0.4rem;font-size:0.75rem;color:var(--text-muted);">🖼 หน้าตา</legend>
-                <label class="ct-label">caption (HTML รองรับ &lt;b&gt; &lt;i&gt;)</label>
-                <textarea id="dz-caption" class="ct-textarea" style="min-height:140px;">${esc(data.caption_html)}</textarea>
-                <div style="margin-top:0.7rem;">
-                    <label class="ct-label">รูปประกอบ</label>
-                    <input type="file" id="dz-image-file" accept="image/*" style="font-size:0.8rem;">
-                    ${imgPreview}
-                </div>
-            </fieldset>
-
-            <!-- DISTRIBUTION -->
-            <fieldset style="border:1px solid #3f3f46;border-radius:8px;padding:0.7rem 0.9rem;margin-bottom:0.85rem;">
-                <legend style="padding:0 0.4rem;font-size:0.75rem;color:var(--text-muted);">📢 โพสต์</legend>
-                <label class="ct-label">โพสต์ลงกลุ่ม</label>
-                ${(() => {
-                    const selectedRaw = (data.target_groups || '').toString();
-                    const isAllFree = selectedRaw === 'all_free';
-                    const selectedSet = new Set(isAllFree ? [] : selectedRaw.split(',').map(s => s.trim()).filter(Boolean));
-                    const freeGroups = _dayZeroGroups.filter(g => g.tier === 'FREE');
-                    const vipGroups = _dayZeroGroups.filter(g => g.tier !== 'FREE');
-                    const renderGroupBox = (gs, title) => {
-                        if (!gs.length) return '';
-                        return `<div style=\"margin-bottom:0.5rem;\">
-                            <div style=\"font-size:0.7rem;color:var(--text-muted);margin-bottom:0.25rem;\">${title}</div>
-                            <div style=\"display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:0.3rem;\">
-                                ${gs.map(g => {
-                                    const checked = selectedSet.has(g.slug) ? 'checked' : '';
-                                    return `<label style=\"display:flex;align-items:center;gap:0.35rem;padding:0.3rem 0.5rem;background:#1c1c1f;border:1px solid #3f3f46;border-radius:6px;font-size:0.77rem;cursor:pointer;\">
-                                        <input type=\"checkbox\" name=\"dz-group\" value=\"${esc(g.slug)}\" ${checked} style=\"margin:0;\">
-                                        <span style=\"flex:1;\">${esc(g.title)}</span>
-                                        <span style=\"color:var(--text-muted);font-size:0.65rem;font-family:var(--font-mono);\">${esc(g.slug)}</span>
-                                    </label>`;
-                                }).join('')}
-                            </div>
-                        </div>`;
-                    };
-                    return `<div style=\"background:#0a0a0a;border:1px solid #27272a;border-radius:6px;padding:0.5rem;max-height:280px;overflow-y:auto;\">
-                        <label style=\"display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.5rem;background:#1c2a1c;border:1px solid #2a4a2a;border-radius:6px;margin-bottom:0.4rem;font-weight:600;\">
-                            <input type=\"checkbox\" id=\"dz-target-all-free\" ${isAllFree?'checked':''} onchange=\"dzToggleAllFree(this.checked)\">
-                            <span>🟢 ทุกกลุ่มฟรี (shortcut — ${freeGroups.length} กลุ่ม)</span>
-                        </label>
-                        ${renderGroupBox(freeGroups, '🆓 กลุ่มฟรี')}
-                        ${renderGroupBox(vipGroups, '👑 กลุ่ม VIP (โพสต์ในห้องที่มีลูกค้าจ่ายแล้ว — ใช้สำหรับโปรอัพเกรด)')}
-                    </div>`;
-                })()}
-                <div style="margin-top:0.7rem;">
-                    <label class="ct-label">เวลาโพสต์ (เพิ่มได้หลายเวลา)</label>
-                    <div id="dz-times-area">${timeRows}</div>
-                    <button class="btn btn-sm" onclick="dzAddTime()" style="font-size:0.78rem;padding:0.3rem 0.65rem;background:#27272a;color:#fff;border:1px solid #3f3f46;border-radius:6px;margin-top:0.3rem;">➕ เพิ่มเวลา</button>
-                </div>
-            </fieldset>
-
             <!-- DATE RANGE -->
             <fieldset style="border:1px solid #3f3f46;border-radius:8px;padding:0.7rem 0.9rem;margin-bottom:1rem;">
-                <legend style="padding:0 0.4rem;font-size:0.75rem;color:var(--text-muted);">📅 ระยะเวลา (ไม่จำเป็น)</legend>
+                <legend style="padding:0 0.4rem;font-size:0.75rem;color:var(--text-muted);">📅 ระยะเวลาโปร (ไม่บังคับ)</legend>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;">
                     <div>
                         <label class="ct-label">เริ่ม</label>
@@ -8090,6 +8085,7 @@ function openDayZeroPromoForm(promoId) {
                         <input id="dz-ends" type="datetime-local" class="ct-input" value="${endsStr}">
                     </div>
                 </div>
+                <div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.3rem;">ปล่อยว่าง = ใช้ได้ตลอด</div>
             </fieldset>
 
             <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
@@ -8098,22 +8094,12 @@ function openDayZeroPromoForm(promoId) {
             </div>
         </div>
         <style>
-            #dzPromoModal .dz-time-input { background:#27272a;color:#fff;border:1px solid #3f3f46;border-radius:4px;padding:0.25rem;font-size:0.85rem; }
             #dzPromoModal .ct-input { background:#27272a;color:#fff;border:1px solid #3f3f46;border-radius:6px;padding:0.4rem 0.55rem;font-size:0.85rem;width:100%; }
-            #dzPromoModal .ct-textarea { background:#27272a;color:#fff;border:1px solid #3f3f46;border-radius:6px;padding:0.6rem;font-size:0.85rem;width:100%;font-family:var(--font-mono);resize:vertical; }
             #dzPromoModal .ct-label { display:block;font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.25rem; }
         </style>
     `;
     document.body.appendChild(modal);
     setTimeout(() => document.getElementById('dz-name')?.focus(), 100);
-}
-
-function dzToggleAllFree(checked) {
-    // When 'ทุกกลุ่มฟรี' is checked, disable individual group checkboxes
-    document.querySelectorAll('input[name="dz-group"]').forEach(cb => {
-        if (checked) { cb.checked = false; cb.disabled = true; }
-        else { cb.disabled = false; }
-    });
 }
 
 function dzAddTime() {
@@ -8143,52 +8129,14 @@ async function submitDayZeroPromo() {
     if (!name || !code) { alert('กรอกชื่อโปร + รหัส'); return; }
 
     const pkgCodes = Array.from(document.querySelectorAll('input[name="dz-pkg"]:checked')).map(x => x.value);
+    if (!pkgCodes.length) { alert('เลือกแพ็คเกจอย่างน้อย 1 อัน'); return; }
+
     const discountType = document.getElementById('dz-discount-type').value;
     const discountValue = parseFloat(document.getElementById('dz-discount-value').value) || 0;
     const validHours = parseInt(document.getElementById('dz-valid-hours').value) || 48;
-    const caption = document.getElementById('dz-caption').value;
-    let target;
-    const allFreeChecked = document.getElementById('dz-target-all-free')?.checked;
-    if (allFreeChecked) {
-        target = 'all_free';
-    } else {
-        const slugs = Array.from(document.querySelectorAll('input[name="dz-group"]:checked')).map(cb => cb.value);
-        target = slugs.join(',');
-    }
     const isActive = document.getElementById('dz-active').checked;
     const startsStr = document.getElementById('dz-starts').value;
     const endsStr = document.getElementById('dz-ends').value;
-
-    const postTimes = [];
-    document.querySelectorAll('#dz-times-area .dz-time-row').forEach(row => {
-        const hourInput = row.querySelector('[data-fld="hour"]');
-        const minInput = row.querySelector('[data-fld="minute"]');
-        postTimes.push({
-            hour: parseInt(hourInput.value) || 0,
-            minute: parseInt(minInput.value) || 0,
-        });
-    });
-
-    // Upload image first if file selected
-    let imagePath = (_dayZeroEditId ? _dayZeroPromos.find(p => p.id === _dayZeroEditId)?.image_path : '') || '';
-    const fileInput = document.getElementById('dz-image-file');
-    if (fileInput && fileInput.files && fileInput.files[0]) {
-        try {
-            const fd = new FormData();
-            fd.append('file', fileInput.files[0]);
-            const resp = await fetch('/api/admin/day0-promos/upload-image', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` },
-                body: fd,
-            });
-            if (!resp.ok) throw new Error('upload failed');
-            const j = await resp.json();
-            imagePath = j.path;
-        } catch (e) {
-            alert('อัปโหลดรูปไม่สำเร็จ: ' + e.message);
-            return;
-        }
-    }
 
     const payload = {
         code: code,
@@ -8198,10 +8146,6 @@ async function submitDayZeroPromo() {
         discount_type: discountType,
         discount_value: discountValue,
         valid_hours: validHours,
-        caption_html: caption,
-        image_path: imagePath,
-        target_groups: target,
-        post_times: postTimes,
         starts_at: startsStr || null,
         ends_at: endsStr || null,
     };
