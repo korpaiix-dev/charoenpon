@@ -58,11 +58,19 @@ async def compute_rank_for_user(user_id: int) -> str:
         # FIX 2026-06-22: ลบ tenure-only path สำหรับ Silver — ต้องจ่ายเกิน ฿1,000 เท่านั้น
         # ก่อนหน้านี้ลูกค้าจ่าย ฿300 ครั้งเดียว + อยู่ครบ 90 วัน → ได้ Silver + ของฟรี ฿1,549
         # ใหม่: rank-up เฉพาะจากเงินจริง (monotonic up, ไม่มี downgrade)
-        if spent >= 4000:
+        # 2026-06-28: thresholds จาก promo_config (fallback hardcoded)
+        try:
+            from shared.promo_config import get_promo_config
+            diamond_spent = int(await get_promo_config("loyalty_diamond_total_spent", default=4000))
+            silver_spent  = int(await get_promo_config("loyalty_silver_total_spent",  default=1000))
+            bronze_days   = int(await get_promo_config("loyalty_bronze_days",         default=30))
+        except Exception:
+            diamond_spent, silver_spent, bronze_days = 4000, 1000, 30
+        if spent >= diamond_spent:
             return "DIAMOND"
-        if spent >= 1000:
+        if spent >= silver_spent:
             return "SILVER"
-        if days_paid >= 30:  # Bronze: เคยจ่าย (loyalty_first_paid_at มีค่า) + 30 วัน
+        if days_paid >= bronze_days:
             return "BRONZE"
         return "NONE"
 

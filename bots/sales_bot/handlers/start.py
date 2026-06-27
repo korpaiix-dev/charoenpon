@@ -28,6 +28,18 @@ WELCOME_TEXT = (
     "จะดูแพ็กเกจ จะสมัคร หรือมีคำถามอะไร กดด้านล่างเลยค่า 👇"
 )
 
+# 2026-06-28: DB-driven greeting (fallback to WELCOME_TEXT)
+async def _get_welcome_text() -> str:
+    try:
+        from shared.bot_messages import get_bot_message
+        msg = await get_bot_message("welcome_main_greeting")
+        if msg:
+            return msg
+    except Exception:
+        pass
+    return WELCOME_TEXT
+
+
 MAIN_KEYBOARD = InlineKeyboardMarkup(
     [
         [InlineKeyboardButton("⚡ Flash Sale", callback_data="view_flashsale")],
@@ -810,7 +822,7 @@ async def back_to_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             is_new_user=False,
         )
     except Exception:
-        caption = WELCOME_TEXT
+        caption = await _get_welcome_text()
     # SAFE_NAV — handles photo origin
     await _navigate(query, caption, kb)
 

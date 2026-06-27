@@ -3274,7 +3274,7 @@ function showEditGroupForm(id, slug, title, chatId, tier, isActive) {
 
 async function updateGroup(id) {
     try {
-        await api(`/groups/${id}`, { method: 'PUT', body: JSON.stringify({
+        await api(`/groups/${id}`, { method: 'PATCH', body: JSON.stringify({
             title: document.getElementById('egrp-title').value,
             chat_id: parseInt(document.getElementById('egrp-chatid').value),
             min_tier: document.getElementById('egrp-tier').value,
@@ -3480,7 +3480,7 @@ function showEditTeam(id, name, role, isActive) {
 
 async function updateTeam(id) {
     try {
-        await api(`/team/${id}`, { method: 'PUT', body: JSON.stringify({
+        await api(`/team/${id}`, { method: 'PATCH', body: JSON.stringify({
             role: document.getElementById('et-role').value,
             is_active: document.getElementById('et-active').value === 'true',
         })});
@@ -3492,7 +3492,7 @@ async function resetTeamPwd(id) {
     const pw = prompt('รหัสผ่านใหม่:');
     if (!pw) return;
     try {
-        await api(`/team/${id}/password-reset`, { method: 'PUT', body: JSON.stringify({ new_password: pw }), headers: { 'Content-Type': 'application/json' } });
+        await api(`/team/${id}/password-reset`, { method: 'PATCH', body: JSON.stringify({ new_password: pw }), headers: { 'Content-Type': 'application/json' } });
         toast('Reset password แล้ว', 'success');
     } catch (e) { toast(e.message, 'error'); }
 }
@@ -3519,10 +3519,12 @@ async function renderSettings() {
             <div class="tab ${settingsTab==='prae_prompt'?'active':''}" onclick="settingsTab='prae_prompt';renderSettings()">🤖 บุคลิก Prae</div>
             <div class="tab ${settingsTab==='flags'?'active':''}" onclick="settingsTab='flags';renderSettings()">🚦 ฟีเจอร์ใหม่</div>
             <div class="tab ${settingsTab==='botmsg'?'active':''}" onclick="settingsTab='botmsg';renderSettings()">💬 คำพูดบอท</div>
+            <div class="tab ${settingsTab==='config'?'active':''}" onclick="settingsTab='config';renderSettings()">⚙️ ค่าระบบ</div>
         </div>
         <div id="settings-area"><div class="loading"><div class="spinner"></div></div></div>
     `;
     if (settingsTab === 'packages') loadPackages();
+    else if (settingsTab === 'config') loadSystemConfig();
     
 
     else if (settingsTab === 'banned') loadBannedSettings();
@@ -3647,7 +3649,7 @@ async function updatePkg(id) {
     const data = _collectPkgForm();
     if (!data.name) { toast('กรุณาใส่ชื่อ', 'error'); return; }
     try {
-        await api(`/settings/packages/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+        await api(`/settings/packages/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
         toast('อัพเดตแล้ว ✅', 'success'); closeModal(); loadPackages();
     } catch (e) { toast(e.message, 'error'); }
 }
@@ -8539,3 +8541,104 @@ async function renderSystemHealth() {
 
 // Cleanup timer on navigate
 window.addEventListener('beforeunload', () => { if (_healthTimer) clearInterval(_healthTimer); });
+
+
+// ============================================================
+//  ⚙️ System Config (promo_config CRUD) — added 2026-06-28
+// ============================================================
+const _CONFIG_GROUPS = {
+    welcome_journey: { icon: '👋', label: 'Welcome (ลูกค้าใหม่ 24 ชม.)', desc: 'ส่วนลด + เปิด/ปิดระบบ' },
+    comeback:        { icon: '💌', label: 'Comeback (ลูกค้าหาย)', desc: 'ส่วนลด R1/R2 + จำนวนวันรอ + DM ต่อวัน' },
+    exit_survey:     { icon: '📤', label: 'Exit Survey (หมดอายุ)', desc: 'ส่วนลดตาม tier (50/40/30/20%)' },
+    retention:       { icon: '🔄', label: 'Retention (ใกล้หมด)', desc: 'ส่วนลดก่อน-หลังหมดอายุ' },
+    quickbuy:        { icon: '⚡', label: 'Quick Buy', desc: 'ส่วนลด + ระยะเวลาใช้ได้' },
+    loyalty:         { icon: '🏆', label: 'ระบบยศ Bronze/Silver/Diamond', desc: 'เกณฑ์ขึ้นยศ' },
+    cron:            { icon: '⏰', label: 'เวลารัน Cron jobs', desc: 'ปรับเวลา DM อัตโนมัติ (ต้อง restart sales-bot)' },
+    gacha_discount:  { icon: '🎰', label: 'Gacha Discount', desc: 'cap ส่วนลดที่กาชาได้รับ' },
+    group_bot:       { icon: '🤖', label: 'Group Bot', desc: 'เปิด/ปิด feature ในกลุ่ม' },
+    links:           { icon: '🔗', label: 'ลิงก์ภายนอก', desc: 'URL credits/review/etc.' },
+};
+
+async function loadSystemConfig() {
+    const area = document.getElementById('settings-area');
+    area.innerHTML = '<div class="loading"><div class="spinner"></div> กำลังโหลด...</div>';
+    let data;
+    try {
+        data = await api('/promo-manager');
+    } catch (e) {
+        area.innerHTML = `<div class="err">โหลดไม่สำเร็จ: ${e.message}</div>`;
+        return;
+    }
+    window._configCache = data;
+
+    // Group by category
+    const byCat = {};
+    data.forEach(c => { (byCat[c.category] = byCat[c.category] || []).push(c); });
+
+    let html = '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem">';
+    Object.keys(_CONFIG_GROUPS).forEach(cat => {
+        if (!byCat[cat]) return;
+        html += `<a href="#cfg-${cat}" class="btn btn-sm btn-outline">${_CONFIG_GROUPS[cat].icon} ${esc(_CONFIG_GROUPS[cat].label)}</a>`;
+    });
+    html += '</div>';
+
+    Object.entries(byCat).forEach(([cat, configs]) => {
+        const meta = _CONFIG_GROUPS[cat] || { icon: '⚙️', label: cat, desc: '' };
+        html += `<div id="cfg-${cat}" style="margin-bottom:2rem"><h3 style="margin-bottom:0.5rem">${meta.icon} ${esc(meta.label)}</h3>`;
+        html += `<div style="opacity:0.6;font-size:0.85rem;margin-bottom:0.7rem">${esc(meta.desc)}</div>`;
+        html += '<div class="table-wrap"><table><thead><tr><th>Key</th><th>ค่า</th><th>คำอธิบาย</th><th></th></tr></thead><tbody>';
+        configs.forEach(c => {
+            const val = typeof c.value_json === 'object' ? JSON.stringify(c.value_json) : String(c.value_json);
+            html += `<tr>
+                <td><code style="font-size:0.85rem">${esc(c.config_key)}</code></td>
+                <td><b>${esc(val)}</b></td>
+                <td style="font-size:0.85rem;opacity:0.85">${esc(c.description || '')}</td>
+                <td>${hasRole('owner') ? `<button class="btn btn-sm btn-outline" onclick="editConfig('${esc(c.config_key)}')">✏️</button>` : ''}</td>
+            </tr>`;
+        });
+        html += '</tbody></table></div></div>';
+    });
+
+    html += '<div style="margin-top:1rem;padding:0.7rem;background:rgba(245,158,11,0.15);border-left:4px solid #f59e0b;border-radius:0.4rem;font-size:0.85rem">⚠️ แก้ <b>เวลา cron</b> หรือ <b>ระบบยศ</b> ต้อง <b>restart sales-bot</b> ถึงจะ apply (ไปที่ Settings → 🤖 บอท → กด Restart)</div>';
+
+    area.innerHTML = html;
+}
+
+function editConfig(configKey) {
+    const cfg = (window._configCache || []).find(c => c.config_key === configKey);
+    if (!cfg) return;
+    const val = typeof cfg.value_json === 'object' ? JSON.stringify(cfg.value_json, null, 2) : String(cfg.value_json);
+    const isJson = typeof cfg.value_json === 'object';
+    openModal('✏️ ' + cfg.config_key, `
+        <div class="form-group"><label>ค่า ${isJson ? '(JSON)' : ''}</label>
+            ${isJson 
+                ? `<textarea id="cfg-val" rows="6" style="font-family:monospace;width:100%">${esc(val)}</textarea>`
+                : `<input id="cfg-val" value="${esc(val)}">`}
+        </div>
+        <div class="form-group"><label>คำอธิบาย</label><input id="cfg-desc" value="${esc(cfg.description || '')}"></div>
+        <div style="background:rgba(255,255,255,0.05);padding:0.6rem;border-radius:0.4rem;font-size:0.85rem;margin-bottom:0.7rem;opacity:0.85">Category: <code>${esc(cfg.category)}</code></div>
+        <button class="btn btn-primary btn-full" onclick="saveConfig('${esc(configKey)}', ${isJson})">💾 บันทึก</button>
+    `);
+}
+
+async function saveConfig(configKey, isJson) {
+    const valStr = document.getElementById('cfg-val').value;
+    const desc = document.getElementById('cfg-desc').value;
+    let val;
+    try {
+        val = isJson ? JSON.parse(valStr) : (isNaN(Number(valStr)) ? valStr.replace(/^"|"$/g, '') : Number(valStr));
+        if (typeof val === 'string' && (val === 'true' || val === 'false')) val = (val === 'true');
+    } catch (e) {
+        toast('JSON ไม่ถูกต้อง: ' + e.message, 'error');
+        return;
+    }
+    try {
+        await api(`/promo-manager/${encodeURIComponent(configKey)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ value_json: val, description: desc }),
+        });
+        toast('บันทึกแล้ว ✅', 'success');
+        closeModal();
+        loadSystemConfig();
+    } catch (e) { toast(e.message, 'error'); }
+}

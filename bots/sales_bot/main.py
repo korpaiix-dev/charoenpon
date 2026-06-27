@@ -410,26 +410,52 @@ def create_application() -> Application:
         name='payment_health_hourly',
     )
 
+
+# 2026-06-28: DB-driven cron times (read at bot start)
+def _read_cron_config(key: str, default):
+    """Sync wrapper to read promo_config — used during scheduler init."""
+    import asyncio
+    try:
+        from shared.promo_config import get_promo_config
+        # Get or create event loop
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        v = loop.run_until_complete(get_promo_config(key, default=default))
+        return v if v is not None else default
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("cron config %s read failed: %s — use default %s", key, exc, default)
+        return default
+
+
     # --- Scheduler: WELCOME NURTURE DM ทุกชั่วโมง ---
+    _welcome_min = int(_read_cron_config("cron_welcome_hourly_minute", 0))
     app.job_queue.run_repeating(
         run_welcome_journey_job,
         interval=timedelta(hours=1),
-        first=timedelta(minutes=5),
+        first=timedelta(minutes=max(1, _welcome_min) if _welcome_min else 5),
         name='welcome_journey_hourly',
     )
 
     # --- Scheduler: EXIT SURVEY DM รายวัน 11:00 ไทย ---
+    _exit_h = int(_read_cron_config("cron_exit_survey_hour", 11))
+    _exit_m = int(_read_cron_config("cron_exit_survey_minute", 0))
     app.job_queue.run_daily(
         run_exit_survey_job,
-        time=dt_time(hour=11, minute=0, tzinfo=TH_TZ),
-        name="exit_survey_daily_1100",
+        time=dt_time(hour=_exit_h, minute=_exit_m, tzinfo=TH_TZ),
+        name=f"exit_survey_daily_{_exit_h:02d}{_exit_m:02d}",
     )
 
     # --- Scheduler: COMEBACK DM ทุกวัน 10:00 ไทย ---
+    _cb_h = int(_read_cron_config("cron_comeback_dm_hour", 10))
+    _cb_m = int(_read_cron_config("cron_comeback_dm_minute", 0))
     app.job_queue.run_daily(
         run_comeback_dm_job,
-        time=dt_time(hour=10, minute=0, tzinfo=TH_TZ),
-        name="comeback_dm_daily_1000",
+        time=dt_time(hour=_cb_h, minute=_cb_m, tzinfo=TH_TZ),
+        name=f"comeback_dm_daily_{_cb_h:02d}{_cb_m:02d}",
     )
 
     # --- Scheduler: LOYALTY RANK CHECK ทุก 6 ชม. (Bronze/Silver/Diamond) ---
