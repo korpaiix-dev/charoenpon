@@ -35,6 +35,7 @@ from shared.admin_alert import _admin_group_id
 
 # Inlined from approval.py to avoid circular import
 import os
+from shared.admin_perms import is_admin_for_bot
 def _admin_ids() -> list[int]:
     raw = os.environ.get("ADMIN_TELEGRAM_IDS", "")
     ids: list[int] = []
@@ -48,7 +49,8 @@ def _admin_ids() -> list[int]:
     return ids
 
 def _is_admin(user_id: int) -> bool:
-    return user_id in _admin_ids()
+    """Migrated to shared.admin_perms (DB-first with env fallback)."""
+    return is_admin_for_bot(user_id, "admin_bot")
 
 def _build_manual_invite_alert_keyboard(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([

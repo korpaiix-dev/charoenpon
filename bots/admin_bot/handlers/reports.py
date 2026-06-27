@@ -41,6 +41,7 @@ def _admin_ids() -> list[int]:
 # (DB เก็บ UTC naive → แปลงกลับเป็น UTC naive ก่อน query)
 from zoneinfo import ZoneInfo as _ZoneInfo
 from datetime import timezone as _tz
+from shared.admin_perms import is_admin_for_bot
 
 _BKK = _ZoneInfo("Asia/Bangkok")
 
@@ -58,7 +59,8 @@ def _bkk_month_start_utc_naive() -> datetime:
 
 
 def _is_admin(user_id: int) -> bool:
-    return user_id in _admin_ids()
+    """Migrated to shared.admin_perms (DB-first with env fallback)."""
+    return is_admin_for_bot(user_id, "admin_bot")
 
 
 async def cmd_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

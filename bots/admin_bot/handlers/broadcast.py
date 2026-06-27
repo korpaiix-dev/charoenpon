@@ -67,6 +67,10 @@ def _get_sales_bot() -> Bot:
 # require the sender's telegram user id to be in ADMIN_USER_IDS (comma-separated env).
 # FIX 2025-05-21 (Phase 2g v2): reuse existing ADMIN_TELEGRAM_IDS env var
 # (already configured in .env, no need for separate ADMIN_USER_IDS)
+# Phase B.4 (2026-06-27): admins now from DB; kept env as fallback in helper
+from shared.admin_perms import is_admin_for_bot
+
+# (legacy var retained for backwards-compat; do not rely on it for new code)
 _ADMIN_USER_IDS: frozenset[int] = frozenset(
     int(x.strip()) for x in (
         os.environ.get("ADMIN_USER_IDS")

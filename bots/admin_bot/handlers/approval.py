@@ -27,6 +27,7 @@ from shared.endmonth_vip_promo import (
 from shared.songkran_promo import get_group_display_title, is_songkran_bonus_slug
 from shared.utils import format_datetime_thai, format_thb, log_admin_action
 from shared.admin_alert import _admin_group_id
+from shared.admin_perms import is_admin_for_bot, get_allowed_admins
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,8 @@ def _admin_ids() -> list[int]:
 
 
 def _is_admin(user_id: int) -> bool:
-    return user_id in _admin_ids()
+    """Migrated to shared.admin_perms (DB-first with env fallback)."""
+    return is_admin_for_bot(user_id, "admin_bot")
 
 
 # ─── Pending Payments ─────────────────────────────────────────────────────────
@@ -358,7 +360,7 @@ async def ban_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             query.data,
             actor_id,
             actor_name,
-            _admin_ids(),
+            list(get_allowed_admins("admin_bot")),
         )
         await query.answer("⛔ คุณไม่มีสิทธิ์", show_alert=True)
         return

@@ -10,15 +10,14 @@ from datetime import datetime, timedelta
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
+from shared.admin_perms import is_admin_for_bot
 
 logger = logging.getLogger(__name__)
 
 
 def _is_admin(user_id: int) -> bool:
-    import os
-    admin_ids_env = os.environ.get("ADMIN_TELEGRAM_IDS", "8502597269")
-    admin_ids = {int(x.strip()) for x in admin_ids_env.split(",") if x.strip().isdigit()}
-    return user_id in admin_ids
+    """Migrated to shared.admin_perms (DB-first with env fallback)."""
+    return is_admin_for_bot(user_id, "admin_bot")
 
 
 def _fmt_dt(dt) -> str:

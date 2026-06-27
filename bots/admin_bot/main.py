@@ -62,16 +62,20 @@ logging.getLogger("telegram").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 ADMIN_BOT_TOKEN: str = os.environ.get("ADMIN_BOT_TOKEN", "")
-ADMIN_IDS: list[int] = [
-    int(x.strip())
-    for x in os.environ.get("ADMIN_TELEGRAM_IDS", "").split(",")
-    if x.strip()
-]
+# Phase B.4 (2026-06-27): admin perms now DB-first via shared helper
+from shared.admin_perms import is_admin_for_bot, get_allowed_admins
+
+# Backwards-compat alias — refreshed lazily by get_allowed_admins (60s cache)
+ADMIN_IDS: list[int] = list(get_allowed_admins("admin_bot"))
 
 
 def is_admin(user_id: int) -> bool:
-    """Check if a Telegram user ID is in the admin list."""
-    return user_id in ADMIN_IDS
+    """Check if a Telegram user ID is in the admin list.
+    
+    DB-first via admin_bot_permissions (60s cache) with env ADMIN_TELEGRAM_IDS as fallback.
+    Live updates from Dashboard without restart.
+    """
+    return is_admin_for_bot(user_id, "admin_bot")
 
 
 async def admin_only(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:

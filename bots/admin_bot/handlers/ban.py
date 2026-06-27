@@ -15,14 +15,14 @@ import logging
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
+from shared.admin_perms import is_admin_for_bot
 
 logger = logging.getLogger(__name__)
 
 
 def _is_admin(user_id: int) -> bool:
-    ids = os.environ.get("ADMIN_TELEGRAM_IDS", "8502597269")
-    s = {int(x.strip()) for x in ids.split(",") if x.strip().isdigit()}
-    return user_id in s
+    """Migrated to shared.admin_perms (DB-first with env fallback)."""
+    return is_admin_for_bot(user_id, "admin_bot")
 
 
 def build_ban_button(telegram_id: int, reason_short: str = "scam_slip") -> InlineKeyboardMarkup:
