@@ -395,3 +395,114 @@ async def restart_container(container: str, _admin=Depends(require_role("admin")
     except _subp.TimeoutExpired:
         raise HTTPException(status_code=504, detail="restart timed out")
 
+
+# ==================================================================
+# Phase A.6 (2026-06-27): bot × group target matrix
+# ==================================================================
+
+@router.get("/bots/{bot_key}/groups")
+async def get_bot_target_groups(bot_key: str, _admin=Depends(require_role("admin"))):
+    """Return: { bot, all_groups, targets: {group_id: [roles...]} }
+
+    UI uses this to render checkbox grid (groups × target_role).
+    """
+    bot = await pool.fetchrow(
+        "SELECT bot_key, display_name, icon, description FROM bot_registry "
+        "WHERE bot_key=$1 AND is_active=TRUE", bot_key,
+    )
+    if not bot:
+        raise HTTPException(404, f"unknown bot_key {bot_key}")
+    groups = await pool.fetch(
+        "SELECT chat_id, slug::text AS slug, title, min_tier::text AS min_tier "
+        "FROM group_registry WHERE is_active=TRUE ORDER BY min_tier, slug"
+    )
+    targets = await pool.fetch(
+        "SELECT chat_id, target_role FROM bot_group_targets "
+        "WHERE bot_key=$1 AND is_active=TRUE", bot_key,
+    )
+    # group target rows by chat_id → list of roles
+    target_map: dict[int, list[str]] = {}
+    for t in targets:
+        target_map.setdefault(t["chat_id"], []).append(t["target_role"])
+    return {
+        "bot": dict(bot),
+        "all_groups": [dict(g) for g in groups],
+        "targets": target_map,
+    }
+
+
+@router.patch("/bots/{bot_key}/groups")
+async def set_bot_target_groups(
+    bot_key: str,
+    payload: dict,
+    request: Request,
+    admin=Depends(require_role("super_admin")),
+):
+    """Replace bot's group assignments for ONE target_role at a time.
+
+    Body: { "target_role": "distribution"|"source"|"monitor", "chat_ids": [...] }
+
+    Atomic: deletes existing rows for (bot_key, target_role), inserts new.
+    """
+    bot = await pool.fetchrow("SELECT bot_key FROM bot_registry WHERE bot_key=$1", bot_key)
+    if not bot:
+        raise HTTPException(404, "bot not found")
+    target_role = (payload.get("target_role") or "distribution").strip()
+    if target_role not in {"distribution", "source", "monitor"}:
+        raise HTTPException(400, "target_role must be distribution|source|monitor")
+    chat_ids = payload.get("chat_ids") or []
+    if not isinstance(chat_ids, list):
+        raise HTTPException(400, "chat_ids must be array")
+    # Validate chat_ids exist
+    if chat_ids:
+        ok = await pool.fetch(
+            "SELECT chat_id FROM group_registry WHERE chat_id = ANY($1::bigint[])",
+            [int(x) for x in chat_ids],
+        )
+        valid = {r["chat_id"] for r in ok}
+        bad = set(int(x) for x in chat_ids) - valid
+        if bad:
+            raise HTTPException(400, f"unknown chat_ids: {sorted(bad)}")
+    # Atomic replace
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "DELETE FROM bot_group_targets "
+                "WHERE bot_key=$1 AND target_role=$2",
+                bot_key, target_role,
+            )
+            if chat_ids:
+                await conn.executemany(
+                    "INSERT INTO bot_group_targets "
+                    "(bot_key, chat_id, target_role, added_by) "
+                    "VALUES ($1, $2, $3, $4)",
+                    [(bot_key, int(cid), target_role, admin["telegram_id"]) for cid in chat_ids],
+                )
+    return {
+        "ok": True,
+        "bot_key": bot_key,
+        "target_role": target_role,
+        "chat_ids": [int(x) for x in chat_ids],
+    }
+
+
+@router.get("/bots-registry")
+async def list_bots_registry(_admin=Depends(require_role("admin"))):
+    """List all bots with counts (groups assigned per target_role).
+
+    For the new "🤖 บอท" management page.
+    """
+    rows = await pool.fetch("""
+        SELECT br.bot_key, br.display_name, br.icon, br.description, br.is_active,
+               COALESCE(json_object_agg(bgt.target_role, bgt.cnt) FILTER (WHERE bgt.target_role IS NOT NULL), '{}'::json) AS group_counts
+        FROM bot_registry br
+        LEFT JOIN (
+            SELECT bot_key, target_role, COUNT(*) AS cnt
+            FROM bot_group_targets WHERE is_active=TRUE
+            GROUP BY bot_key, target_role
+        ) bgt ON bgt.bot_key = br.bot_key
+        GROUP BY br.bot_key, br.display_name, br.icon, br.description, br.is_active, br.sort_order
+        ORDER BY br.sort_order
+    """)
+    return [dict(r) for r in rows]
+

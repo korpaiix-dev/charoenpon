@@ -135,6 +135,7 @@ const NAV_ITEMS = [
     { type: 'divider', label: 'ดูแลระบบ' },
     { id: 'team', icon: '👨‍💼', label: 'ทีมงาน', minRole: 'admin' },
     { id: 'groups', icon: '🏛', label: 'กลุ่ม VIP/ฟรี', minRole: 'admin' },
+    { id: 'bot_groups', icon: '🤖', label: 'จัดการบอท', minRole: 'admin' },
     { id: 'settings', icon: '⚙️', label: 'ตั้งค่าระบบ', minRole: 'admin' },
 
     // ─── ประวัติ ───
@@ -246,7 +247,7 @@ function navigate(page) {
     renderSidebar();
     const titles = {
         dashboard: '📊 ภาพรวม', inbox: '📥 Inbox สลิป', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน', gacha: '🎰 กาชา',
-        promotions: '🎁 โปรโมชั่น + ตั้งค่าบอท', content: '📸 Content', groups: '📱 กลุ่ม',
+        promotions: '🎁 โปรโมชั่น + ตั้งค่าบอท', content: '📸 Content', groups: '📱 กลุ่ม', bot_groups: '🤖 จัดการบอท',
         team: '👨‍💼 ทีมงาน', settings: '⚙️ ตั้งค่า', marketing: '📊 Marketing',
         activity: '📋 Activity Log', prae_logs: '💬 Prae Logs',
     };
@@ -262,7 +263,7 @@ function navigate(page) {
     
     const pages = {
         today: renderToday, dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance, receivers: renderReceivers, gacha: renderGacha,
-        promotions: renderPromoManager, content: renderContent, groups: renderGroups,
+        promotions: renderPromoManager, content: renderContent, groups: renderGroups, bot_groups: renderBotGroups,
         team: renderTeam, settings: renderSettings, marketing: renderMarketing,
         activity: renderActivityLog, prae_logs: renderPraeLogs,
     };
@@ -6791,5 +6792,150 @@ async function saveBotPerms(memberId) {
     } catch (e) {
         toast('❌ ' + e.message, 'error');
     }
+}
+
+// ==================================================================
+// Phase A.6 (2026-06-27): Bot × Group management page
+// ==================================================================
+async function renderBotGroups() {
+    const content = document.getElementById('page-content');
+    content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+    try {
+        const bots = await api('/bots-registry');
+        const gc = (g, role) => (g && g[role]) ? g[role] : 0;
+
+        let html = `
+            <div style="background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.2);border-radius:8px;padding:0.75rem 1rem;margin-bottom:1rem;font-size:0.85rem;color:var(--text-muted);">
+                💡 คลิกที่บอตเพื่อตั้งค่ากลุ่มที่บอตจะกระจาย/รับ/ตรวจสอบ
+                <br>เพิ่มกลุ่มที่หน้า 📱 กลุ่ม VIP/ฟรี ก่อน แล้วกลับมาติ๊กที่นี่
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:0.75rem;">
+        `;
+
+        for (const bot of bots) {
+            const dist = gc(bot.group_counts, 'distribution');
+            const src = gc(bot.group_counts, 'source');
+            const mon = gc(bot.group_counts, 'monitor');
+            html += `
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1rem;cursor:pointer;transition:transform 0.1s;" onclick="openBotGroupsModal('${esc(bot.bot_key)}')" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform=''">
+                    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
+                        <span style="font-size:1.6rem;">${bot.icon || '🤖'}</span>
+                        <div>
+                            <div style="font-weight:600;font-size:1rem;">${esc(bot.display_name)}</div>
+                            <div style="font-size:0.7rem;color:var(--text-dim);font-family:var(--font-mono);">${esc(bot.bot_key)}</div>
+                        </div>
+                    </div>
+                    <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.7rem;">${esc(bot.description || '')}</div>
+                    <div style="display:flex;gap:0.5rem;font-size:0.75rem;flex-wrap:wrap;">
+                        ${src > 0 ? `<span style="background:rgba(34,197,94,0.15);color:var(--success);padding:0.2rem 0.5rem;border-radius:4px;">📥 ขาเข้า ${src}</span>` : ''}
+                        ${dist > 0 ? `<span style="background:rgba(0,212,255,0.15);color:var(--primary);padding:0.2rem 0.5rem;border-radius:4px;">📤 ขาออก ${dist}</span>` : ''}
+                        ${mon > 0 ? `<span style="background:rgba(247,176,69,0.15);color:var(--warning);padding:0.2rem 0.5rem;border-radius:4px;">👁 ตรวจ ${mon}</span>` : ''}
+                        ${(src+dist+mon === 0) ? '<span style="color:var(--text-muted);">— ยังไม่มีกลุ่ม —</span>' : ''}
+                    </div>
+                </div>
+            `;
+        }
+        html += '</div>';
+        content.innerHTML = html;
+    } catch (e) {
+        content.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`;
+    }
+}
+
+function _bgmRenderTier(tierName, groups, role, targets) {
+    const heading = tierName === 'FREE' ? '🆓 กลุ่มฟรี'
+                  : tierName.startsWith('TIER_') ? `👑 ${tierName.replace('TIER_', 'VIP ')}` : tierName;
+    return `<div style="margin-bottom:0.5rem;">
+        <div style="font-weight:600;font-size:0.8rem;margin-bottom:0.3rem;color:var(--text-dim);">${heading}</div>
+        ${groups.map(g => {
+            const roles = targets[g.chat_id] || [];
+            const checked = roles.includes(role);
+            return `<label style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem;border-bottom:1px solid var(--border);cursor:pointer;">
+                <input type="checkbox" data-chat-id="${g.chat_id}" data-role="${role}" ${checked ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer;">
+                <span style="font-size:0.85rem;flex:1;"><b>${esc(g.slug)}</b> — ${esc(g.title)}</span>
+                <span style="font-family:var(--font-mono);color:var(--text-dim);font-size:0.7rem;">${g.chat_id}</span>
+            </label>`;
+        }).join('')}
+    </div>`;
+}
+
+function _bgmRenderPanel(allGroups, role, targets) {
+    const byTier = {};
+    allGroups.forEach(g => {
+        const t = g.min_tier || 'OTHER';
+        byTier[t] = byTier[t] || [];
+        byTier[t].push(g);
+    });
+    let html = '';
+    const order = ['FREE', 'TIER_100', 'TIER_300', 'TIER_500', 'TIER_1299', 'TIER_2499'];
+    order.forEach(t => { if (byTier[t]) html += _bgmRenderTier(t, byTier[t], role, targets); });
+    Object.keys(byTier).forEach(t => { if (!order.includes(t)) html += _bgmRenderTier(t, byTier[t], role, targets); });
+    return html;
+}
+
+async function openBotGroupsModal(botKey) {
+    try {
+        const data = await api(`/bots/${encodeURIComponent(botKey)}/groups`);
+        const bot = data.bot;
+        const defaultRole = botKey === 'guardian_bot' ? 'monitor' : 'distribution';
+        const tabsHtml = botKey === 'relay_bot'
+            ? `<div class="tabs" style="margin-bottom:0.6rem;">
+                <div class="tab active" data-role="distribution" onclick="switchBotGroupTab(this)">📤 ปลายทาง</div>
+                <div class="tab" data-role="source" onclick="switchBotGroupTab(this)">📥 ต้นทาง</div>
+              </div>`
+            : botKey === 'guardian_bot'
+            ? `<div class="tabs" style="margin-bottom:0.6rem;">
+                <div class="tab active" data-role="monitor" onclick="switchBotGroupTab(this)">👁 ตรวจสอบ</div>
+                <div class="tab" data-role="distribution" onclick="switchBotGroupTab(this)">📤 ปลายทาง</div>
+              </div>`
+            : '';
+        const panelHtml = _bgmRenderPanel(data.all_groups, defaultRole, data.targets);
+
+        openModal(`${bot.icon || '🤖'} จัดการกลุ่ม — ${esc(bot.display_name)}`, `
+            <div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.75rem;">${esc(bot.description || '')}</div>
+            ${tabsHtml}
+            <div id="bot-groups-panel" data-bot-key="${esc(bot.bot_key)}" data-role="${defaultRole}" style="max-height:55vh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:0.5rem;">
+                ${panelHtml}
+            </div>
+            <div style="margin-top:1rem;display:flex;gap:0.5rem;justify-content:flex-end;">
+                <button class="btn btn-outline" onclick="closeModal()">ยกเลิก</button>
+                <button class="btn btn-primary" onclick="saveBotGroups()">💾 บันทึก</button>
+            </div>
+        `);
+    } catch (e) {
+        toast(e.message, 'error');
+    }
+}
+
+async function switchBotGroupTab(el) {
+    const role = el.dataset.role;
+    const panel = document.getElementById('bot-groups-panel');
+    if (!panel) return;
+    const botKey = panel.dataset.botKey;
+    document.querySelectorAll('.tabs .tab').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+    panel.dataset.role = role;
+    try {
+        const data = await api(`/bots/${encodeURIComponent(botKey)}/groups`);
+        panel.innerHTML = _bgmRenderPanel(data.all_groups, role, data.targets);
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+async function saveBotGroups() {
+    const panel = document.getElementById('bot-groups-panel');
+    if (!panel) return;
+    const botKey = panel.dataset.botKey;
+    const role = panel.dataset.role || 'distribution';
+    const checkboxes = panel.querySelectorAll('input[type="checkbox"]:checked');
+    const chat_ids = Array.from(checkboxes).map(cb => parseInt(cb.dataset.chatId, 10)).filter(x => !isNaN(x));
+    try {
+        await api(`/bots/${encodeURIComponent(botKey)}/groups`, {
+            method: 'PATCH',
+            body: JSON.stringify({ target_role: role, chat_ids }),
+        });
+        toast(`💾 บันทึก ${chat_ids.length} กลุ่ม (${role})`, 'success');
+        closeModal();
+        if (typeof renderBotGroups === 'function') await renderBotGroups();
+    } catch (e) { toast(e.message, 'error'); }
 }
 
