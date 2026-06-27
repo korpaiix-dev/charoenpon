@@ -31,12 +31,9 @@ def _normalize_slug(slug: object) -> str:
 
 
 def is_songkran_promo_window(now: datetime | None = None) -> bool:
-    now = now or datetime.utcnow().replace(tzinfo=UTC)
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=UTC)
-    else:
-        now = now.astimezone(UTC)
-    return PROMO_SONGKRAN_START_UTC <= now.replace(tzinfo=None) < PROMO_SONGKRAN_END_UTC
+    """DISABLED 2026-06-28: boss reset all legacy promos."""
+    return False
+
 
 
 def is_songkran_bonus_slug(slug: object) -> bool:

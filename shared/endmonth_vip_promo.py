@@ -74,13 +74,9 @@ def _legacy_promos_disabled() -> bool:
         return False
 
 def is_endmonth_vip_promo_active(at: datetime | None = None) -> bool:
-    """Return True while the G300 end-month promo should be shown/used."""
-    if _legacy_promos_disabled():
-        return False
-    current = at or now_th()
-    if current.tzinfo is None:
-        current = current.replace(tzinfo=TH_TZ)
-    return current.astimezone(TH_TZ) < PROMO_END_TH
+    """DISABLED 2026-06-28: boss reset all legacy promos."""
+    return False
+
 
 
 def get_effective_price_for_tier(tier: str, base_price: Decimal) -> Decimal:
@@ -154,11 +150,9 @@ PROMO_MAY_TITLE = "OnlyFans Combo + GOD 90 วัน"
 PROMO_MAY_DATE_TEXT = "ถึงวันที่ 31 พฤษภาคมนี้เท่านั้น"
 
 def is_may_combo_promo_active(at=None) -> bool:
-    """True while May-end combo promo (TIER_500/1299) is active."""
-    current = at or now_th()
-    if current.tzinfo is None:
-        current = current.replace(tzinfo=TH_TZ)
-    return current.astimezone(TH_TZ) < PROMO_MAY_END_TH
+    """DISABLED 2026-06-28: boss reset all legacy promos."""
+    return False
+
 
 def get_may_effective_price(tier: str, base_price):
     if tier == PROMO_500_TIER and is_may_combo_promo_active():
@@ -178,12 +172,9 @@ def get_may_promo_badge(tier: str) -> str:
 
 # MID_MONTH_FLASH — 15-17 มิ.ย. 2026 (BKK)
 def is_mid_month_flash_active() -> bool:
-    """Mid-Month Flash Sale window: 15-17 มิ.ย. 2026 BKK."""
-    if _legacy_promos_disabled():
-        return False
-    from datetime import datetime, timezone, timedelta
-    now = datetime.now(timezone(timedelta(hours=7)))
-    return (now.year == 2026 and now.month == 6 and 15 <= now.day <= 17)
+    """DISABLED 2026-06-28: boss reset all legacy promos."""
+    return False
+
 
 MID_FLASH_VIP_PRICE = 199
 MID_FLASH_OF_PRICE = 349
@@ -192,12 +183,9 @@ MID_FLASH_GOD3M_PRICE = 999
 
 # LUCKY_6.6 SALE — 6 มิ.ย. 2026 BKK (24h)
 def is_lucky_6_active() -> bool:
-    """Lucky 6 Day window: 6 มิ.ย. 2026 BKK (1 day)."""
-    if _legacy_promos_disabled():
-        return False
-    from datetime import datetime, timezone, timedelta
-    now = datetime.now(timezone(timedelta(hours=7)))
-    return now.year == 2026 and now.month == 6 and now.day == 6
+    """DISABLED 2026-06-28: boss reset all legacy promos."""
+    return False
+
 
 LUCKY_6_VIP_PRICE = 166
 LUCKY_6_OF_PRICE = 266
@@ -207,23 +195,14 @@ LUCKY_6_GOD_LIFETIME_PRICE = 2266
 
 # BIRTHDAY_PROMO — 7-10 มิ.ย. 2026 BKK (4 days; draw 10 มิ.ย. 18:00 BKK)
 def is_birthday_promo_active() -> bool:
-    """Birthday promo (เดือนเกิดเฮียตั๋ง) window: 7-10 มิ.ย. 2026 BKK.
-    Customers who buy TIER_500 (OF+VIP 30d) during this window are auto-entered into a draw for 1 GOD lifetime."""
-    if _legacy_promos_disabled():
-        return False
-    from datetime import datetime, timezone, timedelta
-    now = datetime.now(timezone(timedelta(hours=7)))
-    return now.year == 2026 and now.month == 6 and 7 <= now.day <= 10
+    """DISABLED 2026-06-28: boss reset all legacy promos."""
+    return False
+
 
 def is_birthday_promo_entry_open() -> bool:
-    """Entry submission window ends 10 มิ.ย. 12:00 BKK (draw at 18:00)."""
-    from datetime import datetime, timezone, timedelta
-    now = datetime.now(timezone(timedelta(hours=7)))
-    if not (now.year == 2026 and now.month == 6 and 7 <= now.day <= 10):
-        return False
-    if now.day == 10 and now.hour >= 12:
-        return False  # entries closed at noon
-    return True
+    """DISABLED 2026-06-28: boss reset all legacy promos."""
+    return False
+
 
 BIRTHDAY_GIVEAWAY_PRIZE = "GOD MODE ถาวร (มูลค่า ฿2,499)"
 def is_lucky_6_or_grace() -> bool:
