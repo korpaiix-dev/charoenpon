@@ -414,11 +414,11 @@ def create_application() -> Application:
 
 
     # --- Scheduler: WELCOME NURTURE DM ทุกชั่วโมง ---
-    _welcome_min = int(_read_cron_config("cron_welcome_hourly_minute", 0) or 0)
+
     app.job_queue.run_repeating(
         run_welcome_journey_job,
         interval=timedelta(hours=1),
-        first=timedelta(minutes=max(1, _welcome_min) if _welcome_min else 5),
+        first=timedelta(minutes=5),
         name='welcome_journey_hourly',
     )
 
