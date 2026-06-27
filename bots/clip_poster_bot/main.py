@@ -166,20 +166,23 @@ def watermark_video(input_path: str, output_path: str, logo_path: str) -> bool:
 
 # ─── DB helpers ──────────────────────────────────────────────────────────────
 async def get_free_groups() -> list[dict]:
-    """Return active FREE-tier groups (the 'sample' rooms)."""
+    """Return active SAMPLE groups — the dedicated "ตัวอย่าง" rooms.
+
+    Renamed from 'free groups' historically — now strictly slug='SAMPLE'.
+    To add more sample rooms: INSERT into group_registry with slug=SAMPLE.
+    """
     import asyncpg
     db_url = os.environ.get("DATABASE_URL", "")
     if not db_url:
         logger.error("DATABASE_URL not set")
         return []
-    # Strip sqlalchemy prefix if present
     db_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
     conn = await asyncpg.connect(db_url)
     try:
         rows = await conn.fetch(
             "SELECT chat_id, slug::text AS slug, title FROM group_registry "
-            "WHERE is_active = TRUE AND min_tier::text = 'FREE' "
-            "ORDER BY slug"
+            "WHERE is_active = TRUE AND slug::text = 'SAMPLE' "
+            "ORDER BY id"
         )
         return [dict(r) for r in rows]
     finally:
@@ -242,7 +245,7 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "📊 <b>สถานะ Clip Poster</b>\n\n"
         f"• Logo file: {'✅ พร้อม' if logo_exists else '⚠️ ยังไม่อัปโหลด'}\n"
         f"• Logo path: <code>{LOGO_PATH}</code>\n"
-        f"• กลุ่ม FREE active: <b>{len(groups)}</b> กลุ่ม\n"
+        f"• กลุ่มตัวอย่าง active: <b>{len(groups)}</b> กลุ่ม\n"
         f"• Admin: <b>{len(ADMIN_IDS)}</b> คน\n\n"
         + "\n".join([f"  • {g['slug']} — {g['title']}" for g in groups[:20]])
     )
@@ -350,7 +353,7 @@ async def on_tier_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # Get groups
     groups = await get_free_groups()
     if not groups:
-        await status_msg.edit_text("❌ ไม่พบกลุ่ม FREE active ใน DB")
+        await status_msg.edit_text("❌ ไม่พบกลุ่มตัวอย่าง (slug=SAMPLE) ใน DB")
         return
 
     # Download via stored file_id
