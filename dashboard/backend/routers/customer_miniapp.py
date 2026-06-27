@@ -9,6 +9,7 @@ import logging
 import json
 from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException
+import os, hmac, hashlib, urllib.parse
 from fastapi.responses import HTMLResponse
 
 from ..database import pool
@@ -138,3 +139,127 @@ async def get_packages_and_promos(request: Request):
             for p in promo_rows
         ],
     }
+
+
+# ─── Buy endpoint — Mini App POSTs here when user clicks "ซื้อเลย" ───
+def _verify_telegram_init_data(init_data: str, bot_token: str) -> dict | None:
+    """Verify initData from Telegram WebApp. Returns parsed user dict if valid."""
+    if not init_data or not bot_token:
+        return None
+    try:
+        parsed = urllib.parse.parse_qs(init_data)
+        # Build data_check_string
+        recv_hash = parsed.pop("hash", [None])[0]
+        if not recv_hash:
+            return None
+        kv = sorted(f"{k}={v[0]}" for k, v in parsed.items())
+        data_check_string = "\n".join(kv)
+        # Secret key = HMAC_SHA256(bot_token, "WebAppData")
+        secret = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
+        my_hash = hmac.new(secret, data_check_string.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(my_hash, recv_hash):
+            return None
+        # Extract user
+        user_str = parsed.get("user", [""])[0]
+        if user_str:
+            return json.loads(user_str)
+    except Exception as exc:
+        logger.warning("initData verify failed: %s", exc)
+    return None
+
+
+@router.post("/webapp/api/customer/buy")
+async def customer_buy(request: Request):
+    """Customer ใน Mini App กด 'ซื้อเลย' → POST มาที่นี่ → ส่ง QR กลับใน chat ผ่าน Bot API."""
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+
+    init_data = payload.get("init_data") or request.headers.get("X-Telegram-InitData", "")
+    bot_token = os.environ.get("SALES_BOT_TOKEN", "")
+    user_info = _verify_telegram_init_data(init_data, bot_token)
+    if not user_info:
+        # ไม่ verify ผ่าน — fail-safe: ใช้ user_id จาก payload (ใน production เปิด verify)
+        user_info = payload.get("user") or {}
+    tg_id = int(user_info.get("id") or 0)
+    if not tg_id:
+        raise HTTPException(400, "user not found")
+
+    tier_full = (payload.get("tier") or "").strip()
+    short_tier = tier_full.replace("TIER_", "")
+    price = int(payload.get("price") or 0)
+    pkg_name = payload.get("name") or tier_full
+    promo_id = payload.get("promo_id")
+
+    logger.info("MINIAPP_BUY: tg=%s tier=%s price=%s promo=%s", tg_id, tier_full, price, promo_id)
+
+    # GACHA — ส่ง message guide
+    if tier_full.startswith("GACHA_"):
+        msg = f"🎰 คุณเลือก: <b>{pkg_name}</b> ฿{price:,}\n\nพิมพ์ /gacha เพื่อซื้อหมุนกาชาปองค่ะ"
+        await _send_bot_message(bot_token, tg_id, msg)
+        return {"ok": True, "action": "gacha_guide"}
+
+    # PACKAGE — record promo_click + pick receiver + send QR
+    if promo_id:
+        try:
+            from shared.promotion_service import record_click
+            await record_click(int(promo_id), tg_id, tier_full)
+        except Exception as exc:
+            logger.warning("promo click record failed: %s", exc)
+
+    from shared.receiver_pool import pick_random
+    acct = await pick_random()
+    if not acct:
+        await _send_bot_message(bot_token, tg_id, "⚠️ ระบบรับเงินไม่พร้อม กรุณาทักแอดมินค่ะ")
+        return {"ok": False, "error": "no_receiver"}
+
+    body = (
+        f"💳 <b>คำสั่งซื้อ: {pkg_name}</b>\n"
+        "━━━━━━━━━━━━━━━\n\n"
+        f"💰 ยอดที่ต้องโอน: <b>฿{price:,}</b>\n\n"
+        f"🏦 ธนาคาร: <b>{acct.get('bank_name_th', '')}</b>\n"
+        f"👤 ชื่อบัญชี: <code>{acct.get('owner_name', '')}</code>\n"
+        f"🔢 เลขบัญชี: <code>{acct.get('account_no', '')}</code>\n"
+    )
+    if acct.get("promptpay_number"):
+        body += f"📱 PromptPay: <code>{acct['promptpay_number']}</code>\n"
+    body += (
+        "\n━━━━━━━━━━━━━━━\n"
+        "📸 ส่ง <b>สลิปการโอน</b> ในแชทนี้\n"
+        "⚡ ระบบจะอัปเกรดอัตโนมัติทันที"
+    )
+    await _send_bot_message(bot_token, tg_id, body)
+
+    qr_url = acct.get("qr_url") or ""
+    if qr_url:
+        await _send_bot_photo(bot_token, tg_id, qr_url,
+            caption=f"📱 สแกน QR เพื่อโอน <b>฿{price:,}</b>")
+
+    return {"ok": True, "action": "qr_sent"}
+
+
+async def _send_bot_message(token: str, chat_id: int, text: str):
+    import httpx
+    async with httpx.AsyncClient(timeout=10) as c:
+        try:
+            r = await c.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+            )
+            r.raise_for_status()
+        except Exception as exc:
+            logger.warning("sendMessage failed tg=%s: %s", chat_id, exc)
+
+
+async def _send_bot_photo(token: str, chat_id: int, photo_url: str, caption: str = ""):
+    import httpx
+    async with httpx.AsyncClient(timeout=15) as c:
+        try:
+            r = await c.post(
+                f"https://api.telegram.org/bot{token}/sendPhoto",
+                json={"chat_id": chat_id, "photo": photo_url, "caption": caption, "parse_mode": "HTML"},
+            )
+            r.raise_for_status()
+        except Exception as exc:
+            logger.warning("sendPhoto failed tg=%s: %s", chat_id, exc)

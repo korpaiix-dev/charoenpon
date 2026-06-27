@@ -338,28 +338,44 @@ function renderGacha(gachas) {
   });
 }
 
-function onBuy(tier, pkgId, price, name, promoId) {
+async function onBuy(tier, pkgId, price, name, promoId) {
   if (!tg) {
     alert('โปรดเปิดผ่าน Telegram bot ค่ะ');
     return;
   }
-  // Send data back to bot — bot will generate QR + bank details
+  // แสดง loading state
+  const btn = event.currentTarget;
+  const orig = btn.innerHTML;
+  btn.innerHTML = '⏳ กำลังส่งคำสั่ง...';
+  btn.disabled = true;
+
+  // POST ตรงไป backend — ไม่ใช้ tg.sendData (ใช้ไม่ได้กับ inline button)
   const payload = {
-    action: 'buy',
     tier: tier,
     package_id: pkgId,
     price: Math.round(price),
     name: name,
     promo_id: promoId,
+    user: tg.initDataUnsafe?.user,
+    init_data: tg.initData,
   };
-  // ส่ง data แล้วรอ 200ms ก่อน close — ให้ Telegram client ส่งทัน
   try {
-    tg.sendData(JSON.stringify(payload));
+    const resp = await fetch('/webapp/api/customer/buy', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-Telegram-InitData': tg.initData || ''},
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (!data.ok) throw new Error(data.error || 'ส่งคำสั่งไม่สำเร็จ');
+    // สำเร็จ — แสดง toast + ปิด Mini App
+    btn.innerHTML = '✅ ส่งคำสั่งแล้ว ตรวจที่แชท';
+    setTimeout(() => { try { tg.close(); } catch(_) {} }, 800);
   } catch (e) {
-    alert('ส่งข้อมูลไม่สำเร็จ: ' + e.message);
-    return;
+    btn.innerHTML = orig;
+    btn.disabled = false;
+    alert('ส่งคำสั่งไม่สำเร็จ: ' + e.message + '\nกรุณาทักแอดมิน');
   }
-  setTimeout(() => { try { tg.close(); } catch(_) {} }, 250);
 }
 
 // Debug: บอก user ว่า script run แล้ว
