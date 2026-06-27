@@ -223,7 +223,6 @@ if (tg) {
   safe(() => tg.setHeaderColor && tg.setHeaderColor('#0f0f12'));
   safe(() => tg.setBackgroundColor && tg.setBackgroundColor('#0f0f12'));
   // ปิด swipe-to-close (กันลูกค้าปัดออกโดยไม่ตั้งใจ)
-  safe(() => tg.disableVerticalSwipes && tg.disableVerticalSwipes());
 }
 
 // แสดงข้อความ error ที่หน้าจอ ถ้าโหลดอะไรพัง — ไม่ปิดอัตโนมัติ
@@ -353,11 +352,23 @@ function onBuy(tier, pkgId, price, name, promoId) {
     name: name,
     promo_id: promoId,
   };
-  tg.sendData(JSON.stringify(payload));
-  tg.close();
+  // ส่ง data แล้วรอ 200ms ก่อน close — ให้ Telegram client ส่งทัน
+  try {
+    tg.sendData(JSON.stringify(payload));
+  } catch (e) {
+    alert('ส่งข้อมูลไม่สำเร็จ: ' + e.message);
+    return;
+  }
+  setTimeout(() => { try { tg.close(); } catch(_) {} }, 250);
 }
 
+// Debug: บอก user ว่า script run แล้ว
+console.log('[MiniApp] Script loaded, tg=', !!tg, 'WebApp version:', tg?.version);
 loadData();
+// ป้องกัน auto-close ขณะ initial render
+window.addEventListener('beforeunload', (e) => {
+  console.log('[MiniApp] beforeunload event');
+});
 </script>
 </body>
 </html>
