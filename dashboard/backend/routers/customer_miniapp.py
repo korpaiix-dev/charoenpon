@@ -239,13 +239,16 @@ async def customer_buy(request: Request):
     return {"ok": True, "action": "qr_sent"}
 
 
-async def _send_bot_message(token: str, chat_id: int, text: str):
+async def _send_bot_message(token: str, chat_id: int, text: str, reply_markup: dict = None):
     import httpx
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
     async with httpx.AsyncClient(timeout=10) as c:
         try:
             r = await c.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+                json=payload,
             )
             r.raise_for_status()
         except Exception as exc:

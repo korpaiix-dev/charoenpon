@@ -127,6 +127,10 @@ body {
   margin-left: auto;
 }
 
+
+.pkg-detail { color: rgba(255,255,255,0.7); font-size: 0.78rem; margin-top: 0.4rem; line-height: 1.4; white-space: pre-line; }
+.pkg-tag-badge { position: absolute; top: 0.4rem; right: 0.4rem; background: rgba(255,255,255,0.1); color: #fff; font-size: 0.65rem; padding: 0.2rem 0.5rem; border-radius: 0.8rem; backdrop-filter: blur(4px); }
+
 .pkg-rooms {
   font-size: 0.72rem;
   color: var(--tg-theme-hint-color, #aaa);
@@ -238,11 +242,46 @@ const TIER_ICONS = {
   TIER_1299: '🥇', TIER_2499: '💎',
 };
 const PKG_DESCRIPTIONS = {
-  TIER_100: '🏠 ห้องชัก — สำหรับน้องใหม่ทดลองชิม',
-  TIER_300: '🏠 VIP — งานทางบ้าน/แอบถ่าย/นักเรียน',
-  TIER_500: '🏠 VIP + OnlyFans — งานแรร์รวม 50+ คน',
-  TIER_1299: '🏠 ครบ 6 ห้อง: VIP, SSS, OnlyFans, นานาชาติ, V GOD, ซีรีส์',
-  TIER_2499: '🏠 ครบ 7 ห้อง — ตลอดชีพ! (รวม Summer Fest)',
+  TIER_100: {
+    rooms: '🏠 ห้องชักโจ๊ก',
+    detail: 'สำหรับน้องใหม่ทดลองชิม คลิปทั่วไป + งานทางบ้าน บางส่วน',
+    badge: '🟢 น้องใหม่',
+  },
+  TIER_300: {
+    rooms: '🏠 VIP (1 ห้อง)',
+    detail: 'งานทางบ้าน / แอบถ่าย / นักเรียน / นักศึกษา\n📹 คลิปอัพเดท ทุกวัน',
+    badge: '⭐ คุ้มสุด',
+  },
+  TIER_500: {
+    rooms: '🏠 VIP + OnlyFans (2 ห้อง)',
+    detail: 'รวม VIP + OnlyFans (สาวรับงานแรร์ 50+ คน)\n📹 คลิปเฉพาะที่อื่นไม่มี',
+    badge: '🔥 ยอดนิยม',
+  },
+  TIER_1299: {
+    rooms: '🏠 ครบ 6 ห้อง',
+    detail: '✅ VIP\n✅ OnlyFans\n✅ SSS (เน้นเด็ก)\n✅ V GOD (เน้นนางแบบ)\n✅ นานาชาติ\n✅ ซีรีส์ (จบเป็น set)\n📹 อัพเดท 50+ คลิป/วัน',
+    badge: '👑 GOD MODE',
+  },
+  TIER_2499: {
+    rooms: '🏠 ครบ 7 ห้อง — ตลอดชีพ',
+    detail: '✅ ครบทุกห้องของ GOD 1299\n✅ + Summer Fest (อีเวนต์พิเศษ)\n♾️ ตลอดชีพ ไม่ต้องต่ออายุ\n🎁 ของขวัญพิเศษทุกเทศกาล',
+    badge: '💎 พรีเมียม',
+  },
+  GACHA_1: {
+    rooms: '🎰 ลุ้น 1 ครั้ง',
+    detail: 'ลุ้นรางวัล: เครดิตเงินสด / VIP 1 เดือน / GOD ถาวร\n🎁 อัตรา GOD ~1%',
+    badge: '🎲 ลุ้นโชค',
+  },
+  GACHA_3: {
+    rooms: '🎰 ลุ้น 3 ครั้ง',
+    detail: '3 หมุน คุ้มกว่าซื้อแยก\nลุ้นรางวัลใหญ่ทุกหมุน',
+    badge: '🎲 คุ้มกว่า',
+  },
+  GACHA_10: {
+    rooms: '🎰 ลุ้น 10 ครั้ง',
+    detail: 'จัดเต็ม 10 หมุน — โอกาส GOD เพิ่ม\nรับสิทธิ์โบนัสพิเศษ',
+    badge: '🎲 จัดเต็ม',
+  },
 };
 
 async function loadData() {
@@ -295,7 +334,7 @@ function renderPackages(packages) {
     const card = document.createElement('div');
     card.className = 'pkg-card' + (hasDiscount ? ' has-discount' : '');
     card.innerHTML = `
-      ${hasDiscount ? `<div class="pkg-discount-badge">ลด ฿${Math.round(pkg.discount.savings)}</div>` : ''}
+      ${hasDiscount ? `<div class="pkg-discount-badge">ลด ฿${Math.round(pkg.discount.savings)}</div>` : (PKG_DESCRIPTIONS[pkg.tier]?.badge ? `<div class="pkg-tag-badge">${PKG_DESCRIPTIONS[pkg.tier].badge}</div>` : '')}
       <div class="pkg-head">
         <div class="pkg-icon">${TIER_ICONS[pkg.tier] || '📦'}</div>
         <div class="pkg-name">${pkg.name}</div>
@@ -305,7 +344,8 @@ function renderPackages(packages) {
         <span class="pkg-price-now ${hasDiscount ? 'discounted' : ''}">฿${Math.round(showPrice).toLocaleString()}</span>
         <span class="pkg-duration">${duration}</span>
       </div>
-      <div class="pkg-rooms">${PKG_DESCRIPTIONS[pkg.tier] || ''}</div>
+      <div class="pkg-rooms">${(PKG_DESCRIPTIONS[pkg.tier]?.rooms) || ''}</div>
+      <div class="pkg-detail">${(PKG_DESCRIPTIONS[pkg.tier]?.detail || '').replace(/\\n/g, '<br>')}</div>
       <button class="pkg-cta" onclick="onBuy('${pkg.tier}', ${pkg.id}, ${showPrice}, '${pkg.name.replace(/'/g, "\\'")}', ${hasDiscount ? pkg.discount.promo_id : 'null'})">
         ${hasDiscount ? `🎁 ซื้อราคาโปร ฿${Math.round(showPrice).toLocaleString()}` : `ซื้อเลย ฿${Math.round(showPrice).toLocaleString()}`}
       </button>
@@ -332,7 +372,7 @@ function renderGacha(gachas) {
         <div class="gacha-name">${spins} หมุน</div>
         <div class="gacha-price">฿${Math.round(g.price)}</div>
       </div>
-      <div class="gacha-desc">ลุ้นรางวัลสูงสุด GOD MODE ถาวร ฿2,499</div>
+      <div class="gacha-desc">${(PKG_DESCRIPTIONS[g.tier]?.detail || 'ลุ้นรางวัลสูงสุด GOD MODE ถาวร ฿2,499').replace(/\\n/g, '<br>')}</div>
     `;
     area.appendChild(card);
   });

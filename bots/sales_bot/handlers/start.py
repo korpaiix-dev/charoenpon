@@ -352,31 +352,37 @@ async def _navigate(query, text: str, kb, img_path=None) -> None:
 
 # ── Customer state classifier (Smart menu) ──
 async def _get_customer_state(telegram_id: int) -> str:
-    """Return: 'new' (no active sub) | 'active' (VIP active) | 'god' (TIER_2499)."""
+    """Return: 'new' (no active sub) | 'active' (VIP active) | 'god' (TIER_2499).
+
+    FIX 2026-06-28: subscriptions table มีแค่ package_id ไม่มี tier
+    → ต้อง JOIN packages เพื่อเอา tier มาเช็ค
+    """
     try:
-        from sqlalchemy import select
         from datetime import datetime
-        from shared.database import get_session
-        from shared.models import User, Subscription, SubscriptionStatus, PackageTier
-        async with get_session() as session:
-            result = await session.execute(
-                select(Subscription.tier)
-                .join(User, Subscription.user_id == User.id)
-                .where(
-                    User.telegram_id == telegram_id,
-                    Subscription.status == SubscriptionStatus.ACTIVE,
-                    Subscription.end_date > datetime.utcnow(),
-                )
-                .order_by(Subscription.end_date.desc())
+        from shared.database import pool
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT p.tier::text AS tier
+                FROM subscriptions s
+                JOIN users u ON u.id = s.user_id
+                JOIN packages p ON p.id = s.package_id
+                WHERE u.telegram_id = $1
+                  AND s.status = 'ACTIVE'
+                  AND s.end_date > NOW()
+                ORDER BY s.end_date DESC
+                """,
+                telegram_id,
             )
-            tiers = [r[0] for r in result.fetchall()]
+            tiers = [r["tier"] for r in rows]
             if not tiers:
                 return "new"
-            # GOD = TIER_2499 (ถาวร)
-            if PackageTier.TIER_2499 in tiers:
+            if "TIER_2499" in tiers:
                 return "god"
             return "active"
-    except Exception:
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("get_customer_state failed for tg=%s: %s", telegram_id, exc)
         return "new"
 
 
