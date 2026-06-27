@@ -2237,9 +2237,9 @@ async function showSOSHistory(page) {
     try {
         const data = await api(`/dashboard/sos-history?status=${sosHistoryFilter}&page=${sosHistoryPage}&per_page=20`);
         let html = `<div class="filters" style="margin-bottom:1rem;">
-            <button class="filter-btn ${sosHistoryFilter==='all'?'active':''}" onclick="sosHistoryFilter='all';sosHistoryPage=1;showSOSHistory()">All</button>
-            <button class="filter-btn ${sosHistoryFilter==='PENDING'?'active':''}" onclick="sosHistoryFilter='PENDING';sosHistoryPage=1;showSOSHistory()">Pending</button>
-            <button class="filter-btn ${sosHistoryFilter==='RESOLVED'?'active':''}" onclick="sosHistoryFilter='RESOLVED';sosHistoryPage=1;showSOSHistory()">Resolved</button>
+            <button class="filter-btn ${sosHistoryFilter==='all'?'active':''}" onclick="sosHistoryFilter='all';sosHistoryPage=1;showSOSHistory()">ทั้งหมด</button>
+            <button class="filter-btn ${sosHistoryFilter==='PENDING'?'active':''}" onclick="sosHistoryFilter='PENDING';sosHistoryPage=1;showSOSHistory()">รอตรวจ</button>
+            <button class="filter-btn ${sosHistoryFilter==='RESOLVED'?'active':''}" onclick="sosHistoryFilter='RESOLVED';sosHistoryPage=1;showSOSHistory()">แก้ไขแล้ว</button>
         </div>`;
         html += '<div class="table-wrap"><table><thead><tr><th>วันที่</th><th>ชื่อ</th><th>TG ID</th><th>ข้อความ</th><th>สถานะ</th><th>Resolved by</th></tr></thead><tbody>';
         data.items.forEach(s => {
@@ -2297,10 +2297,10 @@ async function renderCustomers() {
 
         <div class="filters">
             <input class="search-input" id="cust-search" placeholder="🔍 ค้นหา ชื่อ / Telegram ID / Username" value="${customerSearch}" onkeyup="if(event.key==='Enter'){customerSearch=this.value;customerPage=1;loadCustomers()}">
-            <button class="filter-btn ${customerFilter==='all'?'active':''}" onclick="customerFilter='all';customerPage=1;loadCustomers()">All</button>
-            <button class="filter-btn ${customerFilter==='active'?'active':''}" onclick="customerFilter='active';customerPage=1;loadCustomers()">Active</button>
-            <button class="filter-btn ${customerFilter==='expired'?'active':''}" onclick="customerFilter='expired';customerPage=1;loadCustomers()">Expired</button>
-            <button class="filter-btn ${customerFilter==='banned'?'active':''}" onclick="customerFilter='banned';customerPage=1;loadCustomers()">Banned</button>
+            <button class="filter-btn ${customerFilter==='all'?'active':''}" onclick="customerFilter='all';customerPage=1;loadCustomers()">ทั้งหมด</button>
+            <button class="filter-btn ${customerFilter==='active'?'active':''}" onclick="customerFilter='active';customerPage=1;loadCustomers()">ใช้งานอยู่</button>
+            <button class="filter-btn ${customerFilter==='expired'?'active':''}" onclick="customerFilter='expired';customerPage=1;loadCustomers()">หมดอายุ</button>
+            <button class="filter-btn ${customerFilter==='banned'?'active':''}" onclick="customerFilter='banned';customerPage=1;loadCustomers()">ถูกแบน</button>
         </div>
         <div id="customers-table"><div class="loading"><div class="spinner"></div> กำลังโหลด...</div></div>
         <div id="customers-pagination"></div>
@@ -2477,10 +2477,10 @@ async function renderFinance() {
         <div id="pending-slips"></div>
         <div id="expired-pending"></div>
         <div class="filters">
-            <button class="filter-btn ${financeFilter==='all'?'active':''}" onclick="financeFilter='all';financePage=1;loadPayments()">All</button>
-            <button class="filter-btn ${financeFilter==='PENDING'?'active':''}" onclick="financeFilter='PENDING';financePage=1;loadPayments()">Pending</button>
-            <button class="filter-btn ${financeFilter==='CONFIRMED'?'active':''}" onclick="financeFilter='CONFIRMED';financePage=1;loadPayments()">Confirmed</button>
-            <button class="filter-btn ${financeFilter==='REJECTED'?'active':''}" onclick="financeFilter='REJECTED';financePage=1;loadPayments()">Rejected</button>
+            <button class="filter-btn ${financeFilter==='all'?'active':''}" onclick="financeFilter='all';financePage=1;loadPayments()">ทั้งหมด</button>
+            <button class="filter-btn ${financeFilter==='PENDING'?'active':''}" onclick="financeFilter='PENDING';financePage=1;loadPayments()">รอตรวจ</button>
+            <button class="filter-btn ${financeFilter==='CONFIRMED'?'active':''}" onclick="financeFilter='CONFIRMED';financePage=1;loadPayments()">ยืนยันแล้ว</button>
+            <button class="filter-btn ${financeFilter==='REJECTED'?'active':''}" onclick="financeFilter='REJECTED';financePage=1;loadPayments()">ปฏิเสธ</button>
         </div>
         <div id="payments-table"></div>
         <div id="payments-pagination"></div>
@@ -2895,7 +2895,7 @@ async function loadPromoCodes() {
                 <td style="font-family:var(--font-mono);color:var(--primary);">${esc(c.code)}</td>
                 <td>${c.discount_pct}%</td><td>${c.used_count}/${c.max_uses}</td>
                 <td>${fmtDate(c.expires_at)}</td>
-                <td>${c.is_active ? '<span style="color:var(--success)">Active</span>' : '<span style="color:var(--text-dim)">Off</span>'}</td>
+                <td>${c.is_active ? '<span style="color:var(--success)">ใช้งาน</span>' : '<span style="color:var(--text-dim)">ปิด</span>'}</td>
                 <td><div class="btn-group">
                     <button class="btn btn-sm btn-outline" onclick="togglePromoCode(${c.id})">${c.is_active?'⏸':'▶'}</button>
                     <button class="btn btn-sm btn-danger" onclick="deletePromoCode(${c.id})">🗑</button>
@@ -3186,7 +3186,7 @@ async function renderGroups() {
                     <td>${esc(g.title)}</td>
                     <td style="font-family:var(--font-mono);font-size:0.8rem;">${g.chat_id}</td>
                     <td>${esc(g.min_tier)}</td>
-                    <td>${g.is_active ? '<span style="color:var(--success)">Active</span>' : 'Off'}</td>
+                    <td>${g.is_active ? '<span style="color:var(--success)">ใช้งาน</span>' : 'Off'}</td>
                     <td><div class="btn-group">
                         <button class="btn btn-sm btn-outline" onclick="showEditGroupForm(${g.id},'${esc(g.slug).replace(/'/g,'\\&#39;')}','${esc(g.title).replace(/'/g,'\\&#39;')}',${g.chat_id},'${esc(g.min_tier).replace(/'/g,'\\&#39;')}',${g.is_active})">✏️</button>
                         <button class="btn btn-sm btn-danger" onclick="deleteGroup(${g.id})">🗑️</button>
@@ -3266,7 +3266,7 @@ function showEditGroupForm(id, slug, title, chatId, tier, isActive) {
             </select>
         </div>
         <div class="form-group"><label>สถานะ</label>
-            <select id="egrp-active"><option value="true" ${isActive?'selected':''}>Active</option><option value="false" ${!isActive?'selected':''}>Inactive</option></select>
+            <select id="egrp-active"><option value="true" ${isActive?'selected':''}>ใช้งาน</option><option value="false" ${!isActive?'selected':''}>ปิด</option></select>
         </div>
         <button class="btn btn-primary btn-full" onclick="updateGroup(${id})">💾 บันทึก</button>
     `);
@@ -3469,7 +3469,7 @@ function showEditTeam(id, name, role, isActive) {
     if (hasRole('owner')) roleOpts += `<option value="super_admin" ${role==='super_admin'?'selected':''}>⚡ Super Admin</option>`;
     openModal('✏️ แก้ไข ' + name, `
         <div class="form-group"><label>ยศ</label><select id="et-role">${roleOpts}</select></div>
-        <div class="form-group"><label>สถานะ</label><select id="et-active"><option value="true" ${isActive?'selected':''}>Active</option><option value="false" ${!isActive?'selected':''}>Inactive</option></select></div>
+        <div class="form-group"><label>สถานะ</label><select id="et-active"><option value="true" ${isActive?'selected':''}>ใช้งาน</option><option value="false" ${!isActive?'selected':''}>ปิด</option></select></div>
         <div class="btn-group">
             <button class="btn btn-primary" onclick="updateTeam(${id})">💾 บันทึก</button>
             <button class="btn btn-outline" onclick="resetTeamPwd(${id})">🔑 Reset Password</button>
@@ -3707,7 +3707,7 @@ async function renderMarketing() {
                 <div class="mini-card"><div class="mini-card-label">Revenue (30d)</div><div class="mini-card-value" style="color:var(--primary);">${fmtBaht(kpi.revenue)}</div></div>
                 <div class="mini-card"><div class="mini-card-label">New Members</div><div class="mini-card-value" style="color:var(--success);">${fmt(kpi.new_members)}</div></div>
                 <div class="mini-card"><div class="mini-card-label">Churned</div><div class="mini-card-value" style="color:var(--error);">${fmt(kpi.churned)}</div></div>
-                <div class="mini-card"><div class="mini-card-label">Active</div><div class="mini-card-value">${fmt(kpi.active_members)}</div></div>
+                <div class="mini-card"><div class="mini-card-label">ใช้งาน</div><div class="mini-card-value">${fmt(kpi.active_members)}</div></div>
             </div>
 
             <div class="card card-full" style="margin-bottom:1.5rem;">
@@ -4160,7 +4160,7 @@ async function inboxBulkApprove() {
         });
         const ok = result.approved?.length || 0;
         const fail = result.failed?.length || 0;
-        toast(`✅ Approved ${ok}${fail > 0 ? ' / ❌ Failed ' + fail : ''}`, fail === 0 ? 'success' : 'info');
+        toast(`✅ ยืนยัน ${ok} รายการ${fail > 0 ? ' / ❌ ล้มเหลว ' + fail : ''}`, fail === 0 ? 'success' : 'info');
         window._inboxSelected.clear();
         updateInboxBulkBar();
         renderInbox();
@@ -4184,7 +4184,7 @@ async function inboxBulkReject() {
         });
         const ok = result.rejected?.length || 0;
         const fail = result.failed?.length || 0;
-        toast(`❌ Rejected ${ok}${fail > 0 ? ' / Failed ' + fail : ''}`, fail === 0 ? 'success' : 'info');
+        toast(`❌ ปฏิเสธ ${ok} รายการ${fail > 0 ? ' / ล้มเหลว ' + fail : ''}`, fail === 0 ? 'success' : 'info');
         window._inboxSelected.clear();
         updateInboxBulkBar();
         renderInbox();
@@ -7348,7 +7348,7 @@ async function renderBotSchedules() {
             </div>
             <div style="display:flex;gap:0.5rem;align-items:center;">
                 <div class="ga2-seg">${tabsHtml}</div>
-                <button class="btn btn-primary" onclick="schedOpenAdd()" style="white-space:nowrap;">➕ เพิ่ม Schedule</button>
+                <button class="btn btn-primary" onclick="schedOpenAdd()" style="white-space:nowrap;">➕ เพิ่มตารางเวลา</button>
             </div>
         </div>
         `;
@@ -7626,7 +7626,7 @@ async function renderContentEditor() {
                 <h2 style="margin:0;font-size:1.2rem;">📝 คอนเทนต์ที่บอตจะโพสต์</h2>
                 <div style="font-size:0.75rem;color:var(--text-muted);">แก้ข้อความ + รูป — บอตจะใช้ทันทีในรอบโพสต์ถัดไป</div>
             </div>
-            <button class="btn btn-primary" onclick="ctOpenAddTemplate()" style="white-space:nowrap;">➕ เพิ่ม Template</button>
+            <button class="btn btn-primary" onclick="ctOpenAddTemplate()" style="white-space:nowrap;">➕ เพิ่มเทมเพลต</button>
         </div>
 
         <div class="ct-tabs">
@@ -7948,7 +7948,7 @@ async function schedOpenAdd() {
     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:1rem;';
     modal.innerHTML = `
         <div style="background:#1c1c1f;border:1px solid #3f3f46;border-radius:12px;padding:1.5rem;max-width:480px;width:100%;">
-            <h3 style="margin:0 0 1rem;font-size:1.1rem;">➕ เพิ่ม Schedule ใหม่</h3>
+            <h3 style="margin:0 0 1rem;font-size:1.1rem;">➕ เพิ่มตารางเวลา ใหม่</h3>
             <div style="margin-bottom:0.75rem;">
                 <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.3rem;text-transform:uppercase;">Template ที่จะโพสต์ *</label>
                 <select id="sched-add-tpl" class="ct-input">${optsHtml}</select>
