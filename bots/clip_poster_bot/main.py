@@ -29,9 +29,9 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
-    Application, CommandHandler, ContextTypes,
+    Application, CallbackQueryHandler, CommandHandler, ContextTypes,
     MessageHandler, filters,
 )
 
@@ -49,6 +49,10 @@ ADMIN_IDS = {
 }
 LOGO_PATH = os.environ.get("CLIP_POSTER_LOGO_PATH", "/app/assets/clip_logo.png")
 SALES_BOT_USERNAME = os.environ.get("SALES_BOT_USERNAME", "charoenpon_bot")
+
+# In-memory pending uploads: admin_tg_id → {video, type, msg_id, ...}
+# Cleared after tier picked or canceled. Survives across bot lifetime only.
+pending_uploads: dict[int, dict] = {}
 
 # Caption templates with clickable HTML links + tier-aware deep-link for tracking.
 # {tier} = price hint, {url} = full deep link (e.g. https://t.me/bot?start=clip_300)
@@ -246,6 +250,7 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_video(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Receive video → store + show tier picker keyboard."""
     msg = update.message
     if not msg or not msg.from_user:
         return
@@ -254,7 +259,6 @@ async def on_video(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("🚫 แอดมินเท่านั้นค่ะ")
         return
 
-    # Extract video or document (mime video/*)
     video = msg.video or msg.animation
     doc = msg.document
     if doc and doc.mime_type and not doc.mime_type.startswith("video/"):
@@ -265,17 +269,83 @@ async def on_video(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not file_obj:
         return
 
-    # Tier hint from caption
-    tier_hint = detect_tier(msg.caption or "")
+    # Store pending (overwrite if admin sends another video before picking)
+    pending_uploads[user.id] = {
+        "file_id": file_obj.file_id,
+        "size": getattr(file_obj, "file_size", None),
+    }
+
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("💎 ฿300", callback_data="tier:300"),
+            InlineKeyboardButton("💎 ฿500", callback_data="tier:500"),
+            InlineKeyboardButton("💎 ฿2499", callback_data="tier:2499"),
+        ],
+        [
+            InlineKeyboardButton("🌟 ทั่วไป (ไม่ระบุ tier)", callback_data="tier:generic"),
+        ],
+        [
+            InlineKeyboardButton("❌ ยกเลิก", callback_data="tier:cancel"),
+        ],
+    ])
+
+    size_kb = (file_obj.file_size // 1024) if getattr(file_obj, "file_size", None) else "?"
+    await msg.reply_text(
+        f"📹 <b>รับวิดีโอแล้ว</b> ({size_kb} KB)\n\n"
+        f"เลือก tier ที่ตัวอย่างนี้เป็นของ:",
+        parse_mode="HTML",
+        reply_markup=kb,
+    )
+
+
+async def on_tier_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Handle tier button click → start watermark + broadcast."""
+    q = update.callback_query
+    if not q or not q.from_user:
+        return
+    user = q.from_user
+    if not is_admin(user.id):
+        await q.answer("🚫 แอดมินเท่านั้น", show_alert=True)
+        return
+
+    data = q.data or ""
+    if not data.startswith("tier:"):
+        return
+    choice = data.split(":", 1)[1]
+
+    pending = pending_uploads.pop(user.id, None)
+    if not pending:
+        await q.answer("⚠️ ไม่มีวิดีโอค้าง — ส่งใหม่ก่อนค่ะ", show_alert=True)
+        try:
+            await q.edit_message_text("⚠️ Session หมดอายุ — ส่งวิดีโอใหม่อีกครั้ง")
+        except Exception:
+            pass
+        return
+
+    if choice == "cancel":
+        await q.answer("ยกเลิกแล้ว")
+        try:
+            await q.edit_message_text("❌ ยกเลิก — ไม่ได้ส่ง")
+        except Exception:
+            pass
+        return
+
+    await q.answer(f"กำลังส่ง tier ฿{choice if choice != 'generic' else 'ทั่วไป'}...")
+
+    tier_hint = None if choice == "generic" else choice
     caption_text = pick_caption(tier_hint)
 
-    # Status reply
-    status_msg = await msg.reply_text(
-        f"⏳ รับวิดีโอแล้ว\n"
-        f"• Tier hint: <code>{tier_hint or '(ทั่วไป)'}</code>\n"
-        f"• กำลังแปะ logo...",
-        parse_mode="HTML",
-    )
+    # Update status message
+    status_msg = q.message
+    try:
+        await status_msg.edit_text(
+            f"⏳ <b>กำลังประมวลผล</b>\n"
+            f"• Tier: <code>{tier_hint or '(ทั่วไป)'}</code>\n"
+            f"• กำลังดาวน์โหลดวิดีโอ...",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
 
     # Get groups
     groups = await get_free_groups()
@@ -283,9 +353,9 @@ async def on_video(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await status_msg.edit_text("❌ ไม่พบกลุ่ม FREE active ใน DB")
         return
 
-    # Download
+    # Download via stored file_id
     try:
-        tg_file = await file_obj.get_file()
+        tg_file = await ctx.bot.get_file(pending["file_id"])
     except Exception as exc:
         await status_msg.edit_text(f"❌ download fail: {exc}")
         return
@@ -299,25 +369,32 @@ async def on_video(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await status_msg.edit_text(f"❌ download fail: {exc}")
             return
 
-        await status_msg.edit_text(
-            f"⏳ ดาวน์โหลดสำเร็จ\n"
-            f"• ขนาด: {Path(in_path).stat().st_size // 1024} KB\n"
-            f"• กำลังแปะ logo + encode...",
-            parse_mode="HTML",
-        )
+        try:
+            await status_msg.edit_text(
+                f"⏳ <b>กำลังประมวลผล</b>\n"
+                f"• Tier: <code>{tier_hint or '(ทั่วไป)'}</code>\n"
+                f"• กำลังแปะ logo + encode...",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
 
-        # Watermark
         ok = await asyncio.to_thread(watermark_video, in_path, out_path, LOGO_PATH)
         if not ok:
-            await status_msg.edit_text("❌ ffmpeg ล้มเหลว — ส่งไฟล์ดิบแทน")
-            out_path = in_path  # fall through with original
+            try:
+                await status_msg.edit_text("⚠️ ffmpeg ล้มเหลว — ส่งไฟล์ดิบแทน")
+            except Exception:
+                pass
+            out_path = in_path
 
-        # Send to all groups
-        await status_msg.edit_text(
-            f"📤 กำลังส่งไป {len(groups)} กลุ่ม...\n"
-            f"💬 Caption: <i>{caption_text[:80]}...</i>",
-            parse_mode="HTML",
-        )
+        try:
+            await status_msg.edit_text(
+                f"📤 <b>กำลังส่งไป {len(groups)} กลุ่ม...</b>\n"
+                f"• Tier: <code>{tier_hint or '(ทั่วไป)'}</code>",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
 
         sent: list[str] = []
         failed: list[dict] = []
@@ -332,28 +409,29 @@ async def on_video(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                         supports_streaming=True,
                     )
                 sent.append(g["slug"])
-                await asyncio.sleep(1.5)  # polite delay
+                await asyncio.sleep(1.5)
             except Exception as exc:
                 logger.warning("send to %s failed: %s", g["slug"], exc)
                 failed.append({"slug": g["slug"], "error": str(exc)[:100]})
 
-    # Final report
     summary = (
         f"{'✅' if not failed else '⚠️'} <b>เสร็จแล้ว</b>\n\n"
         f"• ส่งสำเร็จ: <b>{len(sent)}/{len(groups)}</b>\n"
         f"• Tier: <code>{tier_hint or '(ทั่วไป)'}</code>\n"
-        f"• Caption: <i>{caption_text[:100]}</i>\n"
+        f"• Caption: <i>{caption_text[:120]}...</i>\n"
     )
     if failed:
         summary += "\n❌ <b>กลุ่มที่ส่งไม่ผ่าน:</b>\n"
         for f in failed[:10]:
             summary += f"  • {f['slug']}: {f['error'][:60]}\n"
-    await status_msg.edit_text(summary, parse_mode="HTML")
+    try:
+        await status_msg.edit_text(summary, parse_mode="HTML")
+    except Exception:
+        await ctx.bot.send_message(user.id, summary, parse_mode="HTML")
 
-    # Audit log
     await log_job(
         admin_id=user.id,
-        video_file_id=file_obj.file_id,
+        video_file_id=pending["file_id"],
         tier_hint=tier_hint,
         caption=caption_text,
         sent=sent,
@@ -384,6 +462,7 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CallbackQueryHandler(on_tier_callback, pattern=r"^tier:"))
     app.add_handler(MessageHandler(
         filters.ChatType.PRIVATE & (
             filters.VIDEO | filters.ANIMATION |
