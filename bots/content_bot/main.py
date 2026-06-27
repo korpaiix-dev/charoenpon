@@ -1583,6 +1583,114 @@ def _build_inline_keyboard(buttons: list) -> "InlineKeyboardMarkup | None":
         return None
 
 
+
+# ─────────────────────────────────────────────────────────────────
+# DAY 0 (2026-06-28): Promotions poster — reads from promotions table
+# ─────────────────────────────────────────────────────────────────
+async def _load_active_promotions() -> list:
+    """Load active promotions (respecting starts_at/ends_at)."""
+    import os as _os, asyncpg as _ap
+    try:
+        url = _os.environ.get("DATABASE_URL", "").replace("postgresql+asyncpg://", "postgresql://")
+        if not url:
+            return []
+        conn = await _ap.connect(url)
+        try:
+            rows = await conn.fetch("""
+                SELECT id, code, name, caption_html, image_path,
+                       package_codes, discount_type, discount_value,
+                       post_times, target_groups
+                FROM promotions
+                WHERE is_active = TRUE
+                  AND (starts_at IS NULL OR starts_at <= NOW())
+                  AND (ends_at IS NULL OR ends_at > NOW())
+            """)
+        finally:
+            await conn.close()
+        return [dict(r) for r in rows]
+    except Exception as exc:
+        logger.warning("load promotions failed: %s", exc)
+        return []
+
+
+SALES_BOT_USERNAME = os.environ.get("SALES_BOT_USERNAME", "NamwarnJarern_bot")
+
+
+async def post_promotion_to_free_groups(
+    context: "ContextTypes.DEFAULT_TYPE",
+    promo_id: int,
+) -> None:
+    """Post a promotion (by id) to all free groups.
+
+    Builds buttons that deep-link to /start promo_<code> in sales_bot.
+    """
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    bot = context.bot
+    
+    # Load fresh from DB (in case Dashboard edited it)
+    promos = await _load_active_promotions()
+    promo = next((p for p in promos if p["id"] == promo_id), None)
+    if not promo:
+        logger.warning("Promotion id=%s not found/inactive — skip post", promo_id)
+        return
+    
+    free_groups = await _get_free_groups_async()
+    if not free_groups:
+        logger.warning("No free groups for promo %s", promo_id)
+        return
+    
+    caption = promo.get("caption_html") or promo.get("name") or ""
+    image_path = promo.get("image_path") or ""
+    code = promo.get("code") or ""
+    
+    # Build deep-link button: t.me/<sales_bot>?start=promo_<code>
+    btn_url = f"https://t.me/{SALES_BOT_USERNAME}?start={code}"
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎁 ดูรายละเอียด + สมัคร", url=btn_url)],
+    ])
+    
+    success = 0
+    failed = 0
+    logger.info("Posting promo %s (%s) to %d groups", code, promo.get("name"), len(free_groups))
+    
+    from pathlib import Path as _P
+    img_full = None
+    if image_path:
+        img_full = _P("/app") / image_path.lstrip("/")
+        if not img_full.exists():
+            alt = _P("/app/assets/campaigns") / image_path
+            if alt.exists(): img_full = alt
+            else: img_full = None
+    
+    for group_id in free_groups:
+        try:
+            if img_full and img_full.exists():
+                with open(img_full, "rb") as _f:
+                    await bot.send_photo(
+                        chat_id=group_id, photo=_f, caption=caption,
+                        parse_mode="HTML", reply_markup=keyboard,
+                    )
+            else:
+                await bot.send_message(
+                    chat_id=group_id, text=caption, parse_mode="HTML",
+                    disable_web_page_preview=False, reply_markup=keyboard,
+                )
+            success += 1
+            await asyncio.sleep(1.2)
+        except Exception as exc:
+            failed += 1
+            logger.warning("promo %s failed group %d: %s", code, group_id, exc)
+    
+    logger.info("Promo %s done: %d/%d", code, success, len(free_groups))
+    try:
+        await _send_discord_content_log(
+            f"🎁 **{promo.get('name')}** posted\n"
+            f"✅ {success} / ❌ {failed} / Total {len(free_groups)} groups"
+        )
+    except Exception:
+        pass
+
+
 async def post_template_to_free_groups(
     context: ContextTypes.DEFAULT_TYPE,
     template_key: str,
@@ -1815,6 +1923,49 @@ def main() -> None:
         logger.info("Generic template scheduled: %s at %02d:%02d", _tpl_key, _cfg["hour"], _cfg["minute"])
     if generic_count:
         logger.info("Loaded %d generic template schedules from DB", generic_count)
+
+    # ──────────────────────────────────────────────────────
+    # DAY 0 (2026-06-28): Schedule promotions from promotions table
+    # Each active promotion with post_times gets registered as a daily job per time
+    # ──────────────────────────────────────────────────────
+    try:
+        _tmp_loop_p = _asyncio_sched.new_event_loop()
+        try:
+            _promos_list = _tmp_loop_p.run_until_complete(_load_active_promotions())
+        finally:
+            _tmp_loop_p.close()
+        _asyncio_sched.set_event_loop(_asyncio_sched.new_event_loop())
+    except Exception as _exc_p:
+        logger.warning("DB promotions load crashed: %s", _exc_p)
+        _promos_list = []
+
+    promo_count = 0
+    for _promo in _promos_list:
+        _post_times = _promo.get("post_times") or []
+        if isinstance(_post_times, str):
+            import json as _json_p
+            try: _post_times = _json_p.loads(_post_times)
+            except: _post_times = []
+        if not _post_times:
+            continue
+        _pid = _promo["id"]
+        _pname = _promo.get("name") or _promo.get("code") or f"promo_{_pid}"
+        for _idx, _t_obj in enumerate(_post_times):
+            try:
+                _h = int(_t_obj.get("hour", 0))
+                _m = int(_t_obj.get("minute", 0))
+            except (TypeError, ValueError, AttributeError):
+                continue
+            _t = dt_time(hour=_h, minute=_m, tzinfo=TH_TZ)
+            _job_name = f"promotion_{_pid}_{_idx}"
+            # Bind promo_id into closure
+            async def _promo_cb(_ctx, _id=_pid):
+                await post_promotion_to_free_groups(_ctx, _id)
+            job_queue.run_daily(_promo_cb, time=_t, name=_job_name)
+            promo_count += 1
+            logger.info("Promo scheduled: %s (id=%s) at %02d:%02d", _pname, _pid, _h, _m)
+    if promo_count:
+        logger.info("Loaded %d promotion posts from promotions table", promo_count)
 
     logger.info("Content Bot (มิน) starting — 5 rounds/day to %d groups", len(FREE_GROUPS))
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)

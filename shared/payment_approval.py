@@ -270,6 +270,29 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
     except Exception as _maint_exc:
         logger.warning("maintenance check failed in approval: %s", _maint_exc)
 
+    # Day-0 (2026-06-28): if user has a pending promotion_click and inp.explicit_tier
+    # not set, use the click's package_code as target tier. Mark click_id for consume on success.
+    _consume_click_id = None
+    try:
+        if not inp.explicit_tier and not inp.explicit_package_id and inp.telegram_id:
+            from shared.promotion_service import get_pending_click
+            _click = await get_pending_click(inp.telegram_id)
+            if _click and _click.get("package_code"):
+                tier_str = _click["package_code"]
+                logger.info(
+                    "PROMO CLICK: applying tier=%s from promo=%s click_id=%s for user=%s",
+                    tier_str, _click.get("promo_code"), _click.get("id"), inp.telegram_id,
+                )
+                # Try to convert string to PackageTier enum
+                try:
+                    from shared.models import PackageTier as _PT
+                    inp.explicit_tier = _PT[tier_str]
+                    _consume_click_id = _click["id"]
+                except (KeyError, ImportError) as _te:
+                    logger.warning("PROMO CLICK: tier '%s' not in enum: %s", tier_str, _te)
+    except Exception as _promo_exc:
+        logger.warning("promo click lookup failed (non-fatal): %s", _promo_exc)
+
     from shared.database import get_session
     from shared.models import (
         User, Package, Payment, Subscription, PackageTier, PaymentStatus,
@@ -320,6 +343,20 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
                                 "[approval] STEP 0: payment %s already CONFIRMED with sub %s — skip (idempotent)",
                                 inp.payment_id, _exist_sub.id,
                             )
+                            # Day-0: consume promo click if used
+
+                            if _consume_click_id:
+
+                                try:
+
+                                    from shared.promotion_service import consume_click
+
+                                    await consume_click(_consume_click_id, getattr(inp, "payment_id", None))
+
+                                except Exception as _cc_exc:
+
+                                    logger.warning("consume_click failed (non-fatal): %s", _cc_exc)
+
                             return ApprovalResult(
                                 success=True,
                                 payment_id=inp.payment_id,
@@ -919,6 +956,27 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
             )
         except Exception:
             pass
+
+    # Day-0: consume promo click if used
+
+
+    if _consume_click_id:
+
+
+        try:
+
+
+            from shared.promotion_service import consume_click
+
+
+            await consume_click(_consume_click_id, getattr(inp, "payment_id", None))
+
+
+        except Exception as _cc_exc:
+
+
+            logger.warning("consume_click failed (non-fatal): %s", _cc_exc)
+
 
     return ApprovalResult(
         success=True,
