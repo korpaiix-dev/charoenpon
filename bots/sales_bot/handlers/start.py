@@ -50,6 +50,96 @@ def _extract_source(args: list[str]) -> str | None:
     return None
 
 
+async def _handle_promo_start(update, context, promo_code: str) -> bool:
+    """Day-0 promo deep link handler.
+    
+    /start promo_<code> → look up promotion → show caption + buttons per eligible
+    package with discounted price → record click on selection → start payment flow.
+    """
+    import os as _os
+    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+    from shared.promotion_service import get_promotion, calculate_price
+    
+    promo = await get_promotion(promo_code)
+    if not promo or not promo.get("is_active"):
+        return False  # fall through to default menu
+    
+    # Fetch eligible packages from packages table
+    pkg_codes = promo.get("package_codes") or []
+    if isinstance(pkg_codes, str):
+        import json as _json
+        try: pkg_codes = _json.loads(pkg_codes)
+        except: pkg_codes = []
+    if not pkg_codes:
+        return False
+    
+    try:
+        import asyncpg
+        url = _os.environ.get("DATABASE_URL", "").replace("postgresql+asyncpg://", "postgresql://")
+        conn = await asyncpg.connect(url)
+        try:
+            # packages table uses `tier` column (enum) as the identifier we match
+            pkg_rows = await conn.fetch(
+                "SELECT id, tier::text AS tier_str, name, price, duration_days "
+                "FROM packages WHERE tier::text = ANY($1) AND is_active = TRUE "
+                "ORDER BY price",
+                pkg_codes,
+            )
+        finally:
+            await conn.close()
+    except Exception as exc:
+        logger.warning("promo packages lookup failed: %s", exc)
+        return False
+    
+    if not pkg_rows:
+        logger.warning("promo %s has no eligible packages in DB", promo_code)
+        return False
+    
+    # Build buttons: 1 per package with discounted price
+    kb_rows = []
+    for pkg in pkg_rows:
+        price_calc = calculate_price(promo, pkg["tier_str"], float(pkg["price"]))
+        disc = price_calc["discounted"]
+        orig = price_calc["original"]
+        savings = price_calc["savings"]
+        
+        nm = pkg["name"]
+        di = int(disc)
+        sv = int(savings)
+        if savings > 0:
+            label = f"💰 {nm} — ฿{di} (ลด ฿{sv})"
+        else:
+            label = f"📦 {nm} — ฿{di}"
+        cb_data = f"promo_buy:{promo['id']}:{pkg['id']}"
+        kb_rows.append([InlineKeyboardButton(label, callback_data=cb_data)])
+    
+    kb_rows.append([InlineKeyboardButton("💬 ติดต่อแอดมิน", url="https://t.me/sperm6969")])
+    keyboard = InlineKeyboardMarkup(kb_rows)
+    
+    caption = promo.get("caption_html") or promo.get("name", "")
+    image_path = promo.get("image_path") or ""
+    
+    try:
+        from pathlib import Path as _P
+        if image_path:
+            img = _P("/app") / image_path.lstrip("/")
+            if not img.exists():
+                img = _P("/app/assets/campaigns") / image_path
+            if img.exists():
+                with open(img, "rb") as _f:
+                    await update.message.reply_photo(
+                        photo=_f, caption=caption, parse_mode="HTML", reply_markup=keyboard
+                    )
+                return True
+        await update.message.reply_text(
+            caption, parse_mode="HTML", reply_markup=keyboard, disable_web_page_preview=False
+        )
+        return True
+    except Exception as exc:
+        logger.warning("promo reply failed: %s", exc)
+        return False
+
+
 async def _handle_template_start(update, context, template_key: str) -> bool:
     """B.1.E (2026-06-27): Generic template deep link handler.
     
@@ -508,6 +598,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         from bots.sales_bot.handlers.referral import invite_command
         await invite_command(update, context)
         return
+
+    # Day-0 (2026-06-28): Handle promo deep link: /start promo_{code}
+    if source and source.startswith("promo_"):
+        promo_code = source  # full code (e.g. "promo_end1")
+        handled = await _handle_promo_start(update, context, promo_code)
+        if handled:
+            return
 
     # B.1.E (2026-06-27): Handle generic template deep link: /start template_{key}
     if source and source.startswith("template_"):
