@@ -53,8 +53,6 @@ async def list_active_promotions() -> list[dict]:
             rows = await conn.fetch("""
                 SELECT id, code, name, is_active, package_codes,
                        discount_type, discount_value, valid_hours,
-                       caption_html, image_path, extra_buttons,
-                       target_groups, post_times,
                        starts_at, ends_at
                 FROM promotions
                 WHERE is_active = TRUE
@@ -81,8 +79,6 @@ async def get_promotion(code: str) -> Optional[dict]:
             row = await conn.fetchrow("""
                 SELECT id, code, name, is_active, package_codes,
                        discount_type, discount_value, valid_hours,
-                       caption_html, image_path, extra_buttons,
-                       target_groups, post_times,
                        starts_at, ends_at
                 FROM promotions WHERE code = $1
             """, code)

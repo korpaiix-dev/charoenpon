@@ -83,7 +83,7 @@ async def promo_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         try:
             r = await conn.fetchrow(
                 "SELECT id, code, name, package_codes, discount_type, discount_value, "
-                "valid_hours, caption_html, image_path "
+                "valid_hours "
                 "FROM promotions WHERE id = $1 AND is_active = TRUE",
                 promo_id,
             )
