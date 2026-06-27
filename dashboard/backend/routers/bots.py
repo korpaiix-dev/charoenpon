@@ -901,13 +901,37 @@ async def upload_content_image(
 
 
 @router.get("/asset")
-async def serve_asset(path: str, _admin=Depends(require_role("admin"))):
+async def serve_asset(path: str, token: str = None, request: Request = None):
     """Serve a file from /app/assets/* for image preview in dashboard.
+
+    Auth: <img> tags cannot send Bearer header. Accept token via query parameter
+    (?token=...) as a fallback. Falls through to standard Bearer check via header.
 
     Path must start with /app/assets/ to prevent directory traversal.
     """
     import os as _os_a
     from fastapi.responses import FileResponse
+    from ..auth.jwt import decode_token
+
+    # Auth check — accept token via query OR Authorization header
+    auth_token = token or ""
+    if not auth_token and request:
+        h = request.headers.get("authorization", "")
+        if h.startswith("Bearer "):
+            auth_token = h[7:]
+    payload = None
+    try:
+        if auth_token:
+            payload = decode_token(auth_token)
+    except Exception:
+        payload = None
+    if not payload:
+        raise HTTPException(401, "auth required")
+    # Require admin role
+    roles = payload.get("roles") or [payload.get("role")]
+    if not any(r in ("owner", "super_admin", "admin") for r in roles if r):
+        raise HTTPException(403, "admin role required")
+
     if not path.startswith("/app/assets/"):
         raise HTTPException(400, "path must be under /app/assets/")
     if ".." in path:

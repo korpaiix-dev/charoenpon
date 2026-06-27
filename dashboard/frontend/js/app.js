@@ -7446,7 +7446,7 @@ function ctPreview(btn) {
 
     // Build image URL via backend asset endpoint
     const imgSrc = imgPath
-        ? "/api/admin/asset?path=" + encodeURIComponent(imgPath)
+        ? "/api/admin/asset?path=" + encodeURIComponent(imgPath) + "&token=" + encodeURIComponent(typeof token !== "undefined" ? token : (localStorage.getItem("jwt") || ""))
         : null;
 
     // Build buttons HTML — Telegram inline button style: full-width grey pill rows
