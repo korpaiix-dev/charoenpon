@@ -52,8 +52,6 @@ async def list_promotions(
     rows = await pool.fetch(f"""
         SELECT id, code, name, is_active,
                package_codes, discount_type, discount_value, valid_hours,
-               caption_html, image_path, extra_buttons,
-               target_groups, post_times,
                starts_at, ends_at,
                updated_at, updated_by
         FROM promotions {where}
