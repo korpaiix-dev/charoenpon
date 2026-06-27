@@ -136,6 +136,35 @@ def build_23h(first_name: str, promo_code: str) -> str:
 
 _BUILDERS = {301: build_instant, 302: build_3h, 303: build_12h, 304: build_23h}
 
+# 2026-06-28: DB-driven message templates (fallback to hardcoded above)
+_DB_KEYS = {
+    301: "journey_welcome_instant",
+    302: "journey_welcome_3h",
+    303: "journey_welcome_12h",
+    304: "journey_welcome_23h",
+}
+
+
+async def _build_from_db_or_fallback(round_id: int, first_name: str, promo_code: str) -> str:
+    """Try DB template first, fallback to hardcoded builder."""
+    try:
+        from shared.bot_messages import get_bot_message, render_placeholders
+        db_key = _DB_KEYS.get(round_id)
+        if db_key:
+            template = await get_bot_message(db_key)
+            if template:
+                deep_link = _deep_link(promo_code)
+                return render_placeholders(template,
+                    first_name=first_name or "คุณ",
+                    promo_code=promo_code,
+                    deep_link=deep_link,
+                )
+    except Exception:
+        pass
+    # Fallback to hardcoded builder
+    builder = _BUILDERS.get(round_id)
+    return builder(first_name, promo_code) if builder else ""
+
 
 # ─── DB helpers ─────────────────────────────────────────────────────────
 
@@ -183,7 +212,7 @@ async def send_instant_welcome(user_id: int, telegram_id: int,
     code = _generate_code()
     try:
         await _save_log(user_id, telegram_id, code, 301)
-        msg = build_instant(first_name, code)
+        msg = await _build_from_db_or_fallback(301, first_name, code)
         await bot.send_message(
             chat_id=telegram_id, text=msg,
             parse_mode="HTML", disable_web_page_preview=True,
@@ -237,13 +266,12 @@ async def run_welcome_journey_job(context) -> dict:
     STAGES = [(302, 3, 4, "3h"), (303, 12, 13, "12h"), (304, 23, 24, "23h")]
     for round_id, hs, he, label in STAGES:
         users = await _find_eligible_int(round_id, hs, he)
-        builder = _BUILDERS[round_id]
         sent = 0; fail = 0
         for u in users:
             code = _generate_code()
             try:
                 await _save_log(u["user_id"], u["telegram_id"], code, round_id)
-                msg = builder(u["first_name"], code)
+                msg = await _build_from_db_or_fallback(round_id, u["first_name"], code)
                 await bot.send_message(
                     chat_id=u["telegram_id"], text=msg,
                     parse_mode="HTML", disable_web_page_preview=True,

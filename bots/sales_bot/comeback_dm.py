@@ -206,6 +206,46 @@ MESSAGE_VARIANTS_ROUND2 = [
 ]
 
 
+# 2026-06-28: DB-driven message templates (fallback to hardcoded variants above)
+_DB_COMEBACK_KEYS = {
+    (1, "A"): "journey_comeback_r1_a", (1, "B"): "journey_comeback_r1_b",
+    (1, "C"): "journey_comeback_r1_c", (1, "D"): "journey_comeback_r1_d",
+    (2, "A"): "journey_comeback_r2_a", (2, "B"): "journey_comeback_r2_b",
+    (2, "C"): "journey_comeback_r2_c",
+}
+
+
+async def _build_comeback_from_db_or_fallback(dm_round: int, variant: str, first_name: str,
+                                               discount_pct: int, promo_code: str, new_clips: int) -> str:
+    """DB-first message build with hardcoded fallback."""
+    try:
+        from shared.bot_messages import get_bot_message, render_placeholders
+        db_key = _DB_COMEBACK_KEYS.get((dm_round, variant))
+        if db_key:
+            template = await get_bot_message(db_key)
+            if template:
+                price = _calculate_discounted_price(discount_pct)
+                clips_text = f"{new_clips} ชิ้น" if new_clips > 0 else "เพียบ"
+                deep_link = f"tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}"
+                return render_placeholders(template,
+                    first_name=first_name or "คุณ",
+                    discount_pct=discount_pct,
+                    discounted_price=price,
+                    clips_text=clips_text,
+                    promo_code=promo_code,
+                    deep_link=deep_link,
+                )
+    except Exception:
+        pass
+    # Fallback
+    variants = MESSAGE_VARIANTS_ROUND1 if dm_round == 1 else MESSAGE_VARIANTS_ROUND2
+    for v_name, v_fn in variants:
+        if v_name == variant:
+            return v_fn(first_name, discount_pct, promo_code, new_clips)
+    # last-resort fallback
+    return variants[0][1](first_name, discount_pct, promo_code, new_clips)
+
+
 # ─── Adaptive Variant Selection ─────────────────────────────────────────────
 
 async def _get_variant_weights(dm_round: int) -> dict[str, float]:

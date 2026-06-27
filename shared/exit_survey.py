@@ -226,6 +226,40 @@ def build_thanks_message(reason_code: str, last_tier: str, promo_code: str) -> s
     )
 
 
+
+
+# 2026-06-28: DB-driven message templates (fallback to hardcoded above)
+_DB_EXIT_KEYS = {
+    "survey": "journey_exit_survey_question",
+    "thanks": "journey_exit_thanks",
+}
+
+
+async def _build_exit_survey_from_db_or_fallback(first_name: str, last_tier: str) -> str:
+    try:
+        from shared.bot_messages import get_bot_message, render_placeholders
+        template = await get_bot_message(_DB_EXIT_KEYS["survey"])
+        if template:
+            return render_placeholders(template, first_name=first_name or "คุณ", last_tier=last_tier or "VIP")
+    except Exception:
+        pass
+    return build_exit_survey_message(first_name, last_tier)
+
+
+async def _build_exit_thanks_from_db_or_fallback(reason_code: str, last_tier: str, promo_code: str, discount_pct: int = 30) -> str:
+    try:
+        from shared.bot_messages import get_bot_message, render_placeholders
+        template = await get_bot_message(_DB_EXIT_KEYS["thanks"])
+        if template:
+            return render_placeholders(template,
+                first_name=last_tier or "คุณ",
+                discount_pct=discount_pct,
+                promo_code=promo_code,
+                last_tier=last_tier or "VIP",
+            )
+    except Exception:
+        pass
+    return build_thanks_message(reason_code, last_tier, promo_code)
 async def run_exit_survey_job(context) -> dict:
     """Cron job — รายวัน 11:00 BKK."""
     bot = context.bot if hasattr(context, "bot") else None

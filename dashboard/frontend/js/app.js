@@ -120,6 +120,7 @@ const NAV_ITEMS = [
     // ─── สื่อสาร + ดึงดูด ───
     { type: 'divider', label: 'สื่อสาร + โปร' },
     { id: 'promotions', icon: '🎁', label: 'โปรโมชั่น + บอท', minRole: 'admin' },
+    { id: 'journey', icon: '📨', label: 'DM อัตโนมัติ (Journey)', minRole: 'admin' },
     { id: 'content', icon: '📸', label: 'Content', minRole: 'moderator' },
     { id: 'gacha', icon: '🎰', label: 'กาชา', minRole: 'admin' },
     { id: 'prae_logs', icon: '💭', label: 'บทสนทนา Prae', minRole: 'admin' },
@@ -271,7 +272,7 @@ function navigate(page) {
     renderSidebar();
     const titles = {
         dashboard: '📊 ภาพรวม', inbox: '📥 Inbox สลิป', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน', gacha: '🎰 กาชา',
-        promotions: '🎁 โปรโมชั่น + ตั้งค่าบอท', content: '📸 Content', groups: '📱 กลุ่ม', bot_groups: '🤖 จัดการบอท', group_analytics: '📊 สถิติกลุ่ม', bot_schedules: '⏰ ตารางเวลาบอท', content_editor: '📝 คอนเทนต์บอท',
+        promotions: '🎁 โปรโมชั่น + ตั้งค่าบอท', journey: '📨 DM อัตโนมัติ (Customer Journey)', content: '📸 Content', groups: '📱 กลุ่ม', bot_groups: '🤖 จัดการบอท', group_analytics: '📊 สถิติกลุ่ม', bot_schedules: '⏰ ตารางเวลาบอท', content_editor: '📝 คอนเทนต์บอท',
         team: '👨‍💼 ทีมงาน', settings: '⚙️ ตั้งค่า', marketing: '📊 Marketing',
         activity: '📋 Activity Log', prae_logs: '💬 Prae Logs',
     };
@@ -287,7 +288,7 @@ function navigate(page) {
     
     const pages = {
         today: renderToday, dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance, receivers: renderReceivers, gacha: renderGacha,
-        promotions: renderPromoManager, content: renderContent, groups: renderGroups, bot_groups: renderBotGroups, group_analytics: renderGroupAnalytics, bot_schedules: renderBotSchedules, content_editor: renderContentEditor,
+        promotions: renderPromoManager, journey: renderJourney, content: renderContent, groups: renderGroups, bot_groups: renderBotGroups, group_analytics: renderGroupAnalytics, bot_schedules: renderBotSchedules, content_editor: renderContentEditor,
         team: renderTeam, settings: renderSettings, marketing: renderMarketing,
         activity: renderActivityLog, prae_logs: renderPraeLogs,
     };
@@ -8319,4 +8320,96 @@ async function deleteDayZeroPromo(id, code) {
     } catch (e) {
         alert('❌ ' + (e.message || 'ลบไม่สำเร็จ'));
     }
+}
+
+
+// ============================================================
+//  📨 Customer Journey (DM อัตโนมัติ) — added 2026-06-28
+// ============================================================
+let _journeyCache = null;
+let _journeyTab = 'welcome';
+
+async function renderJourney() {
+    const content = document.getElementById('page-content');
+    content.innerHTML = '<div class="loading"><div class="spinner"></div> กำลังโหลด...</div>';
+    try {
+        _journeyCache = await api('/admin/journey-templates');
+    } catch (e) {
+        content.innerHTML = `<div class="err">โหลดไม่สำเร็จ: ${e.message}</div>`;
+        return;
+    }
+    let html = `
+        <div class="tabs" style="margin-bottom:1rem">
+            <div class="tab ${_journeyTab==='welcome'?'active':''}" onclick="_journeyTab='welcome';renderJourney()">👋 Welcome (ลูกค้าใหม่ 24 ชม.)</div>
+            <div class="tab ${_journeyTab==='comeback'?'active':''}" onclick="_journeyTab='comeback';renderJourney()">💌 Comeback (ลูกค้าหาย)</div>
+            <div class="tab ${_journeyTab==='exit'?'active':''}" onclick="_journeyTab='exit';renderJourney()">📊 Exit Survey (หมดอายุ)</div>
+        </div>
+    `;
+    const flowDesc = {
+        welcome: '🆕 ลูกค้าใหม่กด /start → ส่ง 4 stages ใน 24 ชม. (Instant / 3h / 12h / 23h) พร้อมส่วนลด 25%',
+        comeback: '💔 ลูกค้าหายไป → DM 2 รอบ x 4 variants (A/B test) — เลือก variant อัตโนมัติตาม conversion rate',
+        exit: '📤 ลูกค้าหมดอายุไม่ต่อ → ถามเหตุผล + ส่งส่วนลดตาม reason_code (50/40/30/20%)',
+    };
+    html += `<div style="background:rgba(255,255,255,0.05);padding:0.7rem;border-radius:0.5rem;margin-bottom:1rem;font-size:0.9rem;opacity:0.85">${flowDesc[_journeyTab]||''}</div>`;
+    
+    const filtered = _journeyCache.filter(t => t.flow === _journeyTab);
+    if (filtered.length === 0) {
+        html += '<div class="empty-state"><div class="icon">📭</div><p>ไม่มี template</p></div>';
+    } else {
+        html += '<div class="grid" style="grid-template-columns:1fr;gap:0.8rem">';
+        filtered.forEach(t => {
+            const wiredBadge = t.wired
+                ? '<span style="color:var(--success);font-size:0.75rem">✅ ใช้งานจริง</span>'
+                : '<span style="color:#f59e0b;font-size:0.75rem">⏳ ยังไม่ wire (แก้ได้แต่ลูกค้ายังเห็นข้อความเก่า)</span>';
+            const preview = (t.content_html || '').replace(/<[^>]+>/g, '').slice(0, 200);
+            html += `
+                <div class="card" style="padding:1rem">
+                    <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:0.5rem">
+                        <div>
+                            <div style="font-weight:700;font-size:1.05rem">${esc(t.label)}</div>
+                            <div style="font-size:0.75rem;opacity:0.6;margin-top:0.2rem">${esc(t.message_key)} · ${wiredBadge}</div>
+                        </div>
+                        ${hasRole('owner') ? `<button class="btn btn-sm btn-primary" onclick="editJourneyTemplate('${t.message_key}')">✏️ แก้ไข</button>` : ''}
+                    </div>
+                    <div style="font-size:0.85rem;opacity:0.8;line-height:1.6;white-space:pre-line;max-height:120px;overflow:hidden;padding:0.5rem;background:rgba(0,0,0,0.2);border-radius:0.4rem">${esc(preview)}${preview.length === 200 ? '...' : ''}</div>
+                    <div style="font-size:0.75rem;opacity:0.5;margin-top:0.4rem">${t.description || ''}</div>
+                </div>`;
+        });
+        html += '</div>';
+    }
+    content.innerHTML = html;
+}
+
+function editJourneyTemplate(messageKey) {
+    const t = (_journeyCache || []).find(x => x.message_key === messageKey);
+    if (!t) { toast('ไม่พบ template', 'error'); return; }
+    const placeholders = Array.isArray(t.available_placeholders) ? t.available_placeholders : [];
+    const placeholderHints = placeholders.map(p => `<code style="background:rgba(255,255,255,0.1);padding:0.1rem 0.4rem;border-radius:0.3rem;font-size:0.85rem">{${p}}</code>`).join(' ');
+    openModal('✏️ แก้: ' + t.label, `
+        <div class="form-group"><label>คำอธิบาย</label><input id="jrn-desc" value="${esc(t.description || '')}"></div>
+        <div class="form-group">
+            <label>เนื้อหา (HTML รองรับ &lt;b&gt; &lt;i&gt; &lt;a&gt;)</label>
+            <textarea id="jrn-content" rows="14" style="font-family:monospace;font-size:0.85rem;width:100%">${esc(t.content_html || '')}</textarea>
+        </div>
+        ${placeholders.length ? `<div style="margin:0.5rem 0;font-size:0.85rem;opacity:0.85">📝 Placeholders ที่ใช้ได้: ${placeholderHints}</div>` : ''}
+        <div style="display:flex;gap:0.5rem;margin-top:1rem">
+            <button class="btn btn-primary" style="flex:1" onclick="saveJourneyTemplate('${messageKey}')">💾 บันทึก</button>
+            <button class="btn btn-outline" onclick="closeModal()">ยกเลิก</button>
+        </div>
+    `, { wide: true });
+}
+
+async function saveJourneyTemplate(messageKey) {
+    const content_html = document.getElementById('jrn-content').value;
+    const description = document.getElementById('jrn-desc').value;
+    if (!content_html.trim()) { toast('เนื้อหาว่างไม่ได้', 'error'); return; }
+    try {
+        await api(`/admin/journey-templates/${messageKey}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ content_html, description }),
+        });
+        toast('บันทึกแล้ว ✅ (cache จะรีเฟรชใน 60 วินาที)', 'success');
+        closeModal();
+        renderJourney();
+    } catch (e) { toast(e.message, 'error'); }
 }
