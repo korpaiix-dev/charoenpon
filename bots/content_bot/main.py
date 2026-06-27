@@ -57,10 +57,15 @@ FREE_GROUPS = [
 
 
 async def _get_free_groups_async() -> list[int]:
-    """Load active FREE groups from group_registry (DB).
+    """Load target groups for content_bot from bot_group_targets matrix table.
 
-    Returns full list — replaces hardcoded FREE_GROUPS. Caches 5 min.
-    Falls back to static FREE_GROUPS if DB unreachable.
+    Source of truth: Dashboard → 🤖 จัดการบอท → Content Bot → tick groups.
+    Boss can add/remove groups via UI; bot picks up changes within 5 minutes (cache TTL).
+
+    Cascading fallback (safe):
+      1. bot_group_targets WHERE bot_key='content_bot' AND target_role='distribution'
+      2. (legacy) group_registry WHERE is_active AND min_tier=FREE
+      3. (last resort) static FREE_GROUPS list
     """
     import time as _t
     _cache_attr = "_free_groups_cache"
@@ -70,6 +75,32 @@ async def _get_free_groups_async() -> list[int]:
     ts = state.get(_ts_attr, 0)
     if cache and (_t.time() - ts) < 300:
         return cache
+
+    # Tier 1: matrix table (Dashboard-managed)
+    try:
+        from shared.database import get_session as _gs
+        from sqlalchemy import text as _t_sql
+        async with _gs() as _s:
+            r = await _s.execute(_t_sql("""
+                SELECT bgt.chat_id FROM bot_group_targets bgt
+                JOIN group_registry g ON g.chat_id = bgt.chat_id
+                WHERE bgt.bot_key = 'content_bot'
+                  AND bgt.target_role = 'distribution'
+                  AND bgt.is_active = TRUE
+                  AND g.is_active = TRUE
+                ORDER BY g.id
+            """))
+            groups = [row[0] for row in r.all()]
+        if groups:
+            state[_cache_attr] = groups
+            state[_ts_attr] = _t.time()
+            logger.info("Loaded %d groups for content_bot from bot_group_targets", len(groups))
+            return groups
+        logger.warning("bot_group_targets empty for content_bot — falling back to legacy FREE filter")
+    except Exception as exc:
+        logger.warning("bot_group_targets query failed: %s — falling back to legacy FREE filter", exc)
+
+    # Tier 2: legacy group_registry FREE filter
     try:
         from shared.database import get_session as _gs
         from sqlalchemy import text as _t_sql
@@ -83,10 +114,13 @@ async def _get_free_groups_async() -> list[int]:
         if groups:
             state[_cache_attr] = groups
             state[_ts_attr] = _t.time()
-            logger.info("Loaded %d FREE groups from DB", len(groups))
+            logger.warning("Using LEGACY group_registry FREE filter (%d groups) — admin should tick groups in Dashboard 🤖 จัดการบอท", len(groups))
             return groups
     except Exception as exc:
-        logger.warning("FREE_GROUPS DB load failed: %s — using static fallback", exc)
+        logger.warning("legacy FREE filter failed: %s — using static fallback", exc)
+
+    # Tier 3: hardcoded last resort
+    logger.error("Using STATIC FREE_GROUPS fallback (%d groups) — DB unreachable!", len(FREE_GROUPS))
     return FREE_GROUPS
 
 AI_MODEL = "anthropic/claude-haiku-3-5"
