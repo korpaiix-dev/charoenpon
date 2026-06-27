@@ -274,9 +274,29 @@ async def _build_package_list_text() -> str:
         import logging
         logging.getLogger(__name__).warning("dashboard campaign fetch failed: %s", _exc_dc)
 
+    # DAY 0: prepend active Day-0 promo banner
+    _dz_discounts = await _get_active_promo_discounts()
+    if _dz_discounts:
+        _dz_lines = []
+        TIER_LABEL = {"TIER_300": "VIP 30วัน", "TIER_500": "OF+VIP 30วัน",
+                      "TIER_1299": "GOD 90วัน", "TIER_2499": "GOD ถาวร",
+                      "TIER_100": "ห้องชัก"}
+        for _t_k, _info in _dz_discounts.items():
+            _lbl = TIER_LABEL.get(_t_k, _t_k)
+            _dz_lines.append(f"🎁 <b>{_lbl}:</b> <s>{int(_info['original'])}</s> {int(_info['discounted'])} บาท (ลด ฿{int(_info['savings'])})")
+        _dz_banner = "🔥 <b>โปรพิเศษวันนี้!</b>\n" + "\n".join(_dz_lines) + "\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+        dash_banner_lines.insert(0, _dz_banner)  # prepend to existing
+
     dash_banner = ""
     if dash_banner_lines:
-        dash_banner = "🎁 <b>โปรพิเศษวันนี้!</b>\n" + "\n".join(dash_banner_lines) + "\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+        # If first item is our Day-0 banner already formatted, use as-is
+        if dash_banner_lines and dash_banner_lines[0].startswith("🔥 <b>โปรพิเศษวันนี้"):
+            dash_banner = dash_banner_lines[0]
+            _rest = dash_banner_lines[1:]
+            if _rest:
+                dash_banner += "🎁 <b>โปรพิเศษอื่น:</b>\n" + "\n".join(_rest) + "\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+        else:
+            dash_banner = "🎁 <b>โปรพิเศษวันนี้!</b>\n" + "\n".join(dash_banner_lines) + "\n━━━━━━━━━━━━━━━━━━━━━\n\n"
 
     lucky6 = is_lucky_6_active()
     birthday = is_birthday_promo_active() and not lucky6
@@ -355,6 +375,21 @@ async def _build_package_list_text() -> str:
     ))
 
 
+# DAY 0 (2026-06-28): map short-tier (300/500/etc) to TIER_X and check active promo
+async def _get_dayzero_promo_for_tier(short_tier: str) -> dict | None:
+    """Returns {'discounted': int, 'savings': int, 'promo_id': int, 'promo_code': str, 'promo_name': str}
+    if there's an active Day-0 promo for this tier, else None.
+    """
+    try:
+        discounts = await _get_active_promo_discounts()
+        full_tier = f"TIER_{short_tier}"
+        info = discounts.get(full_tier)
+        return info
+    except Exception:
+        return None
+
+
+
 async def _build_package_keyboard() -> InlineKeyboardMarkup:
     """Build inline keyboard. Day-0 promo > LUCKY_6.6 > Flash > end-month > combo > normal."""
     # DAY 0 (2026-06-28): check active Day-0 promotions FIRST — overrides legacy promos
@@ -401,7 +436,7 @@ async def _build_package_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(buttons)
 
 
-def _build_package_detail_text(tier: str) -> str | None:
+async def _build_package_detail_text(tier: str) -> str | None:
     """Build detail text for a specific package tier."""
     for pkg in PACKAGES:
         if pkg["tier"] == tier:
@@ -510,10 +545,20 @@ async def package_detail_callback(
         pass  # callback may be too old / already answered
 
     tier = query.data.replace("pkg_", "")
-    text = _build_package_detail_text(tier)
+    text = await _build_package_detail_text(tier)
     if not text:
         await _safe_edit(query, "ไม่พบแพ็กเกจที่เลือกค่ะ ลองใหม่นะคะ")
         return
+
+    # DAY 0: prepend Day-0 discount info to detail page
+    _dz = await _get_dayzero_promo_for_tier(tier)
+    if _dz:
+        _dz_intro = (
+            f"🔥 <b>โปรพิเศษ!</b> {_dz['promo_name']}\n"
+            f"💰 <s>{int(_dz['original'])}</s> → <b>{int(_dz['discounted'])} บาท</b> (ลด ฿{int(_dz['savings'])})\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+        )
+        text = _dz_intro + text
 
     await _safe_edit(query, text,
         parse_mode="HTML",
@@ -537,9 +582,23 @@ async def buy_package_callback(
         return
 
     # Store selected package in user context
+    # DAY 0: check Day-0 promo FIRST (highest priority — overrides legacy promos)
+    _dayzero = await _get_dayzero_promo_for_tier(tier)
     promo_active = tier in ("300", "2499") and is_endmonth_vip_promo_active()
     may_promo_active = tier in ("500", "1299") and is_may_combo_promo_active()
-    if promo_active and tier == "300":
+    if _dayzero:
+        display_price = str(int(_dayzero["discounted"]))
+        # Store promo context so payment_approval can use it
+        context.user_data["dayzero_promo_id"] = _dayzero["promo_id"]
+        context.user_data["dayzero_promo_code"] = _dayzero["promo_code"]
+        context.user_data["dayzero_promo_savings"] = _dayzero["savings"]
+        # Record the promotion_click (so slip handler can match)
+        try:
+            from shared.promotion_service import record_click
+            await record_click(_dayzero["promo_id"], query.from_user.id, f"TIER_{tier}")
+        except Exception:
+            pass
+    elif promo_active and tier == "300":
         display_price = str(int(PROMO_PRICE))
     elif promo_active and tier == "2499":
         display_price = str(int(PROMO_2499_PRICE))
