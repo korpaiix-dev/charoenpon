@@ -7262,7 +7262,7 @@ async function renderBotSchedules() {
                             <div style="font-size:0.72rem;color:var(--text-muted);">${esc(s.description || '')}</div>
                         </div>
                         <div class="sched-time-input">
-                            <input type="number" min="0" max="23" value="${String(s.schedule_hour).padStart(2,\'0\')}" data-sched="${s.id}" data-field="hour" onchange="updateSchedTime(${s.id},'hour',this.value)">
+                            <input type="number" min="0" max="23" value="${String(s.schedule_hour).padStart(2,'0')}" data-sched="${s.id}" data-field="hour" onchange="updateSchedTime(${s.id},'hour',this.value)">
                             <span style="color:var(--text-muted);">:</span>
                             <input type="number" min="0" max="59" value="${String(s.schedule_minute).padStart(2,'0')}" data-sched="${s.id}" data-field="minute" onchange="updateSchedTime(${s.id},'minute',this.value)">
                         </div>
