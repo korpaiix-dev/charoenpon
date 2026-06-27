@@ -6711,17 +6711,33 @@ async function restartBotContainer(container) {
 // Phase A.4 (2026-06-27): Toggle clip_poster_bot permission per admin
 // ==================================================================
 async function toggleClipPermission(memberId, currentEnabled, displayName) {
-    const verb = currentEnabled ? 'ปิดสิทธิ์' : 'เปิดสิทธิ์';
-    if (!confirm(`${verb}ใช้บอตโพสต์คลิป สำหรับ ${displayName}?`)) return;
+    // Optimistic UX: flip immediately, show toast, rollback on error, no confirm popup
+    const newState = !currentEnabled;
+    const verb = newState ? 'เปิดสิทธิ์' : 'ปิดสิทธิ์';
+
+    // Find badge & swap appearance immediately (visual feedback)
+    const cells = document.querySelectorAll(`[onclick*="toggleClipPermission(${memberId},"]`);
+    cells.forEach(el => {
+        el.disabled = true;
+        el.style.opacity = '0.5';
+    });
+
     try {
         await api(`/team/${memberId}/can-post-clips`, {
             method: 'PATCH',
-            body: JSON.stringify({ enabled: !currentEnabled }),
+            body: JSON.stringify({ enabled: newState }),
         });
-        showToast(`✅ ${verb} ${displayName} สำเร็จ`, 'success');
-        if (typeof renderTeam === 'function') renderTeam();
+        showToast(`${newState ? '🎬' : '⚪'} ${verb} <b>${displayName}</b> สำเร็จ`, 'success');
+        // Auto-refresh table — fully fresh data
+        if (typeof renderTeam === 'function') {
+            await renderTeam();
+        }
     } catch (e) {
         showToast('❌ ' + e.message, 'error');
+        cells.forEach(el => {
+            el.disabled = false;
+            el.style.opacity = '';
+        });
     }
 }
 
