@@ -354,27 +354,26 @@ async def _navigate(query, text: str, kb, img_path=None) -> None:
 async def _get_customer_state(telegram_id: int) -> str:
     """Return: 'new' (no active sub) | 'active' (VIP active) | 'god' (TIER_2499).
 
-    FIX 2026-06-28: subscriptions table มีแค่ package_id ไม่มี tier
-    → ต้อง JOIN packages เพื่อเอา tier มาเช็ค
+    FIX 2026-06-28 v2: ใช้ SQLAlchemy AsyncSession + text() (shared.database ไม่มี pool)
     """
     try:
-        from datetime import datetime
-        from shared.database import pool
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT p.tier::text AS tier
-                FROM subscriptions s
-                JOIN users u ON u.id = s.user_id
-                JOIN packages p ON p.id = s.package_id
-                WHERE u.telegram_id = $1
-                  AND s.status = 'ACTIVE'
-                  AND s.end_date > NOW()
-                ORDER BY s.end_date DESC
-                """,
-                telegram_id,
+        from sqlalchemy import text
+        from shared.database import get_session
+        async with get_session() as session:
+            result = await session.execute(
+                text(
+                    "SELECT p.tier::text AS tier "
+                    "FROM subscriptions s "
+                    "JOIN users u ON u.id = s.user_id "
+                    "JOIN packages p ON p.id = s.package_id "
+                    "WHERE u.telegram_id = :tg "
+                    "  AND s.status = 'ACTIVE' "
+                    "  AND s.end_date > NOW() "
+                    "ORDER BY s.end_date DESC"
+                ),
+                {"tg": telegram_id},
             )
-            tiers = [r["tier"] for r in rows]
+            tiers = [row[0] for row in result.fetchall()]
             if not tiers:
                 return "new"
             if "TIER_2499" in tiers:
