@@ -159,7 +159,14 @@ async function api(path, options = {}) {
     }
     if (!resp.ok) {
         const err = await resp.json().catch(() => ({ detail: 'Error' }));
-        throw new Error(err.detail || 'API Error');
+        let msg = err.detail || err.error || err.message || 'API Error';
+        // FastAPI 422 returns array of {loc, msg, type} — extract first msg
+        if (Array.isArray(msg)) {
+            msg = msg.map(e => (e && e.msg) ? e.msg : JSON.stringify(e)).join('; ');
+        } else if (typeof msg === 'object') {
+            msg = JSON.stringify(msg);
+        }
+        throw new Error(String(msg));
     }
     return resp.json();
 }
@@ -7683,7 +7690,7 @@ function ctOpenAddTemplate() {
             </div>
             <div style="margin-bottom:0.75rem;">
                 <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.3rem;text-transform:uppercase;">รหัส template_key * (ภาษาอังกฤษ + _)</label>
-                <input id="ct-add-key" class="ct-input" placeholder="เช่น promo_vip_summer">
+                <input id="ct-add-key" class="ct-input" placeholder="เช่น promo_vip_summer" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9_]+/g,'_')">
             </div>
             <div style="margin-bottom:0.75rem;">
                 <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.3rem;text-transform:uppercase;">หมวด</label>
@@ -7713,7 +7720,7 @@ async function ctSubmitAddTemplate() {
     const cap = document.getElementById('ct-add-cap').value;
     if (!name || !key) { alert('กรอกชื่อแสดง + รหัส template_key'); return; }
     try {
-        await api('/admin/content-templates', { method: 'POST', body: { template_key: key, display_name: name, category: cat, caption_html: cap } });
+        await api('/admin/content-templates', { method: 'POST', body: JSON.stringify({ template_key: key, display_name: name, category: cat, caption_html: cap }) });
         document.getElementById('addTplModal').remove();
         toast('✅ สร้าง template แล้ว');
         renderContentEditor();
@@ -7785,7 +7792,7 @@ async function schedSubmitAdd() {
     try {
         await api(`/admin/bots/${encodeURIComponent(_schedBot||'content_bot')}/schedules`, {
             method: 'POST',
-            body: { template_key: tpl, schedule_hour: h, schedule_minute: m }
+            body: JSON.stringify({ template_key: tpl, schedule_hour: h, schedule_minute: m })
         });
         document.getElementById('addSchedModal').remove();
         toast('✅ สร้าง schedule + กำลัง restart บอต...');
