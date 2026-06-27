@@ -50,26 +50,27 @@ ADMIN_IDS = {
 LOGO_PATH = os.environ.get("CLIP_POSTER_LOGO_PATH", "/app/assets/clip_logo.png")
 SALES_BOT_USERNAME = os.environ.get("SALES_BOT_USERNAME", "charoenpon_bot")
 
-# Caption templates — {tier} substituted when hint provided
+# Caption templates with clickable HTML links + tier-aware deep-link for tracking.
+# {tier} = price hint, {url} = full deep link (e.g. https://t.me/bot?start=clip_300)
 CAPTION_TEMPLATES = [
-    "🔥 ตัวอย่างหลุด — ดูเต็มในห้อง VIP เจริญพร\n\n💎 เริ่ม ฿{tier} • @{bot}",
-    "💕 แค่ตัวอย่าง — ของเต็มจัดเต็มกว่านี้\n\n👉 สมัคร VIP ฿{tier}: @{bot}",
-    "🍃 น้ำจิ้มก่อน — เคลียร์ๆ ในห้องจริง\n\n📦 VIP ฿{tier}: @{bot}",
-    "✨ ตัวอย่างเด็ดๆ จากห้องเจริญพร\n\n🎬 ดูเต็มเริ่ม ฿{tier} → @{bot}",
-    "🎯 ดูได้แค่ตัวอย่าง — สมัครเข้า VIP ดูเต็ม\n\n💰 ฿{tier}/30 วัน • @{bot}",
-    "🚀 อยากดูเต็มไหม? เข้า VIP เจริญพรเลย\n\n💸 ฿{tier} • @{bot}",
-    "🌟 ตัวอย่างคลิป VIP เจริญพร\n\n💎 สมัคร ฿{tier} ทักบอท: @{bot}",
-    "💥 ของจริงเต็มในห้อง — นี่แค่ตัวอย่าง\n\n👉 ฿{tier}: @{bot}",
-    "🎁 ดูฟรีแค่นี้ — เต็มอยู่ห้อง VIP\n\n📲 สมัคร ฿{tier} @{bot}",
-    "⭐ ตัวอย่างเด็ดๆ — สมัครดูเต็ม\n\n💎 เริ่ม ฿{tier} • @{bot}",
+    "🔥 <b>ตัวอย่างหลุด</b> — ดูเต็มในห้อง VIP เจริญพร\n💎 เริ่ม <b>฿{tier}</b>/30 วัน\n\n👉 <a href=\"{url}\">สมัครที่นี่ — ทักบอทเลย</a>",
+    "💕 <b>แค่ตัวอย่าง</b> — ของเต็มจัดเต็มกว่านี้\n💎 สมัคร VIP เริ่ม <b>฿{tier}</b>\n\n👉 <a href=\"{url}\">กดเลย — เข้าห้อง VIP</a>",
+    "🍃 <b>น้ำจิ้มก่อน</b> — เคลียร์ๆ ในห้องจริง\n📦 VIP <b>฿{tier}</b> ดูเต็มเลย\n\n👉 <a href=\"{url}\">สมัครที่นี่</a>",
+    "✨ <b>ตัวอย่างเด็ดๆ</b> จากห้องเจริญพร\n🎬 ดูเต็มเริ่ม <b>฿{tier}</b>\n\n👉 <a href=\"{url}\">สมัครเลย — กดที่นี่</a>",
+    "🎯 <b>ดูได้แค่ตัวอย่าง</b> — สมัครเข้า VIP ดูเต็ม\n💰 <b>฿{tier}</b>/30 วัน คุ้มสุดๆ\n\n👉 <a href=\"{url}\">สมัครที่นี่ — ทักบอท</a>",
+    "🚀 <b>อยากดูเต็มไหม?</b> เข้า VIP เจริญพรเลย\n💸 เริ่ม <b>฿{tier}</b>\n\n👉 <a href=\"{url}\">กดเลย — สมัครที่นี่</a>",
+    "🌟 <b>ตัวอย่างคลิป VIP เจริญพร</b>\n💎 สมัคร <b>฿{tier}</b> ทักบอท\n\n👉 <a href=\"{url}\">กดเลย — เข้าห้อง</a>",
+    "💥 <b>ของจริงเต็มในห้อง</b> — นี่แค่ตัวอย่าง\n💎 VIP เริ่ม <b>฿{tier}</b>\n\n👉 <a href=\"{url}\">สมัครที่นี่ — ทักบอทเลย</a>",
+    "🎁 <b>ดูฟรีแค่นี้</b> — เต็มอยู่ห้อง VIP\n📲 สมัคร <b>฿{tier}</b>/30 วัน\n\n👉 <a href=\"{url}\">กดที่นี่ — เข้าเลย</a>",
+    "⭐ <b>ตัวอย่างเด็ดๆ</b> — สมัครดูเต็ม\n💎 เริ่ม <b>฿{tier}</b> เท่านั้น\n\n👉 <a href=\"{url}\">สมัครที่นี่ — กดเลย</a>",
 ]
-# When no tier hint → use general fallback list
+# When no tier hint → general fallback list (also clickable link)
 CAPTION_GENERIC = [
-    "🔥 ตัวอย่างจากห้อง VIP เจริญพร\n\n💎 ดูเต็มเริ่ม ฿300 • @{bot}",
-    "💕 แค่น้ำจิ้ม — ของจริงในห้อง VIP\n\n👉 เริ่ม ฿300 ทักบอท: @{bot}",
-    "🎬 ตัวอย่างคลิป — สมัครดูเต็ม\n\n📦 มี ฿300 / ฿1299 / ฿2499 • @{bot}",
-    "✨ ดูได้แค่นี้ฟรี — เต็มในห้อง VIP\n\n💎 @{bot}",
-    "🌟 อยากดูเต็ม? ห้อง VIP เจริญพร\n\n💸 เริ่ม ฿300 → @{bot}",
+    "🔥 <b>ตัวอย่างจากห้อง VIP เจริญพร</b>\n💎 ดูเต็มเริ่ม ฿300/30 วัน\n\n👉 <a href=\"{url}\">สมัครที่นี่ — ทักบอทเลย</a>",
+    "💕 <b>แค่น้ำจิ้ม</b> — ของจริงในห้อง VIP\n💎 เริ่ม ฿300 มีหลายแพ็กให้เลือก\n\n👉 <a href=\"{url}\">กดเลย — สมัครที่นี่</a>",
+    "🎬 <b>ตัวอย่างคลิป</b> — สมัครดูเต็ม\n📦 มี ฿300 / ฿1299 / ฿2499\n\n👉 <a href=\"{url}\">กดที่นี่ — เข้าห้อง VIP</a>",
+    "✨ <b>ดูได้แค่นี้ฟรี</b> — เต็มในห้อง VIP\n💎 เริ่ม ฿300/30 วัน คุ้มสุดๆ\n\n👉 <a href=\"{url}\">สมัครเลย — กดที่นี่</a>",
+    "🌟 <b>อยากดูเต็ม?</b> ห้อง VIP เจริญพร\n💸 เริ่ม ฿300 มีหลายราคาให้เลือก\n\n👉 <a href=\"{url}\">กดเลย — สมัครที่นี่</a>",
 ]
 
 # ─── Tier detection from admin's caption ────────────────────────────────────
@@ -92,12 +93,23 @@ def detect_tier(text: Optional[str]) -> Optional[str]:
     return None
 
 
+def build_url(tier: Optional[str]) -> str:
+    """Deep-link to sales bot with tier-aware tracking param.
+
+    Format: https://t.me/<sales_bot>?start=clip_<tier>  (e.g. clip_300)
+    No tier → clip_promo (generic CTA)
+    """
+    code = f"clip_{tier}" if tier else "clip_promo"
+    return f"https://t.me/{SALES_BOT_USERNAME}?start={code}"
+
+
 def pick_caption(tier: Optional[str]) -> str:
+    url = build_url(tier)
     if tier:
         tmpl = random.choice(CAPTION_TEMPLATES)
-        return tmpl.format(tier=tier, bot=SALES_BOT_USERNAME)
+        return tmpl.format(tier=tier, url=url)
     tmpl = random.choice(CAPTION_GENERIC)
-    return tmpl.format(bot=SALES_BOT_USERNAME)
+    return tmpl.format(url=url)
 
 
 # ─── Watermark via ffmpeg ────────────────────────────────────────────────────
@@ -316,6 +328,7 @@ async def on_video(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                         chat_id=g["chat_id"],
                         video=f,
                         caption=caption_text,
+                        parse_mode="HTML",
                         supports_streaming=True,
                     )
                 sent.append(g["slug"])
