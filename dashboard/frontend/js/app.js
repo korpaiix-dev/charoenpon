@@ -3306,7 +3306,7 @@ async function renderTeam() {
             <div class="alert-box-item">📋 <b>Moderator (10)</b> — ดู + อนุมัติสลิป</div>
         </div>`;
 
-        html += '<div class="table-wrap"><table><thead><tr><th>ชื่อ</th><th>Telegram ID</th><th>ยศ</th><th>สถานะ</th><th title="สิทธิ์ใช้บอตโพสต์คลิป @examplejarern_bot">🎬 คลิป</th><th>Login ล่าสุด</th><th style="text-align:right;">จัดการ</th></tr></thead><tbody>';
+        html += '<div class="table-wrap"><table><thead><tr><th>ชื่อ</th><th>Telegram ID</th><th>ยศ</th><th>สถานะ</th><th title="สิทธิ์ใช้บอตแต่ละตัว">🤖 บอท</th><th>Login ล่าสุด</th><th style="text-align:right;">จัดการ</th></tr></thead><tbody>';
         data.forEach(m => {
             const roleIcons = { owner: '👑', super_admin: '⚡', admin: '🛡️', moderator: '📋' };
             const roleIcon = roleIcons[m.role] || '📋';
@@ -3340,13 +3340,15 @@ async function renderTeam() {
                 <td style="font-family:var(--font-mono);">${m.telegram_id}</td>
                 <td>${roleIcon} ${esc(m.role)}</td>
                 <td>${m.is_active ? '<span style="color:var(--success)">🟢 Active</span>' : '<span style="color:var(--error)">🔴 Disabled</span>'}</td>
-                <td>${clipPermBadge(m.can_post_clips, m.id, m.display_name, m.role, hasRole('super_admin') || hasRole('owner'))}</td>
+                <td>${botPermsBadge(m.id, m.display_name, m.role, hasRole('super_admin') || hasRole('owner'))}</td>
                 <td>${fmtDateTime(m.last_login_at)}</td>
                 <td style="text-align:right;"><div class="btn-group" style="justify-content:flex-end;">${actions}</div></td>
             </tr>`;
         });
         html += '</tbody></table></div>';
         content.innerHTML = html;
+        // Async-load bot perm count badges
+        setTimeout(() => { try { loadBotPermsBadges(); } catch (e) {} }, 100);
     } catch (e) { content.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`; }
 }
 
@@ -6710,49 +6712,84 @@ async function restartBotContainer(container) {
 // ==================================================================
 // Phase A.4 (2026-06-27): Toggle clip_poster_bot permission per admin
 // ==================================================================
-async function toggleClipPermission(memberId, currentEnabled, displayName) {
-    // Optimistic UX: flip immediately, show toast, rollback on error, no confirm popup
-    const newState = !currentEnabled;
-    const verb = newState ? 'เปิดสิทธิ์' : 'ปิดสิทธิ์';
+// Legacy toggleClipPermission removed — use showBotPermsModal() instead
 
-    // Find badge & swap appearance immediately (visual feedback)
-    const cells = document.querySelectorAll(`[onclick*="toggleClipPermission(${memberId},"]`);
-    cells.forEach(el => {
-        el.disabled = true;
-        el.style.opacity = '0.5';
-    });
+function botPermsBadge(memberId, displayName, role, canManage) {
+    const isOwner = role === 'owner';
+    const safeName = esc(displayName).replace(/'/g, "\\'");
+    const onclick = (isOwner || !canManage)
+        ? '' : `onclick="showBotPermsModal(${memberId}, '${safeName}')"`;
+    const tooltip = isOwner
+        ? 'Owner ใช้บอตได้ทุกตัว' : (canManage ? 'คลิกเพื่อจัดการสิทธิ์' : 'ต้องเป็น super_admin ขึ้นไปถึงจะปรับได้');
+    return `<span class="btn btn-sm btn-outline" style="${isOwner || !canManage ? 'cursor:default;opacity:0.8;' : 'cursor:pointer;'}" ${onclick} title="${tooltip}" id="bot-perms-badge-${memberId}">⏳</span>`;
+}
 
-    try {
-        await api(`/team/${memberId}/can-post-clips`, {
-            method: 'PATCH',
-            body: JSON.stringify({ enabled: newState }),
-        });
-        showToast(`${newState ? '🎬' : '⚪'} ${verb} <b>${displayName}</b> สำเร็จ`, 'success');
-        // Auto-refresh table — fully fresh data
-        if (typeof renderTeam === 'function') {
-            await renderTeam();
-        }
-    } catch (e) {
-        showToast('❌ ' + e.message, 'error');
-        cells.forEach(el => {
-            el.disabled = false;
-            el.style.opacity = '';
-        });
+// On render: fetch each member's bot perms count and update badge text
+async function loadBotPermsBadges() {
+    const badges = document.querySelectorAll('[id^="bot-perms-badge-"]');
+    for (const el of badges) {
+        const memberId = el.id.replace('bot-perms-badge-', '');
+        try {
+            const data = await api(`/team/${memberId}/bot-permissions`);
+            const total = data.bots.length;
+            const granted = data.granted.length;
+            const isOwner = data.member.role === 'owner';
+            el.innerHTML = isOwner
+                ? `🤖 ทั้งหมด (${total})`
+                : `🤖 ${granted}/${total}`;
+            // Color code
+            if (granted === 0) el.style.color = 'var(--text-muted)';
+            else if (granted === total) el.style.color = 'var(--success)';
+            else el.style.color = 'var(--warning)';
+        } catch (e) { el.innerHTML = '⚠️ err'; }
     }
 }
 
-function clipPermBadge(canPost, memberId, displayName, role, canManage) {
-    const isOwner = role === 'owner';
-    const safeName = esc(displayName).replace(/'/g, "\\'");
-    if (canPost) {
-        if (isOwner || !canManage) {
-            return `<span class="btn btn-sm btn-success" style="cursor:default;opacity:0.7;" title="${isOwner ? 'Owner ใช้บอตได้เสมอ' : 'ต้องเป็น super_admin ขึ้นไปถึงจะปรับได้'}">🎬 ON</span>`;
-        }
-        return `<button class="btn btn-sm btn-success" onclick="toggleClipPermission(${memberId}, true, '${safeName}')" title="คลิกเพื่อปิดสิทธิ์">🎬 ON</button>`;
+async function showBotPermsModal(memberId, displayName) {
+    try {
+        const data = await api(`/team/${memberId}/bot-permissions`);
+        const grantedSet = new Set(data.granted);
+        const checkboxes = data.bots.map(b => {
+            const checked = grantedSet.has(b.bot_key);
+            return `<label style="display:flex;align-items:center;gap:0.6rem;padding:0.6rem;border-bottom:1px solid var(--border);cursor:pointer;">
+                <input type="checkbox" data-bot-key="${esc(b.bot_key)}" ${checked ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer;">
+                <span style="font-size:1.3rem;">${b.icon}</span>
+                <div style="flex:1;">
+                    <div style="font-weight:600;">${esc(b.display_name)}</div>
+                    <div style="font-size:0.75rem;color:var(--text-muted);">${esc(b.description || '')}</div>
+                </div>
+            </label>`;
+        }).join('');
+        openModal(`🤖 จัดการสิทธิ์ใช้บอท — ${esc(displayName)}`, `
+            <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.75rem;">
+                เลือกบอทที่ <b>${esc(displayName)}</b> จะใช้งานได้
+            </div>
+            <div id="bot-perms-list" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+                ${checkboxes}
+            </div>
+            <div style="margin-top:1rem;display:flex;gap:0.5rem;justify-content:flex-end;">
+                <button class="btn btn-outline" onclick="closeModal()">ยกเลิก</button>
+                <button class="btn btn-primary" onclick="saveBotPerms(${memberId})">💾 บันทึก</button>
+            </div>
+        `);
+    } catch (e) {
+        showToast('❌ ' + e.message, 'error');
     }
-    if (!canManage) {
-        return `<span class="btn btn-sm btn-outline" style="cursor:default;opacity:0.7;" title="ต้องเป็น super_admin ขึ้นไปถึงจะปรับได้">⚪ OFF</span>`;
+}
+
+async function saveBotPerms(memberId) {
+    const checkboxes = document.querySelectorAll('#bot-perms-list input[type="checkbox"]:checked');
+    const bot_keys = Array.from(checkboxes).map(cb => cb.dataset.botKey);
+    try {
+        await api(`/team/${memberId}/bot-permissions`, {
+            method: 'PATCH',
+            body: JSON.stringify({ bot_keys }),
+        });
+        showToast(`💾 บันทึกสิทธิ์ ${bot_keys.length} บอท สำเร็จ`, 'success');
+        closeModal();
+        if (typeof renderTeam === 'function') await renderTeam();
+    } catch (e) {
+        showToast('❌ ' + e.message, 'error');
     }
-    return `<button class="btn btn-sm btn-outline" onclick="toggleClipPermission(${memberId}, false, '${safeName}')" title="คลิกเพื่อเปิดสิทธิ์">⚪ OFF</button>`;
 }
 

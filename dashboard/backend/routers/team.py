@@ -188,3 +188,104 @@ async def toggle_can_post_clips(
         'can_post_clips': enabled,
     }
 
+
+# ==================================================================
+# Phase A.5 (2026-06-27): Matrix permission (admin × bot)
+# Replaces per-capability columns. Single source of truth for ALL bots.
+# ==================================================================
+
+@router.get("/bot-registry")
+async def list_bot_registry(_admin=Depends(require_role("admin"))):
+    """List all bots that admins can be granted access to."""
+    rows = await pool.fetch(
+        "SELECT bot_key, display_name, icon, description, is_active "
+        "FROM bot_registry ORDER BY sort_order, bot_key"
+    )
+    return [dict(r) for r in rows]
+
+
+@router.get("/{member_id}/bot-permissions")
+async def get_member_bot_permissions(member_id: int, _admin=Depends(require_role("admin"))):
+    """Return: { bots: [...all bots...], granted: ['bot_key', ...] }"""
+    member = await pool.fetchrow(
+        "SELECT id, display_name, role FROM dashboard_admins WHERE id=$1", member_id
+    )
+    if not member:
+        raise HTTPException(404, "Member not found")
+    bots = await pool.fetch(
+        "SELECT bot_key, display_name, icon, description FROM bot_registry "
+        "WHERE is_active = TRUE ORDER BY sort_order"
+    )
+    granted = await pool.fetch(
+        "SELECT bot_key FROM admin_bot_permissions WHERE admin_id=$1", member_id
+    )
+    return {
+        "member": dict(member),
+        "bots": [dict(b) for b in bots],
+        "granted": [r["bot_key"] for r in granted],
+    }
+
+
+@router.patch("/{member_id}/bot-permissions")
+async def set_member_bot_permissions(
+    member_id: int,
+    payload: dict,
+    request: Request,
+    admin=Depends(require_role("super_admin")),
+):
+    """Replace member's bot permissions entirely.
+
+    Body: { "bot_keys": ["admin_bot", "clip_poster_bot", ...] }
+
+    Owner cannot have permissions revoked (always all bots).
+    """
+    member = await pool.fetchrow(
+        "SELECT id, display_name, role FROM dashboard_admins WHERE id=$1", member_id
+    )
+    if not member:
+        raise HTTPException(404, "Member not found")
+
+    bot_keys = payload.get("bot_keys") or []
+    if not isinstance(bot_keys, list):
+        raise HTTPException(400, "bot_keys must be array")
+
+    # Owner: always all bots — ignore payload, grant all
+    if member["role"] == "owner":
+        bot_keys = [r["bot_key"] for r in await pool.fetch(
+            "SELECT bot_key FROM bot_registry WHERE is_active = TRUE"
+        )]
+
+    # Validate bot_keys exist
+    valid_keys = {r["bot_key"] for r in await pool.fetch(
+        "SELECT bot_key FROM bot_registry WHERE bot_key = ANY($1::text[])", bot_keys
+    )}
+    invalid = set(bot_keys) - valid_keys
+    if invalid:
+        raise HTTPException(400, f"unknown bot_keys: {sorted(invalid)}")
+
+    # Atomic replace
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "DELETE FROM admin_bot_permissions WHERE admin_id=$1", member_id
+            )
+            if bot_keys:
+                await conn.executemany(
+                    "INSERT INTO admin_bot_permissions (admin_id, bot_key, granted_by) "
+                    "VALUES ($1, $2, $3)",
+                    [(member_id, k, admin["telegram_id"]) for k in bot_keys],
+                )
+
+    ip = request.client.host if request.client else None
+    await _log(
+        admin["id"], "set_bot_permissions", "admin", member_id,
+        {"display_name": member["display_name"], "bot_keys": sorted(bot_keys)},
+        ip,
+    )
+    return {
+        "ok": True,
+        "member_id": member_id,
+        "display_name": member["display_name"],
+        "granted": sorted(bot_keys),
+    }
+

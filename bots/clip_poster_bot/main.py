@@ -271,14 +271,14 @@ _admin_cache = {"ids": None, "expires": 0}
 
 
 async def get_allowed_admins() -> set[int]:
-    """Return tg_ids allowed to use the bot.
+    """Return tg_ids allowed to use this bot.
 
-    SOURCE OF TRUTH: dashboard_admins table (no env fallback, no hardcoded).
-    Boss manages permissions via Dashboard → Team page → toggle 🎬 column.
+    SOURCE OF TRUTH: admin_bot_permissions table (matrix admin × bot).
+    Boss manages via Dashboard → Team page → 🤖 บอท modal (checkbox list).
     Cached 60s.
 
-    Fail-closed: if DB unreachable → returns empty set → bot rejects all users.
-    Safer than env fallback because admin can always re-enable via web UI.
+    Bot identifier: 'clip_poster_bot' (must match bot_registry.bot_key).
+    Fail-closed: DB unreachable → empty set → reject all (safe).
     """
     import time as _t
     now = _t.time()
@@ -293,8 +293,10 @@ async def get_allowed_admins() -> set[int]:
         conn = await asyncpg.connect(db_url)
         try:
             rows = await conn.fetch(
-                "SELECT telegram_id FROM dashboard_admins "
-                "WHERE is_active = TRUE AND can_post_clips = TRUE"
+                "SELECT da.telegram_id FROM admin_bot_permissions abp "
+                "JOIN dashboard_admins da ON da.id = abp.admin_id "
+                "WHERE abp.bot_key = $1 AND da.is_active = TRUE",
+                "clip_poster_bot",
             )
             allowed = {int(r["telegram_id"]) for r in rows}
             _admin_cache["ids"] = allowed
