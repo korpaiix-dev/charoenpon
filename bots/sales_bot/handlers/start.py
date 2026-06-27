@@ -78,12 +78,13 @@ async def _handle_promo_start(update, context, promo_code: str) -> bool:
         url = _os.environ.get("DATABASE_URL", "").replace("postgresql+asyncpg://", "postgresql://")
         conn = await asyncpg.connect(url)
         try:
-            # packages table uses `tier` column (enum) as the identifier we match
+            # Day-0 FIX: show ALL active packages, not just promo-eligible
+            # → highlight promo packages with discount, regular packages at full price
+            # → customer sees full menu, can upsell themselves
             pkg_rows = await conn.fetch(
-                "SELECT id, tier::text AS tier_str, name, price, duration_days "
-                "FROM packages WHERE tier::text = ANY($1) AND is_active = TRUE "
-                "ORDER BY price",
-                pkg_codes,
+                "SELECT id, tier::text AS tier_str, name, price, duration_days, sort_order "
+                "FROM packages WHERE is_active = TRUE "
+                "ORDER BY sort_order DESC, price"
             )
         finally:
             await conn.close()
@@ -92,25 +93,50 @@ async def _handle_promo_start(update, context, promo_code: str) -> bool:
         return False
     
     if not pkg_rows:
-        logger.warning("promo %s has no eligible packages in DB", promo_code)
+        logger.warning("no active packages — cannot render promo %s", promo_code)
         return False
     
-    # Build buttons: 1 per package with discounted price
+    # Split into "with promo discount" vs "regular price"
+    promo_codes_set = set(pkg_codes)
+    
+    # Build buttons: promo packages first (highlighted with 🔥), then regular
     kb_rows = []
+    
+    # First pass: packages that get a discount
+    has_discount_section = False
     for pkg in pkg_rows:
+        if pkg["tier_str"] not in promo_codes_set:
+            continue
         price_calc = calculate_price(promo, pkg["tier_str"], float(pkg["price"]))
-        disc = price_calc["discounted"]
-        orig = price_calc["original"]
-        savings = price_calc["savings"]
-        
+        if not price_calc.get("applied") or price_calc["savings"] <= 0:
+            continue
         nm = pkg["name"]
-        di = int(disc)
-        sv = int(savings)
-        if savings > 0:
-            label = f"💰 {nm} — ฿{di} (ลด ฿{sv})"
-        else:
-            label = f"📦 {nm} — ฿{di}"
+        di = int(price_calc["discounted"])
+        sv = int(price_calc["savings"])
+        label = f"🔥 {nm} — ฿{di} (ลด ฿{sv})"
         cb_data = f"promo_buy:{promo['id']}:{pkg['id']}"
+        kb_rows.append([InlineKeyboardButton(label, callback_data=cb_data)])
+        has_discount_section = True
+    
+    # Visual separator if we have both sections
+    if has_discount_section:
+        kb_rows.append([InlineKeyboardButton("━━━━━ แพ็คเกจอื่น ━━━━━", callback_data="promo_noop")])
+    
+    # Second pass: regular-price packages (everything else)
+    for pkg in pkg_rows:
+        if pkg["tier_str"] in promo_codes_set:
+            # Skip if it was in the discount section above
+            price_calc = calculate_price(promo, pkg["tier_str"], float(pkg["price"]))
+            if price_calc.get("applied") and price_calc["savings"] > 0:
+                continue
+        # Skip gacha tiers from this menu (they have own flow)
+        if pkg["tier_str"].startswith("GACHA_"):
+            continue
+        nm = pkg["name"]
+        orig = int(float(pkg["price"]))
+        label = f"📦 {nm} — ฿{orig}"
+        # Use standard buy flow (existing buy_TIER_X callback)
+        cb_data = f"buy_{pkg['tier_str']}"
         kb_rows.append([InlineKeyboardButton(label, callback_data=cb_data)])
     
     kb_rows.append([InlineKeyboardButton("💬 ติดต่อแอดมิน", url="https://t.me/sperm6969")])

@@ -189,8 +189,19 @@ async def promo_buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             logger.warning("promo_buy QR send failed: %s", exc)
 
 
+
+
+async def promo_noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Silent ack for visual separator buttons."""
+    try:
+        await update.callback_query.answer()
+    except Exception:
+        pass
+
+
 def get_promo_purchase_handlers():
     """Return CallbackQueryHandler list for promo_buy: pattern."""
     return [
         CallbackQueryHandler(promo_buy_callback, pattern=r"^promo_buy:"),
+        CallbackQueryHandler(promo_noop_callback, pattern=r"^promo_noop$"),
     ]
