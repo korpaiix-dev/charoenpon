@@ -50,6 +50,87 @@ def _extract_source(args: list[str]) -> str | None:
     return None
 
 
+async def _handle_template_start(update, context, template_key: str) -> bool:
+    """B.1.E (2026-06-27): Generic template deep link handler.
+    
+    When customer clicks t.me/NamwarnJarern_bot?start=template_<key>,
+    look up content_templates and reply with the same caption + buttons.
+    Closes the end-to-end loop with content_bot generic poster.
+    """
+    import os as _os
+    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+    try:
+        import asyncpg
+        url = _os.environ.get("DATABASE_URL", "").replace("postgresql+asyncpg://", "postgresql://")
+        if not url:
+            return False
+        conn = await asyncpg.connect(url)
+        try:
+            row = await conn.fetchrow(
+                "SELECT caption_html, image_path, buttons FROM content_templates "
+                "WHERE bot_key=$1 AND template_key=$2 AND is_enabled=TRUE",
+                "content_bot", template_key,
+            )
+        finally:
+            await conn.close()
+    except Exception as exc:
+        logger.warning("template deeplink lookup failed for %s: %s", template_key, exc)
+        return False
+    
+    if not row:
+        return False  # let caller fall through to default menu
+    
+    caption = row["caption_html"] or ""
+    buttons = row["buttons"] or []
+    image_path = row["image_path"] or ""
+    
+    # Build InlineKeyboard from JSONB
+    keyboard = None
+    try:
+        if buttons:
+            if isinstance(buttons, list) and buttons and isinstance(buttons[0], dict):
+                rows_raw = [buttons]
+            else:
+                rows_raw = buttons
+            kb_rows = []
+            for r in rows_raw:
+                btn_row = []
+                for b in r:
+                    if not isinstance(b, dict) or not b.get("text"):
+                        continue
+                    if b.get("url"):
+                        btn_row.append(InlineKeyboardButton(b["text"], url=b["url"]))
+                    elif b.get("callback_data"):
+                        btn_row.append(InlineKeyboardButton(b["text"], callback_data=b["callback_data"]))
+                if btn_row:
+                    kb_rows.append(btn_row)
+            if kb_rows:
+                keyboard = InlineKeyboardMarkup(kb_rows)
+    except Exception as exc:
+        logger.warning("template button parse failed: %s", exc)
+    
+    # Send to user
+    try:
+        from pathlib import Path as _P
+        if image_path:
+            img = _P("/app") / image_path.lstrip("/")
+            if not img.exists():
+                img = _P("/app/assets/campaigns") / image_path
+            if img.exists():
+                with open(img, "rb") as _f:
+                    await update.message.reply_photo(
+                        photo=_f, caption=caption, parse_mode="HTML", reply_markup=keyboard
+                    )
+                return True
+        await update.message.reply_text(
+            caption, parse_mode="HTML", reply_markup=keyboard, disable_web_page_preview=False
+        )
+        return True
+    except Exception as exc:
+        logger.warning("template reply failed: %s", exc)
+        return False
+
+
 async def _handle_comeback_start(update: Update, context: ContextTypes.DEFAULT_TYPE, promo_code: str) -> bool:
     """Handle /start comeback_{code} deep link. Returns True if handled."""
     from bots.sales_bot.comeback_dm import validate_promo_code, mark_promo_responded, _calculate_discounted_price
@@ -415,6 +496,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         from bots.sales_bot.handlers.referral import invite_command
         await invite_command(update, context)
         return
+
+    # B.1.E (2026-06-27): Handle generic template deep link: /start template_{key}
+    if source and source.startswith("template_"):
+        tpl_key = source.replace("template_", "", 1)
+        handled = await _handle_template_start(update, context, tpl_key)
+        if handled:
+            return
 
     # Handle comeback deep link: /start comeback_{code}
     if source and source.startswith("comeback_"):
