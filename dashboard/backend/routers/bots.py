@@ -867,7 +867,7 @@ async def create_content_template(payload: dict, _admin=Depends(require_role("ad
             payload.get("description") or "",
             payload.get("caption_html") or "",
             payload.get("image_path") or "",
-            __import__("json").dumps(payload.get("buttons") or []),
+            payload.get("buttons") or [],
             payload.get("category") or "promo",
         )
     except Exception as exc:
