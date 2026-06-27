@@ -39,6 +39,11 @@
 <div id="content"><div class="loading">⏳ กำลังโหลด...</div></div>
 <script>
 const tg = window.Telegram.WebApp;
+// เปิดหน้าแพ็คเกจ Mini App โดยตรง (window.location ใน Telegram WebView)
+function openPackagesMiniApp() {
+  try { tg.HapticFeedback && tg.HapticFeedback.impactOccurred("light"); } catch(e) {}
+  window.location.href = "/webapp/customer/packages?v=" + Date.now();
+}
 function openPackages() {
   try { tg.HapticFeedback && tg.HapticFeedback.impactOccurred("light"); } catch(e) {}
   fetch("/webapp/api/request_packages", {
