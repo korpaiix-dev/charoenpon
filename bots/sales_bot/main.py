@@ -182,68 +182,110 @@ async def _banned_user_guard(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def _request_expiring_list(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Scheduler job: request expiring user list from guardian bot at 09:00.
+    """Scheduler job: ส่ง DM แจ้งเตือนใกล้หมดอายุ (7d / 3d / 1d).
 
-    This is called by the scheduler. The guardian bot sends the list
-    via the shared database — we query it and notify users.
+    NEW 2026-06-28: ใช้ template จาก DB (renewal_7d / renewal_3d / renewal_1d)
+    + ปุ่ม Mini App ให้กดต่ออายุได้ทันที + fallback hardcoded ถ้า DB ไม่มี
     """
     from shared.utils import get_expiring_users
+    from shared.bot_messages import get_bot_message, render_placeholders
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+    import datetime as _dt
+
+    # Build keyboard with Mini App button for renewal
+    def _make_renewal_kb():
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton(
+                "🔄 ต่ออายุทันที (Mini App)",
+                web_app=WebAppInfo(url="https://telebord.net/webapp/customer/packages?v=renewal"),
+            )],
+            [InlineKeyboardButton("💬 ติดต่อแอดมิน", url="https://t.me/sperm6969")],
+        ])
+
+    async def _send_one(user_info, db_key, hardcoded_text):
+        """ส่ง 1 user — DB template first, fallback hardcoded."""
+        tg_id = user_info["telegram_id"]
+        first_name = user_info.get("first_name") or "คุณ"
+        days_left = user_info.get("days_left", 0)
+        # Calculate expire date display
+        expire_date = ""
+        if "end_date" in user_info and user_info["end_date"]:
+            try:
+                dt = user_info["end_date"]
+                if isinstance(dt, str):
+                    dt = _dt.datetime.fromisoformat(dt)
+                expire_date = dt.strftime("%d/%m/%Y")
+            except Exception:
+                pass
+        price = user_info.get("tier_price", 300) or 300
+        price_discounted = int(price * 0.9)
+
+        # Try DB template
+        text = None
+        try:
+            template = await get_bot_message(db_key)
+            if template:
+                text = render_placeholders(template,
+                    customer_name=first_name,
+                    expire_date=expire_date,
+                    price=int(price),
+                    price_discounted=price_discounted,
+                    days_left=int(days_left),
+                )
+        except Exception:
+            pass
+        if not text:
+            text = hardcoded_text.format(first_name=first_name, days_left=int(days_left))
+        try:
+            await context.bot.send_message(
+                chat_id=tg_id, text=text, parse_mode="HTML",
+                reply_markup=_make_renewal_kb(),
+            )
+        except Exception as exc:
+            logger.warning("expiry reminder failed tg=%s: %s", tg_id, exc)
 
     try:
         expiring_7d = await get_expiring_users(days=7)
         expiring_3d = await get_expiring_users(days=3)
         expiring_1d = await get_expiring_users(days=1)
 
-        bot = context.bot
+        # 1 วัน first (priority)
+        for u in expiring_1d:
+            await _send_one(u, "renewal_1d",
+                "⚠️ <b>แจ้งเตือนค่ะ คุณ {first_name}!</b>\n\n"
+                "แพ็กเกจของคุณจะหมดอายุภายใน <b>{days_left} วัน</b>\n\n"
+                "กดปุ่มด้านล่างเพื่อต่ออายุได้เลยค่ะ 🙏",
+            )
 
-        # Send renewal reminders to users expiring within 1 day
-        for user_info in expiring_1d:
-            try:
-                await bot.send_message(
-                    chat_id=user_info["telegram_id"],
-                    text=(
-                        "⚠️ <b>แจ้งเตือนค่ะ!</b>\n\n"
-                        f"แพ็กเกจของคุณจะหมดอายุภายใน <b>{user_info['days_left']:.0f} วัน</b>\n\n"
-                        "หากต้องการต่ออายุ กรุณาพิมพ์ /packages\n"
-                        "เพื่อเลือกแพ็กเกจและชำระเงินค่ะ 🙏"
-                    ),
-                    parse_mode="HTML",
-                )
-            except Exception as exc:
-                logger.error(
-                    "Failed to send expiry reminder to %s: %s",
-                    user_info["telegram_id"],
-                    exc,
-                )
-
-        # Send renewal reminders to users expiring within 3 days (but not 1 day)
         notified_1d_ids = {u["telegram_id"] for u in expiring_1d}
-        for user_info in expiring_3d:
-            if user_info["telegram_id"] in notified_1d_ids:
+
+        # 3 วัน (ยกเว้นที่ 1 วันแล้ว)
+        for u in expiring_3d:
+            if u["telegram_id"] in notified_1d_ids:
                 continue
-            try:
-                await bot.send_message(
-                    chat_id=user_info["telegram_id"],
-                    text=(
-                        "📢 <b>แจ้งเตือนค่ะ</b>\n\n"
-                        f"แพ็กเกจของคุณจะหมดอายุภายใน <b>{user_info['days_left']:.0f} วัน</b>\n\n"
-                        "ต่ออายุตอนนี้เพื่อไม่ให้พลาดสัญญาณนะคะ\n"
-                        "พิมพ์ /packages ได้เลยค่ะ 😊"
-                    ),
-                    parse_mode="HTML",
-                )
-            except Exception as exc:
-                logger.error(
-                    "Failed to send 3d reminder to %s: %s",
-                    user_info["telegram_id"],
-                    exc,
-                )
+            await _send_one(u, "renewal_3d",
+                "📢 <b>แจ้งเตือนค่ะ คุณ {first_name}</b>\n\n"
+                "แพ็กเกจจะหมดอายุใน <b>{days_left} วัน</b>\n\n"
+                "ต่ออายุก่อนหมดเขตเลยค่ะ 😊",
+            )
+
+        notified_3d_ids = notified_1d_ids | {u["telegram_id"] for u in expiring_3d}
+
+        # 7 วัน (NEW — ยกเว้นที่ 1d/3d แล้ว)
+        for u in expiring_7d:
+            if u["telegram_id"] in notified_3d_ids:
+                continue
+            await _send_one(u, "renewal_7d",
+                "👋 สวัสดีค่ะ คุณ {first_name}\n\n"
+                "แพ็กเกจของคุณจะหมดอายุใน <b>{days_left} วัน</b>\n\n"
+                "ต่ออายุล่วงหน้าเพื่อไม่ให้พลาดสิทธิ์นะคะ 💕",
+            )
 
         logger.info(
             "Expiry reminders sent: 1d=%d, 3d=%d, 7d=%d",
             len(expiring_1d),
-            len(expiring_3d),
-            len(expiring_7d),
+            len(expiring_3d) - len(expiring_1d & set(u["telegram_id"] for u in expiring_3d)),
+            len(expiring_7d) - len(notified_3d_ids),
         )
 
     except Exception as exc:
