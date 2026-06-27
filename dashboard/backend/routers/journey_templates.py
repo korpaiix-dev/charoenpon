@@ -20,17 +20,17 @@ JOURNEY_KEYS_META = {
     "journey_welcome_12h":     {"flow": "welcome", "label": "Stage 2 — 12 ชม.", "order": 3, "wired": True},
     "journey_welcome_23h":     {"flow": "welcome", "label": "Stage 3 — 23 ชม. (ชั่วโมงสุดท้าย)", "order": 4, "wired": True},
     # Comeback Round 1 (4 variants — A/B/C/D test)
-    "journey_comeback_r1_a":   {"flow": "comeback", "label": "Round 1 · Variant A — FOMO พลาดคลิป", "order": 5, "wired": False},
-    "journey_comeback_r1_b":   {"flow": "comeback", "label": "Round 1 · Variant B — โบนัสกาชา", "order": 6, "wired": False},
-    "journey_comeback_r1_c":   {"flow": "comeback", "label": "Round 1 · Variant C — Soft จำเราได้ไหม", "order": 7, "wired": False},
-    "journey_comeback_r1_d":   {"flow": "comeback", "label": "Round 1 · Variant D — กระชับ", "order": 8, "wired": False},
+    "journey_comeback_r1_a":   {"flow": "comeback", "label": "Round 1 · Variant A — FOMO พลาดคลิป", "order": 5, "wired": True},
+    "journey_comeback_r1_b":   {"flow": "comeback", "label": "Round 1 · Variant B — โบนัสกาชา", "order": 6, "wired": True},
+    "journey_comeback_r1_c":   {"flow": "comeback", "label": "Round 1 · Variant C — Soft จำเราได้ไหม", "order": 7, "wired": True},
+    "journey_comeback_r1_d":   {"flow": "comeback", "label": "Round 1 · Variant D — กระชับ", "order": 8, "wired": True},
     # Comeback Round 2 (3 variants)
-    "journey_comeback_r2_a":   {"flow": "comeback", "label": "Round 2 · Variant A — โอกาสสุดท้าย", "order": 9, "wired": False},
-    "journey_comeback_r2_b":   {"flow": "comeback", "label": "Round 2 · Variant B — ของขวัญ", "order": 10, "wired": False},
-    "journey_comeback_r2_c":   {"flow": "comeback", "label": "Round 2 · Variant C — emphasis ราคา", "order": 11, "wired": False},
+    "journey_comeback_r2_a":   {"flow": "comeback", "label": "Round 2 · Variant A — โอกาสสุดท้าย", "order": 9, "wired": True},
+    "journey_comeback_r2_b":   {"flow": "comeback", "label": "Round 2 · Variant B — ของขวัญ", "order": 10, "wired": True},
+    "journey_comeback_r2_c":   {"flow": "comeback", "label": "Round 2 · Variant C — emphasis ราคา", "order": 11, "wired": True},
     # Exit Survey
-    "journey_exit_survey_question": {"flow": "exit", "label": "ถามเหตุผล (Survey)", "order": 12, "wired": False},
-    "journey_exit_thanks":          {"flow": "exit", "label": "ส่งส่วนลด (Thanks)", "order": 13, "wired": False},
+    "journey_exit_survey_question": {"flow": "exit", "label": "ถามเหตุผล (Survey)", "order": 12, "wired": True},
+    "journey_exit_thanks":          {"flow": "exit", "label": "ส่งส่วนลด (Thanks)", "order": 13, "wired": True},
 }
 
 
@@ -45,7 +45,7 @@ async def list_journey_templates(admin=Depends(require_role("admin"))):
     result = []
     for r in rows:
         d = dict(r)
-        meta = JOURNEY_KEYS_META.get(d["message_key"], {"flow": "other", "label": d["message_key"], "order": 99, "wired": False})
+        meta = JOURNEY_KEYS_META.get(d["message_key"], {"flow": "other", "label": d["message_key"], "order": 99, "wired": True})
         d.update(meta)
         # parse placeholders if needed
         if isinstance(d.get("available_placeholders"), str):
