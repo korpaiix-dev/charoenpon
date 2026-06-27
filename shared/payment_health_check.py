@@ -27,9 +27,13 @@ async def health_check_payment_system():
     try:
         from shared.database import get_session
         from sqlalchemy import text as _t
+        # NOTE 2026-06-28: TIER_ADD500 = Summer Fest admin-only add-on (event-based)
+        # ไม่ใช่ package ที่ลูกค้าซื้อตรง — admin คลิกปุ่ม "🌊 500 (Summer)" เท่านั้น
+        # ลูกค้า 5 คนใช้อยู่ (legacy subs) — Package row id=6 ยังอยู่แค่ is_active=FALSE
+        # ไม่ต้องอยู่ใน health check
         REQUIRED_TIERS = [
             "TIER_100", "TIER_300", "TIER_500",
-            "TIER_1299", "TIER_2499", "TIER_ADD500",
+            "TIER_1299", "TIER_2499",
             "GACHA_1", "GACHA_3", "GACHA_10",
         ]
         async with get_session() as s:
