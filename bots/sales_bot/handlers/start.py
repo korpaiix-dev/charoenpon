@@ -298,8 +298,7 @@ async def _handle_comeback_start(update: Update, context: ContextTypes.DEFAULT_T
 
     keyboard = InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("🛒 เลือกแพ็คเกจ + โปร (ใหม่)", web_app=WebAppInfo(url="https://telebord.net/webapp/customer/packages?v=1782591275"))],
-            [InlineKeyboardButton("📦 ดูแพ็กเกจอื่น (ปกติ)", callback_data="view_packages")],
+            [InlineKeyboardButton("🛒 ดูแพ็คเกจ + โปร", web_app=WebAppInfo(url=_URL_MINIAPP_PACKAGES))],
             [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
         ]
     )
@@ -351,15 +350,63 @@ async def _navigate(query, text: str, kb, img_path=None) -> None:
             pass
 
 
-async def _build_main_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
-    """Build the main menu keyboard dynamically.
+# ── Customer state classifier (Smart menu) ──
+async def _get_customer_state(telegram_id: int) -> str:
+    """Return: 'new' (no active sub) | 'active' (VIP active) | 'god' (TIER_2499)."""
+    try:
+        from sqlalchemy import select
+        from datetime import datetime
+        from shared.database import get_session
+        from shared.models import User, Subscription, SubscriptionStatus, PackageTier
+        async with get_session() as session:
+            result = await session.execute(
+                select(Subscription.tier)
+                .join(User, Subscription.user_id == User.id)
+                .where(
+                    User.telegram_id == telegram_id,
+                    Subscription.status == SubscriptionStatus.ACTIVE,
+                    Subscription.end_date > datetime.utcnow(),
+                )
+                .order_by(Subscription.end_date.desc())
+            )
+            tiers = [r[0] for r in result.fetchall()]
+            if not tiers:
+                return "new"
+            # GOD = TIER_2499 (ถาวร)
+            if PackageTier.TIER_2499 in tiers:
+                return "god"
+            return "active"
+    except Exception:
+        return "new"
 
-    - Flash Sale button: only show if active flash sale exists (no fake button)
-    - Upgrade button: only for VIP active users
-    - Referral button: always shown
-    """
+
+# Constants — links ที่ใช้บ่อย
+_LINK_REVIEW = "https://t.me/+hv7uXYj4bxFhODZl"
+_LINK_PREVIEW = "https://t.me/+Q0Qf-4t8TQo3YTBl"
+_LINK_FREE = "https://t.me/addlist/w0YSyuHC_aE2ZGVl"
+_LINK_ADMIN = "https://t.me/sperm6969"
+_URL_MINIAPP_PACKAGES = "https://telebord.net/webapp/customer/packages?v=1782591275"
+_URL_MINIAPP_PROFILE = "https://telebord.net/webapp/customer"
+
+
+def _common_bottom_rows():
+    """แถวล่างที่ทุก state มี: ตัวอย่าง+รีวิว (1 row), ห้องฟรี, แอดมิน."""
+    return [
+        [
+            InlineKeyboardButton("📋 เครดิต/รีวิว", url=_LINK_REVIEW),
+            InlineKeyboardButton("👀 ดูตัวอย่างงาน", url=_LINK_PREVIEW),
+        ],
+        [InlineKeyboardButton("🆓 ห้องฟรี", url=_LINK_FREE)],
+        [InlineKeyboardButton("👩‍💼 ติดต่อแอดมิน", url=_LINK_ADMIN)],
+    ]
+
+
+async def _build_main_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
+    """Smart menu — เปลี่ยนตาม customer state (new/active/god) เพื่อลด clutter."""
+    state = await _get_customer_state(telegram_id)
     rows = []
-    # Flash sale — only if active in DB
+
+    # ── Flash sale top banner (ทุก state ถ้ามี active flash) ──
     try:
         from bots.sales_bot.handlers.flash_sale import _get_active_flash_sale
         flash = await _get_active_flash_sale()
@@ -368,48 +415,58 @@ async def _build_main_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
     except Exception:
         pass
 
-    # Upgrade — only for VIP active
-    try:
-        from bots.sales_bot.handlers.referral import _is_vip_active
-        if await _is_vip_active(telegram_id):
-            rows.append([InlineKeyboardButton("🆙 อัพเกรดเป็น GOD MODE", callback_data="view_upgrade")])
-    except Exception:
-        pass
+    if state == "new":
+        # ── ลูกค้าใหม่ (ไม่มี sub) — เน้นแพ็คเกจ ──
+        rows.append([InlineKeyboardButton(
+            "🛒 ดูแพ็คเกจ + โปร",
+            web_app=WebAppInfo(url=_URL_MINIAPP_PACKAGES),
+        )])
+        rows.append([InlineKeyboardButton(
+            "🎰 VIPมีคนชัก ฿100 — ลุ้น GOD ทุกจันทร์!",
+            callback_data="view_shaker",
+        )])
+    elif state == "god":
+        # ── GOD MODE (TIER_2499 ถาวร) — เน้น engagement ──
+        rows.append([InlineKeyboardButton(
+            "📊 ข้อมูลของฉัน",
+            web_app=WebAppInfo(url=_URL_MINIAPP_PROFILE),
+        )])
+        rows.append([InlineKeyboardButton(
+            "🎰 หมุนกาชาปอง",
+            callback_data="view_gacha_buy",
+        )])
+        rows.append([InlineKeyboardButton(
+            "🎁 ชวนเพื่อน ได้ VIP ฟรี!",
+            callback_data="referral_menu",
+        )])
+    else:
+        # ── ลูกค้า ACTIVE (มี sub แต่ไม่ถาวร) — เน้น ต่ออายุ+กาชา ──
+        rows.append([InlineKeyboardButton(
+            "📊 ข้อมูลของฉัน (ต่ออายุ / อัพเกรด)",
+            web_app=WebAppInfo(url=_URL_MINIAPP_PROFILE),
+        )])
+        rows.append([InlineKeyboardButton(
+            "🎰 หมุนกาชาปอง",
+            callback_data="view_gacha_buy",
+        )])
+        # Discount balance ถ้ามี
+        try:
+            from bots.sales_bot.handlers.discount_button import get_balance_for_user
+            _bal = await get_balance_for_user(telegram_id)
+            if _bal > 0:
+                rows.append([InlineKeyboardButton(
+                    f"💰 ส่วนลดของฉัน ฿{int(_bal):,}",
+                    callback_data="view_discount",
+                )])
+        except Exception:
+            pass
+        rows.append([InlineKeyboardButton(
+            "🎁 ชวนเพื่อน ได้ VIP ฟรี!",
+            callback_data="referral_menu",
+        )])
 
-    # VIPมีคนชัก — always show (lottery group ฿100)
-    rows.append([InlineKeyboardButton("🎰 VIPมีคนชัก ฿100 — ลุ้น GOD ทุกจันทร์!", callback_data="view_shaker")])
-
-    # Discount button — only show if user has balance > 0
-    try:
-        from bots.sales_bot.handlers.discount_button import get_balance_for_user
-        _disc_bal = await get_balance_for_user(telegram_id)
-        if _disc_bal > 0:
-            rows.append([InlineKeyboardButton(
-                f"💰 ส่วนลดของฉัน ฿{int(_disc_bal):,}",
-                callback_data="view_discount"
-            )])
-    except Exception:
-        pass
-
-    # Gacha buy — เติมสิทธิ์หมุน
-    rows.append([InlineKeyboardButton("🎁 เติมสิทธิ์หมุนกาชาปอง", callback_data="view_gacha_buy")])
-
-    # ดูแพ็กเกจ — moved to position 4 (per boss)
-    rows.append([InlineKeyboardButton("🛒 เลือกแพ็คเกจ + โปร (ใหม่)", web_app=WebAppInfo(url="https://telebord.net/webapp/customer/packages?v=1782591275"))])
-    rows.append([InlineKeyboardButton("📦 ดูแพ็กเกจ (ปกติ)", callback_data="view_packages")])
-    rows.append([InlineKeyboardButton("📊 ข้อมูลของฉัน", web_app=WebAppInfo(url="https://telebord.net/webapp/customer"))])
-
-    # Referral — moved to position 5
-    rows.append([InlineKeyboardButton("🎁 ชวนเพื่อน ได้ VIP ฟรี!", callback_data="referral_menu")])
-
-    rows.extend([
-        [
-            InlineKeyboardButton("📋 เช็คเครดิต/รีวิว", url="https://t.me/+hv7uXYj4bxFhODZl"),
-            InlineKeyboardButton("👀 ดูตัวอย่างงาน", url="https://t.me/+Q0Qf-4t8TQo3YTBl"),
-        ],
-        [InlineKeyboardButton("🆓 ห้องฟรี", url="https://t.me/addlist/w0YSyuHC_aE2ZGVl")],
-        [InlineKeyboardButton("👩‍💼 ติดต่อแอดมิน", url="https://t.me/sperm6969")],
-    ])
+    # ── Bottom rows ที่ทุก state มี ──
+    rows.extend(_common_bottom_rows())
     return InlineKeyboardMarkup(rows)
 
 
@@ -588,20 +645,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             
             # Msg 2: GIF banner + main menu (with 👑 ดูแพ็กเกจ on top)
             cap2 = "หรือเลือกเมนูได้เลย ⬇️"
-            kb2 = _IKM([
-                [_IKB("🛒 เลือกแพ็คเกจ + โปร (ใหม่)", web_app=WebAppInfo(url="https://telebord.net/webapp/customer/packages?v=1782591275"))],
-                [_IKB("👑 ดูแพ็กเกจ VIP ทั้งหมด 👑 (ปกติ)", callback_data="view_packages")],
-                [_IKB("🎰 VIPมีคนชัก ฿100 — ลุ้น GOD ทุกจันทร์!", callback_data="view_shaker")],
-                [_IKB("🎁 เติมสิทธิ์หมุนกาชาปอง", callback_data="view_gacha_buy")],
-                [_IKB("📊 ข้อมูลของฉัน", web_app=WebAppInfo(url="https://telebord.net/webapp/customer"))],
-                [_IKB("🎁 ชวนเพื่อน ได้ VIP ฟรี!", callback_data="referral_menu")],
-                [
-                    _IKB("📋 เช็คเครดิต/รีวิว", url="https://t.me/+hv7uXYj4bxFhODZl"),
-                    _IKB("👀 ดูตัวอย่างงาน", url="https://t.me/+Q0Qf-4t8TQo3YTBl"),
-                ],
-                [_IKB("🆓 ห้องฟรี (ทั้งหมด)", url="https://t.me/addlist/w0YSyuHC_aE2ZGVl")],
-                [_IKB("👩‍💼 ติดต่อแอดมิน", url="https://t.me/sperm6969")],
-            ])
+            kb2 = await _build_main_keyboard(update.effective_user.id)
             gif_path = "/app/assets/campaigns/vip_banner_live.gif"
             if os.path.exists(gif_path):
                 with open(gif_path, "rb") as _gif:
@@ -784,8 +828,7 @@ async def free_room_callback(
     )
     keyboard = InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("🛒 เลือกแพ็คเกจ + โปร (ใหม่)", web_app=WebAppInfo(url="https://telebord.net/webapp/customer/packages?v=1782591275"))],
-            [InlineKeyboardButton("📦 ดูแพ็กเกจ VIP (ปกติ)", callback_data="view_packages")],
+            [InlineKeyboardButton("🛒 ดูแพ็คเกจ + โปร", web_app=WebAppInfo(url=_URL_MINIAPP_PACKAGES))],
             [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
         ]
     )
