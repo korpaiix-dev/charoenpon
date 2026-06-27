@@ -236,7 +236,7 @@ const PKG_DESCRIPTIONS = {
 
 async function loadData() {
   try {
-    const resp = await fetch('/api/customer/packages-and-promos', {
+    const resp = await fetch('/webapp/api/customer/packages-and-promos', {
       headers: { 'X-Telegram-InitData': tg?.initData || '' },
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);

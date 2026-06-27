@@ -18,7 +18,7 @@ router = APIRouter(tags=["customer-miniapp"])
 
 
 # ─── Static page route ────────────────────────────────────────────────
-@router.get("/customer/packages", response_class=HTMLResponse)
+@router.get("/webapp/customer/packages", response_class=HTMLResponse)
 async def customer_packages_page():
     """Serve the Mini App HTML page."""
     html_path = Path(__file__).parent.parent.parent / "frontend" / "customer" / "packages.html"
@@ -31,7 +31,7 @@ async def customer_packages_page():
 
 
 # ─── Data endpoint ─────────────────────────────────────────────────────
-@router.get("/api/customer/packages-and-promos")
+@router.get("/webapp/api/customer/packages-and-promos")
 async def get_packages_and_promos(request: Request):
     """Return packages + active promotions + gacha — for the Mini App.
 
