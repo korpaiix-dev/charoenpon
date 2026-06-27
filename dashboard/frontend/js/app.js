@@ -137,6 +137,7 @@ const NAV_ITEMS = [
     { id: 'groups', icon: '🏛', label: 'กลุ่ม VIP/ฟรี', minRole: 'admin' },
     { id: 'bot_groups', icon: '🤖', label: 'จัดการบอท', minRole: 'admin' },
     { id: 'group_analytics', icon: '📊', label: 'สถิติกลุ่ม', minRole: 'admin' },
+    { id: 'bot_schedules', icon: '⏰', label: 'ตารางเวลาบอท', minRole: 'admin' },
     { id: 'settings', icon: '⚙️', label: 'ตั้งค่าระบบ', minRole: 'admin' },
 
     // ─── ประวัติ ───
@@ -248,7 +249,7 @@ function navigate(page) {
     renderSidebar();
     const titles = {
         dashboard: '📊 ภาพรวม', inbox: '📥 Inbox สลิป', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน', gacha: '🎰 กาชา',
-        promotions: '🎁 โปรโมชั่น + ตั้งค่าบอท', content: '📸 Content', groups: '📱 กลุ่ม', bot_groups: '🤖 จัดการบอท', group_analytics: '📊 สถิติกลุ่ม',
+        promotions: '🎁 โปรโมชั่น + ตั้งค่าบอท', content: '📸 Content', groups: '📱 กลุ่ม', bot_groups: '🤖 จัดการบอท', group_analytics: '📊 สถิติกลุ่ม', bot_schedules: '⏰ ตารางเวลาบอท',
         team: '👨‍💼 ทีมงาน', settings: '⚙️ ตั้งค่า', marketing: '📊 Marketing',
         activity: '📋 Activity Log', prae_logs: '💬 Prae Logs',
     };
@@ -264,7 +265,7 @@ function navigate(page) {
     
     const pages = {
         today: renderToday, dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance, receivers: renderReceivers, gacha: renderGacha,
-        promotions: renderPromoManager, content: renderContent, groups: renderGroups, bot_groups: renderBotGroups, group_analytics: renderGroupAnalytics,
+        promotions: renderPromoManager, content: renderContent, groups: renderGroups, bot_groups: renderBotGroups, group_analytics: renderGroupAnalytics, bot_schedules: renderBotSchedules,
         team: renderTeam, settings: renderSettings, marketing: renderMarketing,
         activity: renderActivityLog, prae_logs: renderPraeLogs,
     };
@@ -7188,5 +7189,121 @@ function exportGroupAnalytics() {
     a.href = URL.createObjectURL(blob);
     a.download = `group-analytics-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
+}
+
+// ==================================================================
+// Phase A.8 (2026-06-27): Schedule Manager page
+// ==================================================================
+var _schedBot = 'content_bot';
+
+async function renderBotSchedules() {
+    const content = document.getElementById('page-content');
+    content.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+    try {
+        // Bot tabs (just content_bot for now; future bots can be added)
+        const bots = await api('/admin/bots-registry');
+        const tabsHtml = bots.map(b => `
+            <button class="ga2-seg-btn ${_schedBot===b.bot_key?'active':''}" onclick="_schedBot='${b.bot_key}';renderBotSchedules()">${b.icon||'🤖'} ${esc(b.display_name)}</button>
+        `).join('');
+
+        const schedules = await api(`/admin/bots/${encodeURIComponent(_schedBot)}/schedules`);
+        if (!schedules.length) {
+            content.innerHTML = `<div class="ga2-seg" style="margin-bottom:1rem;">${tabsHtml}</div>
+                <div class="empty-state">ยังไม่มี schedule สำหรับบอตนี้</div>`;
+            return;
+        }
+
+        // Group by category
+        const byCat = {};
+        schedules.forEach(s => { (byCat[s.category] = byCat[s.category] || []).push(s); });
+        const catLabel = (c) => ({teaser:'📸 Teaser',promo:'🎁 Promo',system:'⚙️ Internal'})[c] || c;
+
+        let html = `
+        <style>
+          .ga2-seg{display:inline-flex;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:2px;}
+          .ga2-seg-btn{background:transparent;border:none;padding:0.3rem 0.75rem;font-size:0.78rem;border-radius:6px;cursor:pointer;color:var(--text-muted);font-weight:500;}
+          .ga2-seg-btn:hover{color:var(--text);}
+          .ga2-seg-btn.active{background:var(--primary);color:#000;font-weight:600;}
+          .sched-section{margin-bottom:1.2rem;}
+          .sched-section-title{font-size:0.75rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.5rem;}
+          .sched-row{display:grid;grid-template-columns:auto 1fr auto auto;gap:0.75rem;align-items:center;padding:0.7rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:0.5rem;}
+          .sched-toggle{appearance:none;width:36px;height:20px;background:var(--surface-2);border:1px solid var(--border);border-radius:20px;position:relative;cursor:pointer;transition:background 0.2s;}
+          .sched-toggle:checked{background:#10b981;border-color:#10b981;}
+          .sched-toggle::before{content:'';position:absolute;top:1px;left:1px;width:16px;height:16px;background:white;border-radius:50%;transition:transform 0.2s;}
+          .sched-toggle:checked::before{transform:translateX(16px);}
+          .sched-time-input{display:inline-flex;gap:0.25rem;align-items:center;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:0.2rem 0.4rem;}
+          .sched-time-input input{background:transparent;border:none;color:var(--text);font-size:0.85rem;width:34px;text-align:center;font-variant-numeric:tabular-nums;}
+          .sched-time-input input:focus{outline:none;}
+          .sched-disabled{opacity:0.5;}
+        </style>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+            <div>
+                <h2 style="margin:0;font-size:1.2rem;">⏰ ตารางเวลาบอท</h2>
+                <div style="font-size:0.75rem;color:var(--text-muted);">เปิด/ปิด job และแก้เวลาได้ทันที</div>
+            </div>
+            <div class="ga2-seg">${tabsHtml}</div>
+        </div>
+        `;
+
+        const orderCats = ['teaser', 'promo', 'system'];
+        const renderCat = (cat) => {
+            const items = byCat[cat] || [];
+            if (!items.length) return '';
+            return `<div class="sched-section">
+                <div class="sched-section-title">${catLabel(cat)}</div>
+                ${items.map(s => `
+                    <div class="sched-row ${s.is_enabled?'':'sched-disabled'}" id="sched-row-${s.id}">
+                        <input type="checkbox" class="sched-toggle" ${s.is_enabled?'checked':''} onchange="toggleSchedule(${s.id}, this.checked)">
+                        <div>
+                            <div style="font-weight:600;font-size:0.9rem;">${esc(s.display_name)}</div>
+                            <div style="font-size:0.72rem;color:var(--text-muted);">${esc(s.description || '')}</div>
+                        </div>
+                        <div class="sched-time-input">
+                            <input type="number" min="0" max="23" value="${s.schedule_hour}" data-sched="${s.id}" data-field="hour" onchange="updateSchedTime(${s.id},'hour',this.value)">
+                            <span style="color:var(--text-muted);">:</span>
+                            <input type="number" min="0" max="59" value="${String(s.schedule_minute).padStart(2,'0')}" data-sched="${s.id}" data-field="minute" onchange="updateSchedTime(${s.id},'minute',this.value)">
+                        </div>
+                        <div style="font-size:0.7rem;color:var(--text-muted);font-family:var(--font-mono);">${esc(s.job_name)}</div>
+                    </div>
+                `).join('')}
+            </div>`;
+        };
+        orderCats.forEach(c => { html += renderCat(c); });
+        Object.keys(byCat).forEach(c => { if (!orderCats.includes(c)) html += renderCat(c); });
+
+        html += `<div style="margin-top:1rem;padding:0.85rem 1rem;background:rgba(247,176,69,0.1);border:1px solid var(--warning);border-radius:8px;font-size:0.8rem;color:var(--text-muted);">
+            💡 <b>หมายเหตุ:</b> เปิด/ปิด toggle = มีผลภายใน 1 นาที (cache).
+            แก้เวลา = มีผลรอบถัดไปหลัง restart บอต (job_queue ต้อง re-register).
+        </div>`;
+
+        content.innerHTML = html;
+    } catch (e) {
+        content.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`;
+    }
+}
+
+async function toggleSchedule(schedId, enabled) {
+    try {
+        await api(`/admin/bots/schedules/${schedId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ is_enabled: enabled }),
+        });
+        toast(`${enabled?'✅':'⏸'} ${enabled?'เปิด':'ปิด'} job สำเร็จ`, 'success');
+        const row = document.getElementById('sched-row-' + schedId);
+        if (row) row.classList.toggle('sched-disabled', !enabled);
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+async function updateSchedTime(schedId, field, value) {
+    const v = parseInt(value, 10);
+    if (isNaN(v)) return;
+    try {
+        await api(`/admin/bots/schedules/${schedId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ ['schedule_' + field]: v }),
+        });
+        toast('💾 บันทึกเวลา · บอตจะใช้รอบถัดไปหลัง restart', 'success');
+    } catch (e) { toast(e.message, 'error'); }
 }
 

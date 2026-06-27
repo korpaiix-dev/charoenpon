@@ -708,3 +708,72 @@ async def group_analytics_v2(range_days: int = 7, _admin=Depends(require_role("a
         "groups": items,
     }
 
+
+# ==================================================================
+# Phase A.8 (2026-06-27): Bot schedule manager
+# ==================================================================
+
+@router.get("/bots/{bot_key}/schedules")
+async def list_schedules(bot_key: str, _admin=Depends(require_role("admin"))):
+    """List all scheduled jobs for a bot with current next-run estimate."""
+    rows = await pool.fetch("""
+        SELECT id, job_name, display_name, description, schedule_hour, schedule_minute,
+               is_enabled, job_type, handler_key, category, sort_order, updated_at
+        FROM bot_schedules
+        WHERE bot_key=$1
+        ORDER BY category, sort_order, schedule_hour, schedule_minute
+    """, bot_key)
+    return [dict(r) for r in rows]
+
+
+@router.patch("/bots/schedules/{sched_id}")
+async def update_schedule(
+    sched_id: int,
+    payload: dict,
+    request: Request,
+    admin=Depends(require_role("admin")),
+):
+    """Update job schedule: time or is_enabled.
+
+    Body (any subset): { is_enabled: bool, schedule_hour: 0-23, schedule_minute: 0-59 }
+    """
+    row = await pool.fetchrow("SELECT bot_key, job_name, display_name FROM bot_schedules WHERE id=$1", sched_id)
+    if not row:
+        raise HTTPException(404, "schedule not found")
+
+    updates = []
+    args = []
+    if "is_enabled" in payload:
+        updates.append(f"is_enabled=${len(args)+1}")
+        args.append(bool(payload["is_enabled"]))
+    if "schedule_hour" in payload:
+        h = int(payload["schedule_hour"])
+        if not 0 <= h <= 23:
+            raise HTTPException(400, "schedule_hour must be 0-23")
+        updates.append(f"schedule_hour=${len(args)+1}")
+        args.append(h)
+    if "schedule_minute" in payload:
+        m = int(payload["schedule_minute"])
+        if not 0 <= m <= 59:
+            raise HTTPException(400, "schedule_minute must be 0-59")
+        updates.append(f"schedule_minute=${len(args)+1}")
+        args.append(m)
+    if not updates:
+        raise HTTPException(400, "no fields to update")
+
+    updates.append(f"updated_at=NOW()")
+    updates.append(f"updated_by=${len(args)+1}")
+    args.append(int(admin["telegram_id"]))
+
+    args.append(sched_id)
+    await pool.execute(
+        f"UPDATE bot_schedules SET {', '.join(updates)} WHERE id=${len(args)}",
+        *args,
+    )
+    ip = request.client.host if request.client else None
+    await _log(
+        admin["id"], "update_schedule", "schedule", sched_id,
+        {"job": row["display_name"], **payload}, ip,
+    )
+    return {"ok": True, "id": sched_id, "applied": payload}
+

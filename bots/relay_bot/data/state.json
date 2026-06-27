@@ -1,5 +1,5 @@
 {
-  "lastClosingAt": 1782545551134,
+  "lastClosingAt": 1782559173823,
   "destFailures": {
     "-1004267333548": 5
   },
@@ -8,11 +8,11 @@
   },
   "paused": false,
   "stats": {
-    "forwarded": 2234,
+    "forwarded": 2280,
     "failed": 56,
-    "closingsSent": 458,
+    "closingsSent": 464,
     "startedAt": 1781533034372,
-    "lastForwardAt": 1782558980037
+    "lastForwardAt": 1782559166817
   },
   "recentHashes": {
     "e1c8a77a85f1a2daa67b02e4752c12f7": 1782558925579,

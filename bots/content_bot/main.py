@@ -1478,29 +1478,90 @@ def main() -> None:
         handle_authorized_photo,
     ))
 
-    # SCHEDULE_V2 — redesigned 2026-06-02 (jarern4 disabled, content_bot is sole publisher)
+
+
+# ==================================================================
+# Phase A.8 (2026-06-27): DB-driven schedule
+# ==================================================================
+async def _load_schedule_from_db() -> dict[str, dict]:
+    """Return {job_name: {hour, minute, is_enabled, display_name}} from bot_schedules.
+
+    Returns empty dict on failure (caller falls back to hardcoded).
+    """
+    try:
+        from shared.database import get_session as _gs
+        from sqlalchemy import text as _t_sql
+        async with _gs() as _s:
+            r = await _s.execute(_t_sql("""
+                SELECT job_name, schedule_hour, schedule_minute, is_enabled, display_name
+                FROM bot_schedules
+                WHERE bot_key = 'content_bot'
+            """))
+            return {
+                row[0]: {
+                    "hour": int(row[1]),
+                    "minute": int(row[2]),
+                    "is_enabled": bool(row[3]),
+                    "display_name": row[4],
+                }
+                for row in r.all()
+            }
+    except Exception as exc:
+        logger.warning("load_schedule_from_db failed: %s", exc)
+        return {}
+
+
+# In-memory cache of enable status — refreshed each minute
+_schedule_enable_cache = {"data": {}, "expires": 0}
+
+
+async def _is_job_enabled(job_name: str) -> bool:
+    """Runtime check: is this job currently enabled? (60s cache)
+
+    Wrap each scheduled job's first line with: if not await _is_job_enabled('name'): return
+    """
+    import time as _t
+    now = _t.time()
+    if _schedule_enable_cache["data"] and _schedule_enable_cache["expires"] > now:
+        d = _schedule_enable_cache["data"].get(job_name)
+        return d if d is not None else True
+    fresh = await _load_schedule_from_db()
+    flat = {k: v["is_enabled"] for k, v in fresh.items()}
+    _schedule_enable_cache["data"] = flat
+    _schedule_enable_cache["expires"] = now + 60
+    return flat.get(job_name, True)  # default True if missing → fail open
+
+
+    # SCHEDULE_V2 — redesigned 2026-06-02; A.8 (2026-06-27) reads times from bot_schedules DB
     job_queue = app.job_queue
 
-    # TEASER posts — 5 rounds/day, spaced 1.5-2h, anchored to peak hours
-    teaser_times = [
-        dt_time(hour=1,  minute=0,  tzinfo=TH_TZ),   # late-night viewers
-        dt_time(hour=7,  minute=30, tzinfo=TH_TZ),   # morning peak
-        dt_time(hour=11, minute=0,  tzinfo=TH_TZ),   # late morning
-        dt_time(hour=13, minute=0,  tzinfo=TH_TZ),   # lunchtime
-        dt_time(hour=17, minute=0,  tzinfo=TH_TZ),   # afternoon
-        dt_time(hour=21, minute=0,  tzinfo=TH_TZ),   # peak evening
-        dt_time(hour=23, minute=0,  tzinfo=TH_TZ),   # late
-    ]
-    for i, t in enumerate(teaser_times):
+    # Load schedule overrides from DB (empty if DB unreachable → fall back to hardcoded)
+    _db_sched = await _load_schedule_from_db()
+
+    def _t(job_name: str, default_h: int, default_m: int) -> dt_time:
+        """Look up DB schedule; fall back to hardcoded default."""
+        cfg = _db_sched.get(job_name)
+        if cfg and cfg.get("is_enabled", True):
+            return dt_time(hour=cfg["hour"], minute=cfg["minute"], tzinfo=TH_TZ)
+        if cfg and not cfg.get("is_enabled"):
+            return None  # disabled
+        return dt_time(hour=default_h, minute=default_m, tzinfo=TH_TZ)
+
+    # TEASER posts — DB-driven, 7 rounds default
+    teaser_defaults = [(1,0),(7,30),(11,0),(13,0),(17,0),(21,0),(23,0)]
+    teaser_times = []
+    for i, (dh, dm) in enumerate(teaser_defaults):
+        t = _t(f"teaser_{i}", dh, dm)
+        if t: teaser_times.append((i, t))
+    for i, t in teaser_times:
         job_queue.run_daily(scheduled_teaser, time=t, name=f"teaser_{i}")
 
-    # VIP PROMO — 2 rounds/day (replaces jarern4-auto-poster role)
-    vip_promo_times = [
-        dt_time(hour=9,  minute=30, tzinfo=TH_TZ),
-        dt_time(hour=19, minute=30, tzinfo=TH_TZ),
-    ]
-    for i, t in enumerate(vip_promo_times):
-        job_queue.run_daily(post_vip_promo_to_free_groups, time=t, name=f"vip_promo_{i}")
+    # VIP PROMO — DB-driven 2 rounds default
+    vip_defaults = [(9, 30), (19, 30)]
+    for i, (dh, dm) in enumerate(vip_defaults):
+        t = _t(f"vip_promo_{i}", dh, dm)
+        if t:
+            job_queue.run_daily(post_vip_promo_to_free_groups, time=t, name=f"vip_promo_{i}")
 
     # GOD MODE end-month promo — REDUCED from 4 to 1 round/day (avoid spam)
     # Only runs when is_endmonth_vip_promo_active() returns True
