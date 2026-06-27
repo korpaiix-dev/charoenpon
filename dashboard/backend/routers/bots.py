@@ -745,7 +745,6 @@ async def create_bot_schedule(bot_key: str, payload: dict, _admin=Depends(requir
         raise HTTPException(400, "hour 0-23, minute 0-59")
     
     job_name = f"template_{template_key}"
-    pool = await _pool()
     
     # Look up template for default display_name
     tpl_row = await pool.fetchrow(
@@ -766,14 +765,17 @@ async def create_bot_schedule(bot_key: str, payload: dict, _admin=Depends(requir
             payload.get("category") or "promo",
         )
     except Exception as exc:
-        raise HTTPException(409, f"schedule '{job_name}' already exists")
+        msg = str(exc)
+        if "unique" in msg.lower() or "duplicate" in msg.lower():
+            raise HTTPException(409, f"schedule '{job_name}' มีอยู่แล้ว")
+        logger.exception("create_bot_schedule failed: %s", exc)
+        raise HTTPException(500, f"DB error: {msg[:200]}")
     return {"id": row["id"], "job_name": row["job_name"], "needs_restart": True}
 
 
 @router.delete("/bots/schedules/{sched_id}")
 async def delete_bot_schedule(sched_id: int, _admin=Depends(require_role("admin"))):
     """B.1.D: Delete a schedule (Dashboard only). Needs bot restart to fully drop job."""
-    pool = await _pool()
     row = await pool.fetchrow("SELECT bot_key, job_name FROM bot_schedules WHERE id=$1", sched_id)
     if not row:
         raise HTTPException(404, "not found")
@@ -853,7 +855,6 @@ async def create_content_template(payload: dict, _admin=Depends(require_role("ad
     if not _re.match(r"^[a-z0-9_]+$", template_key):
         raise HTTPException(400, "template_key: lowercase letters/digits/underscore only")
     
-    pool = await _pool()
     # Insert (upsert if exists — Dashboard treats this as create)
     try:
         row = await pool.fetchrow(
@@ -870,15 +871,17 @@ async def create_content_template(payload: dict, _admin=Depends(require_role("ad
             payload.get("category") or "promo",
         )
     except Exception as exc:
-        # Likely unique constraint violation (already exists)
-        raise HTTPException(409, f"template_key '{template_key}' already exists")
+        msg = str(exc)
+        if "unique" in msg.lower() or "duplicate" in msg.lower():
+            raise HTTPException(409, f"template_key '{template_key}' มีอยู่แล้ว")
+        logger.exception("create_content_template failed: %s", exc)
+        raise HTTPException(500, f"DB error: {msg[:200]}")
     return {"id": row["id"], "template_key": row["template_key"]}
 
 
 @router.delete("/content-templates/{tpl_id}")
 async def delete_content_template(tpl_id: int, _admin=Depends(require_role("admin"))):
     """B.1.D: Delete a content template."""
-    pool = await _pool()
     row = await pool.fetchrow("SELECT template_key FROM content_templates WHERE id=$1", tpl_id)
     if not row:
         raise HTTPException(404, "not found")
