@@ -250,6 +250,26 @@ def _compute_end_date(package, now: datetime, birthday_bonus_days: int = 0) -> t
 
 async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
     """Canonical approval — see module docstring for full step list."""
+    # Day-0 maintenance mode: block AUTO sources (Slip2Go, retry worker, gacha auto)
+    # Admin-driven sources (slip_review approve, manual /approve) still pass through
+    try:
+        from shared.maintenance import is_maintenance_mode
+        if await is_maintenance_mode():
+            src_name = getattr(inp.source, "name", str(inp.source)) if inp.source else ""
+            AUTO_SOURCES = {"SLIP2GO_AUTO", "RETRY_WORKER", "GACHA", "TRUEMONEY"}
+            if src_name.upper() in AUTO_SOURCES:
+                logger.warning(
+                    "MAINTENANCE: blocking auto-approval (source=%s payment_id=%s) — routed to manual review",
+                    src_name, getattr(inp, "payment_id", None)
+                )
+                return ApprovalResult(
+                    ok=False,
+                    error="maintenance_mode",
+                    error_details="System in maintenance — slip queued for manual review",
+                )
+    except Exception as _maint_exc:
+        logger.warning("maintenance check failed in approval: %s", _maint_exc)
+
     from shared.database import get_session
     from shared.models import (
         User, Package, Payment, Subscription, PackageTier, PaymentStatus,

@@ -302,6 +302,18 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     tg_user = update.effective_user
     source = _extract_source(context.args or [])
 
+    # Day-0 maintenance mode: block new purchase intent
+    # Comeback/template deep-links still go through (admin may want to send)
+    try:
+        if await is_maintenance_mode():
+            # Allow ONLY non-purchase intents: /start with no args (just show greeting+admin)
+            txt, kb = build_maintenance_reply()
+            await update.message.reply_text(txt, parse_mode="HTML", reply_markup=kb)
+            return
+    except Exception:
+        pass  # fail open
+
+
     async with get_session() as session:
         # Upsert user
         result = await session.execute(

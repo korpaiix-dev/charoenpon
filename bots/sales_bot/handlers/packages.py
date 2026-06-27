@@ -384,10 +384,30 @@ def _build_detail_keyboard(tier: str) -> InlineKeyboardMarkup:
     )
 
 
+
+async def _maint_guard(update, context) -> bool:
+    """Returns True if blocked (maintenance ON). Caller should return early."""
+    try:
+        if await is_maintenance_mode():
+            txt, kb = build_maintenance_reply()
+            if update.callback_query:
+                await update.callback_query.answer()
+                await update.callback_query.message.reply_text(txt, parse_mode="HTML", reply_markup=kb)
+            elif update.message:
+                await update.message.reply_text(txt, parse_mode="HTML", reply_markup=kb)
+            return True
+    except Exception:
+        pass
+    return False
+
+
 async def view_packages_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """/packages command — show all packages."""
+
+    if await _maint_guard(update, context):
+        return
     if not update.message:
         return
     await update.message.reply_text(
@@ -401,6 +421,9 @@ async def view_packages_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Callback: show all packages."""
+
+    if await _maint_guard(update, context):
+        return
     query = update.callback_query
     if not query:
         return

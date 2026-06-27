@@ -32,6 +32,22 @@ BUNDLES = [
 DEFAULT_QR_URL = "https://img2.pic.in.th/-2026-03-15-143743.png"
 
 
+
+async def _maint_guard(update, context) -> bool:
+    try:
+        if await is_maintenance_mode():
+            txt, kb = build_maintenance_reply()
+            if update.callback_query:
+                await update.callback_query.answer()
+                await update.callback_query.message.reply_text(txt, parse_mode="HTML", reply_markup=kb)
+            elif update.message:
+                await update.message.reply_text(txt, parse_mode="HTML", reply_markup=kb)
+            return True
+    except Exception:
+        pass
+    return False
+
+
 async def _get_user_credit_balance(telegram_id: int) -> dict:
     """Return current spin credits + discount balance."""
     async with get_session() as s:
