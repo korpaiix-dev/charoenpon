@@ -196,9 +196,22 @@ async def customer_buy(request: Request):
 
     # GACHA — ส่ง message guide
     if tier_full.startswith("GACHA_"):
-        msg = f"🎰 คุณเลือก: <b>{pkg_name}</b> ฿{price:,}\n\nพิมพ์ /gacha เพื่อซื้อหมุนกาชาปองค่ะ"
-        await _send_bot_message(bot_token, tg_id, msg)
-        return {"ok": True, "action": "gacha_guide"}
+        # ส่งปุ่ม callback ลูกค้ากด → เข้า gacha_buy flow เดิม
+        spins = 1
+        if tier_full == "GACHA_3": spins = 3
+        elif tier_full == "GACHA_10": spins = 10
+        msg = (
+            f"🎰 <b>คุณเลือก: {pkg_name}</b>\n"
+            f"💰 ราคา ฿{price:,}\n\n"
+            "กดปุ่มด้านล่าง 👇 เพื่อซื้อ"
+        )
+        keyboard = {
+            "inline_keyboard": [[
+                {"text": f"🎫 ซื้อ {spins} หมุน ฿{price:,}", "callback_data": f"gacha_buy_{spins}"}
+            ]]
+        }
+        await _send_bot_message(bot_token, tg_id, msg, reply_markup=keyboard)
+        return {"ok": True, "action": "gacha_button_sent"}
 
     # PACKAGE — record promo_click + pick receiver + send QR
     if promo_id:
