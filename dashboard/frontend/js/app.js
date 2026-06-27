@@ -7760,6 +7760,37 @@ function ctCollectButtons(card) {
 // B.1.D (2026-06-27): Add Template + Add Schedule modals
 // ──────────────────────────────────────────────────────────────────
 
+
+function ctAutoGenKey() {
+    // Auto-generate template_key: try transliterate display name, fallback to timestamp
+    const nameInput = document.getElementById('ct-add-name');
+    const keyInput = document.getElementById('ct-add-key');
+    if (!keyInput) return;
+    
+    const name = (nameInput?.value || '').trim().toLowerCase();
+    // Map Thai categories to English prefixes
+    const map = {
+        'โปร': 'promo_',
+        'ลด': 'promo_',
+        'sale': 'promo_',
+        'sale_': 'promo_',
+        'โพสต์': 'post_',
+        'โฆษณา': 'ad_',
+        'ขาย': 'ad_',
+    };
+    let prefix = 'post_';
+    for (const [k, v] of Object.entries(map)) {
+        if (name.includes(k)) { prefix = v; break; }
+    }
+    // Use timestamp suffix for uniqueness
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const ts = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+    keyInput.value = prefix + ts;
+    keyInput.focus();
+}
+
+
 function ctOpenAddTemplate() {
     const modal = document.createElement('div');
     modal.id = 'addTplModal';
@@ -7773,7 +7804,11 @@ function ctOpenAddTemplate() {
             </div>
             <div style="margin-bottom:0.75rem;">
                 <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.3rem;text-transform:uppercase;">รหัส template_key * (ภาษาอังกฤษ + _)</label>
-                <input id="ct-add-key" class="ct-input" placeholder="เช่น promo_vip_summer" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9_]+/g,'_')">
+                <div style="display:flex;gap:0.4rem;">
+                    <input id="ct-add-key" class="ct-input" placeholder="เช่น post_2026_06_28_1834" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9_]+/g,'_')" style="flex:1;">
+                    <button type="button" class="btn btn-sm" onclick="ctAutoGenKey()" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:0.4rem 0.7rem;font-size:0.78rem;white-space:nowrap;">🪄 อัตโนมัติ</button>
+                </div>
+                <div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.2rem;">ลูกค้าไม่เห็นรหัสนี้ — ใช้ภายในระบบเท่านั้น</div>
             </div>
             <div style="margin-bottom:0.75rem;">
                 <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.3rem;text-transform:uppercase;">หมวด</label>
