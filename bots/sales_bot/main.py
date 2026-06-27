@@ -264,26 +264,6 @@ async def post_shutdown(application: Application) -> None:
 
 
 
-def _read_cron_config(key, default):
-    """Read promo_config in separate thread → isolated event loop."""
-    import threading, asyncio
-    result = [default]
-    def _runner():
-        try:
-            loop = asyncio.new_event_loop()
-            try:
-                from shared.promo_config import get_promo_config
-                v = loop.run_until_complete(get_promo_config(key, default=default))
-                result[0] = v if v is not None else default
-            finally:
-                loop.close()
-        except Exception:
-            pass
-    t = threading.Thread(target=_runner, daemon=True)
-    t.start()
-    t.join(timeout=8)
-    return result[0]
-
 
 def create_application() -> Application:
     """Create and configure the Sales Bot application."""
@@ -443,21 +423,17 @@ def create_application() -> Application:
     )
 
     # --- Scheduler: EXIT SURVEY DM รายวัน 11:00 ไทย ---
-    _exit_h = int(_read_cron_config("cron_exit_survey_hour", 11) or 11)
-    _exit_m = int(_read_cron_config("cron_exit_survey_minute", 0) or 0)
     app.job_queue.run_daily(
         run_exit_survey_job,
-        time=dt_time(hour=_exit_h, minute=_exit_m, tzinfo=TH_TZ),
-        name=f"exit_survey_daily_{_exit_h:02d}{_exit_m:02d}",
+        time=dt_time(hour=11, minute=0, tzinfo=TH_TZ),
+        name="exit_survey_daily_1100",
     )
 
     # --- Scheduler: COMEBACK DM ทุกวัน 10:00 ไทย ---
-    _cb_h = int(_read_cron_config("cron_comeback_dm_hour", 10) or 10)
-    _cb_m = int(_read_cron_config("cron_comeback_dm_minute", 0) or 0)
     app.job_queue.run_daily(
         run_comeback_dm_job,
-        time=dt_time(hour=_cb_h, minute=_cb_m, tzinfo=TH_TZ),
-        name=f"comeback_dm_daily_{_cb_h:02d}{_cb_m:02d}",
+        time=dt_time(hour=10, minute=0, tzinfo=TH_TZ),
+        name="comeback_dm_daily_1000",
     )
 
     # --- Scheduler: LOYALTY RANK CHECK ทุก 6 ชม. (Bronze/Silver/Diamond) ---
