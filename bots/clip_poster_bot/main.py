@@ -107,23 +107,24 @@ def build_url(tier: Optional[str]) -> str:
     return f"https://t.me/{SALES_BOT_USERNAME}?start={code}"
 
 
-def _credit_block(credit_url: Optional[str]) -> str:
-    """Append a credit/review group link if available."""
-    if not credit_url:
-        return ""
-    return f'\n\n📋 <a href="{credit_url}">เช็คเครดิต / รีวิวลูกค้าจริง</a>'
+def build_clip_keyboard(tier: Optional[str], credit_url: Optional[str]) -> InlineKeyboardMarkup:
+    """Build inline keyboard for clip posts: VIP CTA + credit/review group."""
+    sale_url = build_url(tier)
+    sale_label = f"💎 สมัคร VIP ฿{tier}" if tier else "💎 สมัครเข้าห้อง VIP"
+    rows = [[InlineKeyboardButton(sale_label, url=sale_url)]]
+    if credit_url:
+        rows.append([InlineKeyboardButton("📋 เช็คเครดิต / รีวิวลูกค้าจริง", url=credit_url)])
+    return InlineKeyboardMarkup(rows)
 
 
 async def pick_caption(tier: Optional[str]) -> str:
-    """Build caption: tier-aware CTA + credit-group link appended."""
+    """Build caption text (CTAs handled by inline buttons below)."""
     url = build_url(tier)
-    credit_url = await get_credit_group_url()
-    credit = _credit_block(credit_url)
     if tier:
         tmpl = random.choice(CAPTION_TEMPLATES)
-        return tmpl.format(tier=tier, url=url) + credit
+        return tmpl.format(tier=tier, url=url)
     tmpl = random.choice(CAPTION_GENERIC)
-    return tmpl.format(url=url) + credit
+    return tmpl.format(url=url)
 
 
 
@@ -447,6 +448,10 @@ async def on_tier_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
+        # Build inline keyboard once (URL buttons — no callback needed)
+        credit_url = await get_credit_group_url()
+        clip_kb = build_clip_keyboard(tier_hint, credit_url)
+
         sent: list[str] = []
         failed: list[dict] = []
         for g in groups:
@@ -458,6 +463,7 @@ async def on_tier_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                         caption=caption_text,
                         parse_mode="HTML",
                         supports_streaming=True,
+                        reply_markup=clip_kb,
                     )
                 sent.append(g["slug"])
                 await asyncio.sleep(1.5)
