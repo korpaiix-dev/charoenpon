@@ -899,3 +899,20 @@ async def upload_content_image(
         "size": len(content),
     }
 
+
+@router.get("/asset")
+async def serve_asset(path: str, _admin=Depends(require_role("admin"))):
+    """Serve a file from /app/assets/* for image preview in dashboard.
+
+    Path must start with /app/assets/ to prevent directory traversal.
+    """
+    import os as _os_a
+    from fastapi.responses import FileResponse
+    if not path.startswith("/app/assets/"):
+        raise HTTPException(400, "path must be under /app/assets/")
+    if ".." in path:
+        raise HTTPException(400, "invalid path")
+    if not _os_a.path.exists(path):
+        raise HTTPException(404, "file not found")
+    return FileResponse(path)
+

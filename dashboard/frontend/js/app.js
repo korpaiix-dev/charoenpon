@@ -7435,16 +7435,58 @@ async function ctUploadImage(btn) {
 function ctPreview(btn) {
     const ta = ctTextareaFor(btn);
     if (!ta) return;
-    const html = ta.value;
+    const html = ta.value;  // HTML — render directly (Telegram allows <b><i><u><s><a>)
     const imgPath = (ctImageInputFor(btn) || {}).value || "";
     const card = btn.closest(".ct-card");
     const btns = ctCollectButtons(card);
-    openModal("👁 Preview", `
-        ${imgPath ? '<div style="background:#27272a;padding:0.5rem;border-radius:6px;margin-bottom:0.5rem;text-align:center;color:var(--text-muted);font-size:0.8rem;">📷 รูป: <code>' + esc(imgPath) + '</code></div>' : ''}
-        <div style="background:#1a1a1a;border:1px solid #3f3f46;border-radius:8px;padding:1rem;color:#fff;white-space:pre-wrap;font-size:0.9rem;line-height:1.5;">${html}</div>
-        ${btns && btns.length ? '<div style="margin-top:0.4rem;display:flex;flex-direction:column;gap:0.3rem;">' + btns.map(b => '<button style="background:#27272a;border:1px solid #3f3f46;color:#fff;padding:0.5rem;border-radius:6px;cursor:pointer;text-align:center;">' + esc(b.label) + '</button>').join('') + '</div>' : ''}
-        <div style="margin-top:0.5rem;font-size:0.72rem;color:var(--text-muted);">↑ คือสิ่งที่ลูกค้าจะเห็นในกลุ่ม</div>
-    `);
+
+    // Sample placeholder fill: substitute common placeholders for preview
+    const renderHtml = html.replace(/\{available\}/g, "8")
+                           .replace(/\{tier\}/g, "300");
+
+    // Build image URL via backend asset endpoint
+    const imgSrc = imgPath
+        ? "/api/admin/asset?path=" + encodeURIComponent(imgPath)
+        : null;
+
+    // Build buttons HTML — Telegram inline button style: full-width grey pill rows
+    const buttonsHtml = (btns && btns.length)
+        ? btns.map(b =>
+            `<div style="background:rgba(255,255,255,0.06);border-top:1px solid rgba(255,255,255,0.1);padding:0.65rem;color:#5eb6f5;text-align:center;font-size:0.88rem;font-weight:500;cursor:pointer;">${esc(b.label)}</div>`
+          ).join("")
+        : "";
+
+    openModal("👁 ตัวอย่างใน Telegram", `
+        <div style="background:#0e1621;padding:1rem;border-radius:10px;display:flex;justify-content:flex-start;">
+            <div style="max-width:480px;width:100%;">
+                <!-- Telegram message bubble (incoming style) -->
+                <div style="display:flex;gap:0.5rem;align-items:flex-start;">
+                    <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#ec4899,#f97316);display:flex;align-items:center;justify-content:center;color:#fff;font-size:0.95rem;font-weight:600;flex-shrink:0;">มิน</div>
+                    <div style="flex:1;">
+                        <div style="background:#182533;color:#fff;border-radius:12px;border-top-left-radius:4px;overflow:hidden;font-family:system-ui,-apple-system,sans-serif;">
+                            <div style="padding:0.4rem 0.75rem 0.2rem;font-size:0.78rem;color:#5eb6f5;font-weight:600;">มิน 🎬</div>
+                            ${imgSrc ? `<div style="background:#0e1621;"><img src="${imgSrc}" style="display:block;width:100%;max-height:400px;object-fit:cover;" onerror="this.style.display='none';this.parentElement.innerHTML='<div style=padding:1rem;color:#888;text-align:center;font-size:0.8rem;>⚠️ โหลดรูปไม่ได้: ${esc(imgPath)}</div>';"/></div>` : ""}
+                            <div style="padding:0.6rem 0.75rem 0.5rem;font-size:0.92rem;line-height:1.55;color:#fff;white-space:pre-wrap;word-wrap:break-word;" class="tg-caption">${renderHtml}</div>
+                            ${buttonsHtml}
+                            <div style="padding:0.2rem 0.75rem 0.4rem;text-align:right;font-size:0.7rem;color:#7a8b9a;">${new Date().toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"})} ✓✓</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div style="margin-top:0.6rem;font-size:0.75rem;color:var(--text-muted);text-align:center;">
+            ↑ คือสิ่งที่ลูกค้าจะเห็นในกลุ่ม (placeholder ใช้ค่าตัวอย่าง: available=8, tier=300)
+        </div>
+        <style>
+            .tg-caption a { color: #5eb6f5; text-decoration: none; }
+            .tg-caption a:hover { text-decoration: underline; }
+            .tg-caption b, .tg-caption strong { font-weight: 700; }
+            .tg-caption i, .tg-caption em { font-style: italic; }
+            .tg-caption u { text-decoration: underline; }
+            .tg-caption s, .tg-caption del { text-decoration: line-through; opacity: 0.7; }
+            .tg-caption code { background: rgba(255,255,255,0.1); padding: 1px 4px; border-radius: 3px; font-family: monospace; font-size: 0.85em; }
+        </style>
+    `, "", "wide");
 }
 var _ctTab = 'promo';
 
