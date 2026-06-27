@@ -287,6 +287,26 @@ def create_application() -> Application:
         group=-2,
     )
     # --- Group -1: Spam filter middleware ---
+    # CATCHALL LOG (group=-2 runs FIRST, before spam filter)
+    async def _catchall_log(update, context):
+        try:
+            msg = update.message or update.edited_message
+            wad = getattr(msg, "web_app_data", None) if msg else None
+            cb = update.callback_query
+            tg_id = update.effective_user.id if update.effective_user else "?"
+            if wad:
+                logger.warning("CATCHALL: WEB_APP_DATA tg=%s data=%s", tg_id, wad.data[:200])
+            elif msg and msg.text:
+                logger.info("CATCHALL: TEXT tg=%s text=%r", tg_id, msg.text[:80])
+            elif cb:
+                logger.info("CATCHALL: CALLBACK tg=%s data=%s", tg_id, cb.data[:80])
+            else:
+                logger.info("CATCHALL: OTHER tg=%s update=%s", tg_id, str(update.to_dict())[:200])
+        except Exception as exc:
+            logger.warning("CATCHALL log failed: %s", exc)
+
+    app.add_handler(TypeHandler(Update, _catchall_log), group=-2)
+
     app.add_handler(
         TypeHandler(Update, _spam_filter_wrapper),
         group=-1,
