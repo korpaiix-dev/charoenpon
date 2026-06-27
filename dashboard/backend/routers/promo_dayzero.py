@@ -13,6 +13,34 @@ from ..database import pool
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["admin-day0-promos"])
 
+def _parse_dt(value):
+    """Parse datetime from HTML datetime-local string (e.g. '2026-06-28T01:00').
+    Returns datetime or None. Accepts already-datetime values too.
+    """
+    from datetime import datetime
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        # Try common formats from HTML datetime-local
+        for fmt in ("%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(s, fmt)
+            except ValueError:
+                continue
+        # Try fromisoformat (Python 3.7+)
+        try:
+            return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            pass
+    return None
+
+
+
 
 @router.get("/day0-promos")
 async def list_promotions(
@@ -128,8 +156,8 @@ async def create_promotion(
             payload.get("extra_buttons") or [],
             payload.get("target_groups") or "all_free",
             payload.get("post_times") or [],
-            payload.get("starts_at"),
-            payload.get("ends_at"),
+            _parse_dt(payload.get("starts_at")),
+            _parse_dt(payload.get("ends_at")),
             int(admin.get("telegram_id") or 0) or None,
         )
     except Exception as exc:
@@ -183,6 +211,8 @@ async def update_promotion(
             elif fld == "discount_type":
                 if v not in ("none", "percent", "fixed_off", "fixed_price"):
                     raise HTTPException(400, f"invalid discount_type: {v}")
+            elif fld in ("starts_at", "ends_at"):
+                v = _parse_dt(v)
             args.append(v)
 
     for fld in JSONB_FIELDS:
