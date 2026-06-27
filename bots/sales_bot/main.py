@@ -263,6 +263,28 @@ async def post_shutdown(application: Application) -> None:
     logger.info("Sales Bot (แพร) shut down — database closed")
 
 
+
+def _read_cron_config(key, default):
+    """Read promo_config in separate thread → isolated event loop."""
+    import threading, asyncio
+    result = [default]
+    def _runner():
+        try:
+            loop = asyncio.new_event_loop()
+            try:
+                from shared.promo_config import get_promo_config
+                v = loop.run_until_complete(get_promo_config(key, default=default))
+                result[0] = v if v is not None else default
+            finally:
+                loop.close()
+        except Exception:
+            pass
+    t = threading.Thread(target=_runner, daemon=True)
+    t.start()
+    t.join(timeout=8)
+    return result[0]
+
+
 def create_application() -> Application:
     """Create and configure the Sales Bot application."""
     if not SALES_BOT_TOKEN:
