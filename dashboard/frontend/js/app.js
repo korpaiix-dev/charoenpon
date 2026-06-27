@@ -3216,7 +3216,7 @@ function showAddGroupForm(category) {
 async function createGroup() {
     try {
         await api('/groups', { method: 'POST', body: JSON.stringify({
-            slug: document.getElementById('grp-slug').value.replace(/[[:space:]]+/g,'').toUpperCase(),
+            slug: document.getElementById('grp-slug').value.replace(/\s+/g,'').toUpperCase(),
             title: document.getElementById('grp-title').value,
             chat_id: parseInt(document.getElementById('grp-chatid').value),
             min_tier: document.getElementById('grp-tier').value,
