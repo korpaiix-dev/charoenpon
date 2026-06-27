@@ -125,6 +125,19 @@ async def api_me(request: Request,
             "SELECT credits FROM gachapon_credits WHERE user_id=$1", user["id"]
         )
         gacha = {"credits": gacha_row[0]} if gacha_row else None
+
+        # NEW 2026-06-28: discount balance + is_god flag
+        disc_bal = 0.0
+        try:
+            disc_row = await conn.fetchrow(
+                "SELECT balance FROM user_discount_credits WHERE telegram_id = $1",
+                tg_id,
+            )
+            if disc_row:
+                disc_bal = float(disc_row["balance"] or 0)
+        except Exception:
+            pass
+        is_god_flag = bool(sub and sub.get("tier_name") == "TIER_2499")
     return JSONResponse({
         "user": {
             "telegram_id": user["telegram_id"],
@@ -137,6 +150,8 @@ async def api_me(request: Request,
         "subscription": sub,
         "last_payments": pays,
         "gacha": gacha,
+        "discount_balance": disc_bal,
+        "is_god": is_god_flag,
     })
 
 
