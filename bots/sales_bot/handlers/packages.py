@@ -98,6 +98,52 @@ from shared.songkran_promo import is_songkran_promo_window
 
 logger = logging.getLogger(__name__)
 
+
+
+# DAY 0 (2026-06-28): Auto-apply active promotions to sales menu labels
+async def _get_active_promo_discounts() -> dict:
+    """Returns {tier_str: {promo_code, discounted_price, savings, promo_name}} for all active promos.
+    Empty dict if no active promo / on error (fail-open = show regular prices).
+    """
+    try:
+        from shared.promotion_service import list_active_promotions, calculate_price
+        promos = await list_active_promotions()
+        result = {}
+        TIER_PRICE_MAP = {
+            "TIER_300": 300, "TIER_500": 500, "TIER_1299": 1299, "TIER_2499": 2499,
+            "TIER_100": 100,
+        }
+        for promo in promos:
+            pkg_codes = promo.get("package_codes") or []
+            if isinstance(pkg_codes, str):
+                import json as _j
+                try: pkg_codes = _j.loads(pkg_codes)
+                except: pkg_codes = []
+            for tier_str in pkg_codes:
+                base = TIER_PRICE_MAP.get(tier_str)
+                if not base:
+                    continue
+                calc = calculate_price(promo, tier_str, base)
+                if not calc.get("applied") or calc["savings"] <= 0:
+                    continue
+                # Keep the best discount per tier (highest savings)
+                existing = result.get(tier_str)
+                if existing is None or calc["savings"] > existing["savings"]:
+                    result[tier_str] = {
+                        "promo_code": promo.get("code"),
+                        "promo_name": promo.get("name"),
+                        "promo_id": promo.get("id"),
+                        "original": calc["original"],
+                        "discounted": calc["discounted"],
+                        "savings": calc["savings"],
+                    }
+        return result
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("get_active_promo_discounts failed: %s", exc)
+        return {}
+
+
 # ---- Package definitions ----
 
 SONGKRAN_PACKAGE_BONUS_LINE = "🎁 ช่วงโปร 7 วันนี้ ซื้อแพ็กนี้แถมกลุ่ม โปรโมชั่นสงกรานต์"
@@ -309,8 +355,11 @@ async def _build_package_list_text() -> str:
     ))
 
 
-def _build_package_keyboard() -> InlineKeyboardMarkup:
-    """Build inline keyboard. LUCKY_6.6 > Flash > end-month > combo > normal."""
+async def _build_package_keyboard() -> InlineKeyboardMarkup:
+    """Build inline keyboard. Day-0 promo > LUCKY_6.6 > Flash > end-month > combo > normal."""
+    # DAY 0 (2026-06-28): check active Day-0 promotions FIRST — overrides legacy promos
+    _dayzero_promos = await _get_active_promo_discounts()
+    
     lucky6 = is_lucky_6_active()
     flash = is_mid_month_flash_active() and not lucky6
     if lucky6:
@@ -328,6 +377,20 @@ def _build_package_keyboard() -> InlineKeyboardMarkup:
         god_label = "💎 GOD 2,499 เหลือ 2,000" if is_endmonth_vip_promo_active() else "💎 2,499 บาท"
         of_label = "🔥 OF 500 เหลือ 349" if is_may_combo_promo_active() else "🥈 500 บาท"
         god3m_label = "🔥 GOD3M 1,299 เหลือ 999" if is_may_combo_promo_active() else "🥇 1,299 บาท"
+    # DAY 0: override with Day-0 promo if present (highest priority)
+    if _dayzero_promos.get("TIER_300"):
+        d = _dayzero_promos["TIER_300"]
+        vip_label = f"🎁 VIP 300 → {int(d['discounted'])} ลด ฿{int(d['savings'])}"
+    if _dayzero_promos.get("TIER_500"):
+        d = _dayzero_promos["TIER_500"]
+        of_label = f"🎁 OF 500 → {int(d['discounted'])} ลด ฿{int(d['savings'])}"
+    if _dayzero_promos.get("TIER_1299"):
+        d = _dayzero_promos["TIER_1299"]
+        god3m_label = f"🎁 GOD3M 1,299 → {int(d['discounted'])} ลด ฿{int(d['savings'])}"
+    if _dayzero_promos.get("TIER_2499"):
+        d = _dayzero_promos["TIER_2499"]
+        god_label = f"🎁 GOD ถาวร 2,499 → {int(d['discounted'])} ลด ฿{int(d['savings'])}"
+
     buttons = [
         [InlineKeyboardButton(vip_label, callback_data="pkg_300")],
         [InlineKeyboardButton(of_label, callback_data="pkg_500")],
@@ -413,7 +476,7 @@ async def view_packages_command(
     await update.message.reply_text(
         await _build_package_list_text(),
         parse_mode="HTML",
-        reply_markup=_build_package_keyboard(),
+        reply_markup=await _build_package_keyboard(),
     )
 
 
@@ -433,7 +496,7 @@ async def view_packages_callback(
         pass  # callback may be too old / already answered
     await _safe_edit(query, await _build_package_list_text(),
         parse_mode="HTML",
-        reply_markup=_build_package_keyboard(),)
+        reply_markup=await _build_package_keyboard(),)
 async def package_detail_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
