@@ -1470,12 +1470,13 @@ async def _load_schedule_from_db() -> dict[str, dict]:
         conn = await _ap.connect(url)
         try:
             rows = await conn.fetch(
-                "SELECT job_name, schedule_hour, schedule_minute, is_enabled "
+                "SELECT job_name, schedule_hour, schedule_minute, is_enabled, handler_key "
                 "FROM bot_schedules WHERE bot_key = 'content_bot'"
             )
             return {
                 r['job_name']: {
                     'hour': int(r['schedule_hour']),
+                    'handler_key': r.get('handler_key') or '',
                     'minute': int(r['schedule_minute']),
                     'is_enabled': bool(r['is_enabled']),
                 }
@@ -1487,6 +1488,175 @@ async def _load_schedule_from_db() -> dict[str, dict]:
         logger.warning("load_schedule_from_db failed: %s", exc)
         return {}
 
+
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# B.1.C (2026-06-27): Generic DB-driven template poster
+# ──────────────────────────────────────────────────────────────────────────
+# Lets boss create a new promo end-to-end from Dashboard:
+#   1. Add row to content_templates (caption_html, image_path, buttons)
+#   2. Add row to bot_schedules with handler_key='generic_template'
+#      and job_name='template_<template_key>'
+#   3. Restart content_bot — auto-picks up the schedule + posts
+# ──────────────────────────────────────────────────────────────────────────
+
+_TEMPLATE_CACHE: dict[str, dict] = {}
+_TEMPLATE_CACHE_TS: float = 0.0
+_TEMPLATE_CACHE_TTL = 60.0  # 60s cache so Dashboard edits show within 1 min
+
+
+async def _load_template_from_db(template_key: str) -> dict | None:
+    """Load one template from content_templates. Returns None if missing or disabled.
+    
+    Cached 60s to avoid hammering DB on every post.
+    """
+    import time as _t
+    global _TEMPLATE_CACHE_TS, _TEMPLATE_CACHE
+    if _t.time() - _TEMPLATE_CACHE_TS > _TEMPLATE_CACHE_TTL:
+        _TEMPLATE_CACHE = {}  # force refresh
+        _TEMPLATE_CACHE_TS = _t.time()
+    if template_key in _TEMPLATE_CACHE:
+        return _TEMPLATE_CACHE[template_key]
+    try:
+        import asyncpg, os as _os
+        url = _os.environ.get("DATABASE_URL", "").replace("postgresql+asyncpg://", "postgresql://")
+        if not url:
+            return None
+        conn = await asyncpg.connect(url)
+        try:
+            row = await conn.fetchrow(
+                "SELECT template_key, display_name, caption_html, image_path, "
+                "buttons, is_enabled FROM content_templates "
+                "WHERE bot_key = $1 AND template_key = $2",
+                "content_bot", template_key,
+            )
+            if not row or not row["is_enabled"]:
+                _TEMPLATE_CACHE[template_key] = None
+                return None
+            data = {
+                "template_key": row["template_key"],
+                "display_name": row["display_name"],
+                "caption_html": row["caption_html"] or "",
+                "image_path": row["image_path"] or "",
+                "buttons": row["buttons"] or [],
+            }
+            _TEMPLATE_CACHE[template_key] = data
+            return data
+        finally:
+            await conn.close()
+    except Exception as exc:
+        logger.warning("template load failed for %s: %s", template_key, exc)
+        return None
+
+
+def _build_inline_keyboard(buttons: list) -> "InlineKeyboardMarkup | None":
+    """Convert DB buttons JSONB into InlineKeyboardMarkup.
+    
+    Expected format: [[{"text": "...", "url": "..."}, ...], ...]
+    or flat: [{"text": "...", "url": "..."}] (one row)
+    """
+    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+    if not buttons:
+        return None
+    try:
+        # Detect flat vs nested
+        if isinstance(buttons, list) and buttons and isinstance(buttons[0], dict):
+            rows_raw = [buttons]
+        else:
+            rows_raw = buttons
+        rows = []
+        for r in rows_raw:
+            row = []
+            for b in r:
+                if not isinstance(b, dict) or not b.get("text"):
+                    continue
+                if b.get("url"):
+                    row.append(InlineKeyboardButton(b["text"], url=b["url"]))
+                elif b.get("callback_data"):
+                    row.append(InlineKeyboardButton(b["text"], callback_data=b["callback_data"]))
+            if row:
+                rows.append(row)
+        return InlineKeyboardMarkup(rows) if rows else None
+    except Exception as exc:
+        logger.warning("button parse failed: %s", exc)
+        return None
+
+
+async def post_template_to_free_groups(
+    context: ContextTypes.DEFAULT_TYPE,
+    template_key: str,
+) -> None:
+    """Generic poster: read template from DB, send to all free groups.
+    
+    Called via scheduler with template_key bound at registration time.
+    """
+    bot = context.bot
+    tpl = await _load_template_from_db(template_key)
+    if not tpl:
+        logger.warning("Template %s not found or disabled — skipping", template_key)
+        return
+    
+    free_groups = await _get_free_groups_async()
+    if not free_groups:
+        logger.warning("No free groups for template %s", template_key)
+        return
+    
+    caption = tpl["caption_html"]
+    image_path = tpl["image_path"]
+    keyboard = _build_inline_keyboard(tpl["buttons"])
+    success = 0
+    failed = 0
+    
+    logger.info(
+        "Posting template %s (%s) to %d groups",
+        template_key, tpl["display_name"], len(free_groups),
+    )
+    
+    # Resolve image path — accept relative paths from /app/assets/
+    from pathlib import Path as _P
+    img_full = None
+    if image_path:
+        img_full = _P("/app") / image_path.lstrip("/")
+        if not img_full.exists():
+            # Try campaigns/ prefix as fallback
+            alt = _P("/app/assets/campaigns") / image_path
+            if alt.exists():
+                img_full = alt
+            else:
+                img_full = None
+                logger.warning("Image not found: %s", image_path)
+    
+    for group_id in free_groups:
+        try:
+            if img_full and img_full.exists():
+                with open(img_full, "rb") as _f:
+                    await bot.send_photo(
+                        chat_id=group_id, photo=_f, caption=caption,
+                        parse_mode="HTML", reply_markup=keyboard,
+                    )
+            else:
+                await bot.send_message(
+                    chat_id=group_id, text=caption, parse_mode="HTML",
+                    disable_web_page_preview=False, reply_markup=keyboard,
+                )
+            success += 1
+            await asyncio.sleep(1.2)
+        except Exception as exc:
+            failed += 1
+            logger.warning("template %s failed group %d: %s", template_key, group_id, exc)
+    
+    logger.info(
+        "Template %s done: %d/%d success",
+        template_key, success, len(free_groups),
+    )
+    try:
+        await _send_discord_content_log(
+            f"📤 **{tpl['display_name']}** posted\n"
+            f"✅ {success} / ❌ {failed} / Total {len(free_groups)} groups"
+        )
+    except Exception:
+        pass
 
 
 def main() -> None:
@@ -1616,6 +1786,35 @@ def main() -> None:
     # ]
     # for i, t in enumerate(auto_fetch_times):
     #     job_queue.run_daily(_scheduled_auto_fetch, time=t, name=f"auto_fetch_{i}")
+
+    # ──────────────────────────────────────────────────────────────────────
+    # B.1.C (2026-06-27): GENERIC TEMPLATES — auto-bind from DB
+    # ──────────────────────────────────────────────────────────────────────
+    # Any schedule with handler_key='generic_template' + job_name starting
+    # with 'template_' gets bound to post_template_to_free_groups.
+    # This lets boss create new promos end-to-end from Dashboard without code.
+    import functools as _ft
+    generic_count = 0
+    for _job_name, _cfg in _db_sched.items():
+        if _cfg.get("handler_key") != "generic_template":
+            continue
+        if not _cfg.get("is_enabled", True):
+            logger.info("generic schedule %s disabled via Dashboard", _job_name)
+            continue
+        # Convention: job_name = 'template_<template_key>'
+        if not _job_name.startswith("template_"):
+            logger.warning("generic schedule %s ignored — must start with 'template_'", _job_name)
+            continue
+        _tpl_key = _job_name[len("template_"):]
+        _t = dt_time(hour=_cfg["hour"], minute=_cfg["minute"], tzinfo=TH_TZ)
+        # Bind template_key into the callback
+        async def _generic_cb(_ctx, _k=_tpl_key):
+            await post_template_to_free_groups(_ctx, _k)
+        job_queue.run_daily(_generic_cb, time=_t, name=_job_name)
+        generic_count += 1
+        logger.info("Generic template scheduled: %s at %02d:%02d", _tpl_key, _cfg["hour"], _cfg["minute"])
+    if generic_count:
+        logger.info("Loaded %d generic template schedules from DB", generic_count)
 
     logger.info("Content Bot (มิน) starting — 5 rounds/day to %d groups", len(FREE_GROUPS))
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)

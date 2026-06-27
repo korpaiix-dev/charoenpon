@@ -1,5 +1,5 @@
 {
-  "lastClosingAt": 1782565233341,
+  "lastClosingAt": 1782570879411,
   "destFailures": {
     "-1004267333548": 5
   },
@@ -8,13 +8,24 @@
   },
   "paused": false,
   "stats": {
-    "forwarded": 2286,
-    "failed": 56,
-    "closingsSent": 470,
+    "forwarded": 2352,
+    "failed": 62,
+    "closingsSent": 476,
     "startedAt": 1781533034372,
-    "lastForwardAt": 1782565226334
+    "lastForwardAt": 1782570872410
   },
   "recentHashes": {
-    "8d05bafe0643d7cf05359b26547fc876": 1782565207760
+    "b6b4ffbdb92795fe46600768bbc1abc9": 1782570600436,
+    "03307c4f315b4163d474c8048bb44229": 1782570600440,
+    "4659f4d4d071b0bcbab95c845dca7213": 1782570600440,
+    "e218b5a7da4fff18a938d3508d0da05e": 1782570600440,
+    "e73fdacc8d761483b8e28f476eb46aa7": 1782570600440,
+    "4f8633142fd8a8f79f599751156b874e": 1782570600440,
+    "e41a4e3034f29bd12be1bbc5f37d643a": 1782570600440,
+    "0daf02284ff8cead9bcbdfb6b012291c": 1782570600440,
+    "b5aac7432753d1dc86179c4e57410829": 1782570600440,
+    "1aca5e3559c2066f4ba7a8a9e0b4a808": 1782570600440,
+    "4b67a8d477f6e2ea713fcce5f980dd0e": 1782570600440,
+    "664f245314433120256ac0cec9ccd244": 1782570600441
   }
 }
