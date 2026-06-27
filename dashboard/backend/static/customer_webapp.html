@@ -144,7 +144,25 @@ function render(d) {
     html += '<div class="card"><div class="card-title">🎰 กาชาปอง</div>';
     html += '<div class="row"><span class="label">เครดิตคงเหลือ</span><span class="value">' + gacha.credits + ' หมุน</span></div></div>';
   }
-  html += '<button class="btn" onclick="openPackages()">💎 ต่ออายุ / สมัครเพิ่ม</button>';
+  // NEW: discount balance card
+  if (d.discount_balance && d.discount_balance > 0) {
+    html += '<div class="card" style="background:linear-gradient(135deg,#ffd70022,#1a1a2a);border-left:5px solid #ffd700">';
+    html += '<div class="card-title">💰 ส่วนลดสะสม</div>';
+    html += '<div class="big" style="color:#ffd700">฿' + Number(d.discount_balance).toLocaleString() + '</div>';
+    html += '<div style="opacity:.7;font-size:13px">ใช้ส่วนลดอัตโนมัติตอนซื้อแพ็คเกจครั้งต่อไป</div>';
+    html += '</div>';
+  }
+  // Smart button — ขึ้นกับ state ของ user
+  if (d.is_god) {
+    // GOD MODE ถาวร — ไม่ต้องต่ออายุ แค่ปิด
+    html += '<button class="btn" onclick="openPackagesMiniApp()">🎰 เพิ่มกาชา / ดูแพ็คเกจอื่น</button>';
+  } else if (sub) {
+    // VIP active — ต่ออายุ + อัพเกรด
+    html += '<button class="btn" onclick="openPackagesMiniApp()">🔄 ต่ออายุ / 🆙 อัพเกรด</button>';
+  } else {
+    // ลูกค้าใหม่ — สมัคร
+    html += '<button class="btn" onclick="openPackagesMiniApp()">🛒 ดูแพ็คเกจ + โปร</button>';
+  }
   html += '<button class="btn btn-secondary" onclick="tg.close()">ปิด</button>';
   document.getElementById("content").innerHTML = html;
 }
