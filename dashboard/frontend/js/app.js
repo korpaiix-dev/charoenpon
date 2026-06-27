@@ -6714,7 +6714,7 @@ async function toggleClipPermission(memberId, currentEnabled, displayName) {
     const verb = currentEnabled ? 'ปิดสิทธิ์' : 'เปิดสิทธิ์';
     if (!confirm(`${verb}ใช้บอตโพสต์คลิป สำหรับ ${displayName}?`)) return;
     try {
-        await api(`/admins/${memberId}/can-post-clips`, {
+        await api(`/team/${memberId}/can-post-clips`, {
             method: 'PATCH',
             body: JSON.stringify({ enabled: !currentEnabled }),
         });
