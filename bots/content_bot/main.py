@@ -1450,6 +1450,45 @@ async def _global_error_handler(update, context):
         pass
 
 
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Phase A.8 (2026-06-27): DB-driven schedule loader
+# ──────────────────────────────────────────────────────────────────────────
+async def _load_schedule_from_db() -> dict[str, dict]:
+    """Return {job_name: {hour, minute, is_enabled}} from bot_schedules.
+
+    Uses a fresh asyncpg connection (not shared pool) so it works inside a temp event loop.
+    Returns empty dict on any failure → caller falls back to hardcoded.
+    """
+    import os as _os_sched
+    try:
+        import asyncpg as _ap
+        url = _os_sched.environ.get("DATABASE_URL", "").replace("postgresql+asyncpg://", "postgresql://")
+        if not url:
+            return {}
+        conn = await _ap.connect(url)
+        try:
+            rows = await conn.fetch(
+                "SELECT job_name, schedule_hour, schedule_minute, is_enabled "
+                "FROM bot_schedules WHERE bot_key = 'content_bot'"
+            )
+            return {
+                r['job_name']: {
+                    'hour': int(r['schedule_hour']),
+                    'minute': int(r['schedule_minute']),
+                    'is_enabled': bool(r['is_enabled']),
+                }
+                for r in rows
+            }
+        finally:
+            await conn.close()
+    except Exception as exc:
+        logger.warning("load_schedule_from_db failed: %s", exc)
+        return {}
+
+
+
 def main() -> None:
     if not CONTENT_BOT_TOKEN:
         logger.error("CONTENT_BOT_TOKEN not set")
@@ -1478,29 +1517,54 @@ def main() -> None:
         handle_authorized_photo,
     ))
 
-    # SCHEDULE_V2 — redesigned 2026-06-02 (jarern4 disabled, content_bot is sole publisher)
+    # SCHEDULE_V2 — redesigned 2026-06-02; A.8 (2026-06-27): reads bot_schedules DB
     job_queue = app.job_queue
 
-    # TEASER posts — 5 rounds/day, spaced 1.5-2h, anchored to peak hours
-    teaser_times = [
-        dt_time(hour=1,  minute=0,  tzinfo=TH_TZ),   # late-night viewers
-        dt_time(hour=7,  minute=30, tzinfo=TH_TZ),   # morning peak
-        dt_time(hour=11, minute=0,  tzinfo=TH_TZ),   # late morning
-        dt_time(hour=13, minute=0,  tzinfo=TH_TZ),   # lunchtime
-        dt_time(hour=17, minute=0,  tzinfo=TH_TZ),   # afternoon
-        dt_time(hour=21, minute=0,  tzinfo=TH_TZ),   # peak evening
-        dt_time(hour=23, minute=0,  tzinfo=TH_TZ),   # late
-    ]
-    for i, t in enumerate(teaser_times):
+    # Load DB schedule overrides — use a temp loop, then restore for PTB
+    import asyncio as _asyncio_sched
+    _db_sched = {}
+    try:
+        _tmp_loop = _asyncio_sched.new_event_loop()
+        try:
+            _db_sched = _tmp_loop.run_until_complete(_load_schedule_from_db())
+        finally:
+            _tmp_loop.close()
+        # Give PTB a fresh loop (it calls get_event_loop() internally)
+        _asyncio_sched.set_event_loop(_asyncio_sched.new_event_loop())
+    except Exception as _exc:
+        logger.warning("DB schedule load crashed: %s — using hardcoded", _exc)
+        _db_sched = {}
+    logger.info("Loaded %d schedule overrides from bot_schedules", len(_db_sched))
+
+    def _sched_time(job_name: str, default_h: int, default_m: int):
+        """Look up DB schedule for this job. Returns None if disabled."""
+        cfg = _db_sched.get(job_name)
+        if cfg and not cfg.get("is_enabled", True):
+            return None  # disabled
+        if cfg:
+            return dt_time(hour=cfg["hour"], minute=cfg["minute"], tzinfo=TH_TZ)
+        return dt_time(hour=default_h, minute=default_m, tzinfo=TH_TZ)
+
+    # TEASER posts — 7 default rounds, can be overridden/disabled per slot in DB
+    teaser_defaults = [(1,0),(7,30),(11,0),(13,0),(17,0),(21,0),(23,0)]
+    teaser_times = []
+    for i, (dh, dm) in enumerate(teaser_defaults):
+        t = _sched_time(f"teaser_{i}", dh, dm)
+        if t is not None:
+            teaser_times.append((i, t))
+        else:
+            logger.info("teaser_%d disabled via Dashboard", i)
+    for i, t in teaser_times:
         job_queue.run_daily(scheduled_teaser, time=t, name=f"teaser_{i}")
 
-    # VIP PROMO — 2 rounds/day (replaces jarern4-auto-poster role)
-    vip_promo_times = [
-        dt_time(hour=9,  minute=30, tzinfo=TH_TZ),
-        dt_time(hour=19, minute=30, tzinfo=TH_TZ),
-    ]
-    for i, t in enumerate(vip_promo_times):
-        job_queue.run_daily(post_vip_promo_to_free_groups, time=t, name=f"vip_promo_{i}")
+    # VIP PROMO — 2 rounds default, DB-overridable per slot
+    vip_defaults = [(9, 30), (19, 30)]
+    for i, (dh, dm) in enumerate(vip_defaults):
+        t = _sched_time(f"vip_promo_{i}", dh, dm)
+        if t is not None:
+            job_queue.run_daily(post_vip_promo_to_free_groups, time=t, name=f"vip_promo_{i}")
+        else:
+            logger.info("vip_promo_%d disabled via Dashboard", i)
 
     # GOD MODE end-month promo — REDUCED from 4 to 1 round/day (avoid spam)
     # Only runs when is_endmonth_vip_promo_active() returns True
