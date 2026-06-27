@@ -7248,7 +7248,10 @@ async function renderBotSchedules() {
                 <h2 style="margin:0;font-size:1.2rem;">⏰ ตารางเวลาบอท</h2>
                 <div style="font-size:0.75rem;color:var(--text-muted);">เปิด/ปิด job และแก้เวลาได้ทันที</div>
             </div>
-            <div class="ga2-seg">${tabsHtml}</div>
+            <div style="display:flex;gap:0.5rem;align-items:center;">
+                <div class="ga2-seg">${tabsHtml}</div>
+                <button class="btn btn-primary" onclick="schedOpenAdd()" style="white-space:nowrap;">➕ เพิ่ม Schedule</button>
+            </div>
         </div>
         `;
 
@@ -7520,9 +7523,12 @@ async function renderContentEditor() {
           .ct-card .ct-toolbar + .ct-textarea{border-top-left-radius:0;border-top-right-radius:0;border-top-color:#3f3f46;}
         </style>
 
-        <div style="margin-bottom:1rem;">
-            <h2 style="margin:0;font-size:1.2rem;">📝 คอนเทนต์ที่บอตจะโพสต์</h2>
-            <div style="font-size:0.75rem;color:var(--text-muted);">แก้ข้อความ + รูป — บอตจะใช้ทันทีในรอบโพสต์ถัดไป</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+            <div>
+                <h2 style="margin:0;font-size:1.2rem;">📝 คอนเทนต์ที่บอตจะโพสต์</h2>
+                <div style="font-size:0.75rem;color:var(--text-muted);">แก้ข้อความ + รูป — บอตจะใช้ทันทีในรอบโพสต์ถัดไป</div>
+            </div>
+            <button class="btn btn-primary" onclick="ctOpenAddTemplate()" style="white-space:nowrap;">➕ เพิ่ม Template</button>
         </div>
 
         <div class="ct-tabs">
@@ -7658,3 +7664,149 @@ function ctCollectButtons(card) {
     return out;
 }
 
+
+
+// ──────────────────────────────────────────────────────────────────
+// B.1.D (2026-06-27): Add Template + Add Schedule modals
+// ──────────────────────────────────────────────────────────────────
+
+function ctOpenAddTemplate() {
+    const modal = document.createElement('div');
+    modal.id = 'addTplModal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:1rem;';
+    modal.innerHTML = `
+        <div style="background:#1c1c1f;border:1px solid #3f3f46;border-radius:12px;padding:1.5rem;max-width:520px;width:100%;max-height:90vh;overflow:auto;">
+            <h3 style="margin:0 0 1rem;font-size:1.1rem;">➕ เพิ่มคอนเทนต์ใหม่</h3>
+            <div style="margin-bottom:0.75rem;">
+                <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.3rem;text-transform:uppercase;">ชื่อแสดง *</label>
+                <input id="ct-add-name" class="ct-input" placeholder="เช่น โปร VIP ฤดูร้อน">
+            </div>
+            <div style="margin-bottom:0.75rem;">
+                <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.3rem;text-transform:uppercase;">รหัส template_key * (ภาษาอังกฤษ + _)</label>
+                <input id="ct-add-key" class="ct-input" placeholder="เช่น promo_vip_summer">
+            </div>
+            <div style="margin-bottom:0.75rem;">
+                <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.3rem;text-transform:uppercase;">หมวด</label>
+                <select id="ct-add-cat" class="ct-input">
+                    <option value="promo">🎁 โปรโมชั่น</option>
+                    <option value="teaser_style">📸 สไตล์ตัวอย่าง</option>
+                </select>
+            </div>
+            <div style="margin-bottom:0.75rem;">
+                <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.3rem;text-transform:uppercase;">ข้อความ caption (HTML)</label>
+                <textarea id="ct-add-cap" class="ct-textarea" placeholder="🌟 <b>โปรพิเศษ</b> 🌟\n\n..."></textarea>
+            </div>
+            <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
+                <button class="btn btn-secondary" onclick="document.getElementById('addTplModal').remove()">ยกเลิก</button>
+                <button class="btn btn-primary" onclick="ctSubmitAddTemplate()">✅ สร้าง</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    setTimeout(() => document.getElementById('ct-add-name')?.focus(), 100);
+}
+
+async function ctSubmitAddTemplate() {
+    const name = document.getElementById('ct-add-name').value.trim();
+    const key = document.getElementById('ct-add-key').value.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_');
+    const cat = document.getElementById('ct-add-cat').value;
+    const cap = document.getElementById('ct-add-cap').value;
+    if (!name || !key) { alert('กรอกชื่อแสดง + รหัส template_key'); return; }
+    try {
+        await api('/admin/content-templates', { method: 'POST', body: { template_key: key, display_name: name, category: cat, caption_html: cap } });
+        document.getElementById('addTplModal').remove();
+        toast('✅ สร้าง template แล้ว');
+        renderContentEditor();
+    } catch (e) {
+        alert('❌ ' + (e.message || 'สร้างไม่สำเร็จ'));
+    }
+}
+
+async function ctDeleteTemplate(id, key) {
+    if (!confirm(`ลบ template "${key}" และ schedule ที่ใช้ template นี้ ?`)) return;
+    try {
+        await api(`/admin/content-templates/${id}`, { method: 'DELETE' });
+        toast('🗑 ลบ template + schedule ที่เกี่ยวข้องแล้ว');
+        renderContentEditor();
+    } catch (e) {
+        alert('❌ ' + (e.message || 'ลบไม่สำเร็จ'));
+    }
+}
+
+async function schedOpenAdd() {
+    // Load promo templates as options
+    let templates = [];
+    try {
+        templates = (await api('/admin/content-templates?category=promo')) || [];
+    } catch (e) { templates = []; }
+    const optsHtml = templates.map(t => `<option value="${esc(t.template_key)}">${esc(t.display_name)} (${esc(t.template_key)})</option>`).join('') ||
+                     '<option value="">— ยังไม่มี template — สร้างที่หน้า Content Editor ก่อน —</option>';
+    
+    const modal = document.createElement('div');
+    modal.id = 'addSchedModal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:1rem;';
+    modal.innerHTML = `
+        <div style="background:#1c1c1f;border:1px solid #3f3f46;border-radius:12px;padding:1.5rem;max-width:480px;width:100%;">
+            <h3 style="margin:0 0 1rem;font-size:1.1rem;">➕ เพิ่ม Schedule ใหม่</h3>
+            <div style="margin-bottom:0.75rem;">
+                <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.3rem;text-transform:uppercase;">Template ที่จะโพสต์ *</label>
+                <select id="sched-add-tpl" class="ct-input">${optsHtml}</select>
+                <div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.3rem;">เลือก template ที่สร้างไว้ในหน้า Content Editor</div>
+            </div>
+            <div style="margin-bottom:0.75rem;display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">
+                <div>
+                    <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.3rem;text-transform:uppercase;">ชั่วโมง (0-23)</label>
+                    <input id="sched-add-h" class="ct-input" type="number" min="0" max="23" value="9">
+                </div>
+                <div>
+                    <label style="display:block;font-size:0.75rem;color:var(--text-muted);margin-bottom:0.3rem;text-transform:uppercase;">นาที (0-59)</label>
+                    <input id="sched-add-m" class="ct-input" type="number" min="0" max="59" value="0">
+                </div>
+            </div>
+            <div style="background:#2a2a2e;border:1px solid #3f3f46;border-radius:6px;padding:0.6rem 0.75rem;font-size:0.75rem;color:var(--text-muted);margin:1rem 0;">
+                ℹ️ หลังกดสร้าง บอตจะ <b>restart 1 ครั้ง</b> เพื่อให้ schedule ใหม่มีผล (รวดเร็ว 5-10 วินาที)
+            </div>
+            <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+                <button class="btn btn-secondary" onclick="document.getElementById('addSchedModal').remove()">ยกเลิก</button>
+                <button class="btn btn-primary" onclick="schedSubmitAdd()">✅ สร้าง + restart</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+async function schedSubmitAdd() {
+    const tpl = document.getElementById('sched-add-tpl').value;
+    const h = parseInt(document.getElementById('sched-add-h').value);
+    const m = parseInt(document.getElementById('sched-add-m').value);
+    if (!tpl) { alert('เลือก template ก่อน'); return; }
+    if (isNaN(h) || h<0 || h>23) { alert('ชั่วโมง 0-23'); return; }
+    if (isNaN(m) || m<0 || m>59) { alert('นาที 0-59'); return; }
+    try {
+        await api(`/admin/bots/${encodeURIComponent(_schedBot||'content_bot')}/schedules`, {
+            method: 'POST',
+            body: { template_key: tpl, schedule_hour: h, schedule_minute: m }
+        });
+        document.getElementById('addSchedModal').remove();
+        toast('✅ สร้าง schedule + กำลัง restart บอต...');
+        // Restart the bot so new schedule binds
+        try {
+            await api(`/admin/bots/charoenpon-${(_schedBot||'content_bot').replace('_','-')}/restart`, { method: 'POST' });
+        } catch (e) { /* non-fatal */ }
+        setTimeout(() => { toast('✅ Schedule พร้อมแล้ว'); renderBotSchedules(); }, 4000);
+    } catch (e) {
+        alert('❌ ' + (e.message || 'สร้างไม่สำเร็จ'));
+    }
+}
+
+async function schedDelete(id, jobName) {
+    if (!confirm(`ลบ schedule "${jobName}" ?\n\nบอตจะ restart 1 ครั้งเพื่อให้มีผล`)) return;
+    try {
+        await api(`/admin/bots/schedules/${id}`, { method: 'DELETE' });
+        toast('🗑 ลบแล้ว + กำลัง restart...');
+        try { await api(`/admin/bots/charoenpon-${(_schedBot||'content_bot').replace('_','-')}/restart`, { method: 'POST' }); } catch (e) {}
+        setTimeout(() => renderBotSchedules(), 4000);
+    } catch (e) {
+        alert('❌ ' + (e.message || 'ลบไม่สำเร็จ'));
+    }
+}

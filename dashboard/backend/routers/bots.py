@@ -726,6 +726,61 @@ async def list_schedules(bot_key: str, _admin=Depends(require_role("admin"))):
     return [dict(r) for r in rows]
 
 
+@router.post("/bots/{bot_key}/schedules")
+async def create_bot_schedule(bot_key: str, payload: dict, _admin=Depends(require_role("admin"))):
+    """B.1.D: Create new schedule (typically generic_template for new promos).
+    
+    Required body: template_key (job name = 'template_<key>'), schedule_hour, schedule_minute
+    Optional: display_name (auto-derived), description, category
+    """
+    template_key = (payload.get("template_key") or "").strip()
+    if not template_key:
+        raise HTTPException(400, "template_key required")
+    try:
+        hour = int(payload.get("schedule_hour", 9))
+        minute = int(payload.get("schedule_minute", 0))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "schedule_hour/minute must be integers")
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise HTTPException(400, "hour 0-23, minute 0-59")
+    
+    job_name = f"template_{template_key}"
+    pool = await _pool()
+    
+    # Look up template for default display_name
+    tpl_row = await pool.fetchrow(
+        "SELECT display_name FROM content_templates WHERE bot_key=$1 AND template_key=$2",
+        bot_key, template_key,
+    )
+    display_name = (payload.get("display_name") or "").strip()
+    if not display_name:
+        tpl_name = tpl_row["display_name"] if tpl_row else template_key
+        display_name = f"{tpl_name} ({hour:02d}:{minute:02d})"
+    
+    try:
+        row = await pool.fetchrow(
+            "INSERT INTO bot_schedules (bot_key, job_name, display_name, schedule_hour, "
+            "schedule_minute, is_enabled, handler_key, category) "
+            "VALUES ($1, $2, $3, $4, $5, TRUE, 'generic_template', $6) RETURNING id, job_name",
+            bot_key, job_name, display_name, hour, minute,
+            payload.get("category") or "promo",
+        )
+    except Exception as exc:
+        raise HTTPException(409, f"schedule '{job_name}' already exists")
+    return {"id": row["id"], "job_name": row["job_name"], "needs_restart": True}
+
+
+@router.delete("/bots/schedules/{sched_id}")
+async def delete_bot_schedule(sched_id: int, _admin=Depends(require_role("admin"))):
+    """B.1.D: Delete a schedule (Dashboard only). Needs bot restart to fully drop job."""
+    pool = await _pool()
+    row = await pool.fetchrow("SELECT bot_key, job_name FROM bot_schedules WHERE id=$1", sched_id)
+    if not row:
+        raise HTTPException(404, "not found")
+    await pool.execute("DELETE FROM bot_schedules WHERE id=$1", sched_id)
+    return {"deleted": True, "job_name": row["job_name"], "needs_restart": True}
+
+
 @router.patch("/bots/schedules/{sched_id}")
 async def update_schedule(
     sched_id: int,
@@ -781,6 +836,60 @@ async def update_schedule(
 # ==================================================================
 # Phase B.1.B (2026-06-27): Content templates editor
 # ==================================================================
+
+@router.post("/content-templates")
+async def create_content_template(payload: dict, _admin=Depends(require_role("admin"))):
+    """B.1.D (2026-06-27): Create new content template.
+    
+    Required body: template_key, display_name
+    Optional: description, caption_html, image_path, buttons (JSONB), category
+    """
+    template_key = (payload.get("template_key") or "").strip()
+    display_name = (payload.get("display_name") or "").strip()
+    if not template_key or not display_name:
+        raise HTTPException(400, "template_key + display_name required")
+    # Sanitise template_key (lowercase, underscore only)
+    import re as _re
+    if not _re.match(r"^[a-z0-9_]+$", template_key):
+        raise HTTPException(400, "template_key: lowercase letters/digits/underscore only")
+    
+    pool = await _pool()
+    # Insert (upsert if exists — Dashboard treats this as create)
+    try:
+        row = await pool.fetchrow(
+            "INSERT INTO content_templates (bot_key, template_key, display_name, "
+            "description, caption_html, image_path, buttons, category, is_enabled) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, TRUE) RETURNING id, template_key",
+            "content_bot",
+            template_key,
+            display_name,
+            payload.get("description") or "",
+            payload.get("caption_html") or "",
+            payload.get("image_path") or "",
+            __import__("json").dumps(payload.get("buttons") or []),
+            payload.get("category") or "promo",
+        )
+    except Exception as exc:
+        # Likely unique constraint violation (already exists)
+        raise HTTPException(409, f"template_key '{template_key}' already exists")
+    return {"id": row["id"], "template_key": row["template_key"]}
+
+
+@router.delete("/content-templates/{tpl_id}")
+async def delete_content_template(tpl_id: int, _admin=Depends(require_role("admin"))):
+    """B.1.D: Delete a content template."""
+    pool = await _pool()
+    row = await pool.fetchrow("SELECT template_key FROM content_templates WHERE id=$1", tpl_id)
+    if not row:
+        raise HTTPException(404, "not found")
+    # Also remove any schedule that references this template
+    await pool.execute(
+        "DELETE FROM bot_schedules WHERE bot_key='content_bot' AND job_name=$1",
+        f"template_{row['template_key']}",
+    )
+    await pool.execute("DELETE FROM content_templates WHERE id=$1", tpl_id)
+    return {"deleted": True, "template_key": row["template_key"]}
+
 
 @router.get("/content-templates")
 async def list_content_templates(category: str = None, _admin=Depends(require_role("admin"))):
