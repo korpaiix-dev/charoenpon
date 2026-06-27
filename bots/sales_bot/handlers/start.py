@@ -31,7 +31,8 @@ WELCOME_TEXT = (
 MAIN_KEYBOARD = InlineKeyboardMarkup(
     [
         [InlineKeyboardButton("⚡ Flash Sale", callback_data="view_flashsale")],
-        [InlineKeyboardButton("📦 ดูแพ็กเกจ", callback_data="view_packages")],
+        [InlineKeyboardButton("🛒 เลือกแพ็คเกจ + โปร", web_app=WebAppInfo(url="https://telebord.net/customer/packages"))],
+        [InlineKeyboardButton("📦 ดูแพ็กเกจ (ปกติ)", callback_data="view_packages")],
         [InlineKeyboardButton("📊 ข้อมูลของฉัน", web_app=WebAppInfo(url="https://telebord.net/webapp/customer"))],
         [
             InlineKeyboardButton("📋 เช็คเครดิต/รีวิว", url="https://t.me/+hv7uXYj4bxFhODZl"),
@@ -839,7 +840,8 @@ async def referral_menu_callback(update: Update, context: ContextTypes.DEFAULT_T
             "👉 กดดูแพ็กเกจ VIP เจริญพร แล้วสมัครได้เลย"
         )
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📦 ดูแพ็กเกจ", callback_data="view_packages")],
+            [InlineKeyboardButton("🛒 เลือกแพ็คเกจ + โปร", web_app=WebAppInfo(url="https://telebord.net/customer/packages"))],
+        [InlineKeyboardButton("📦 ดูแพ็กเกจ (ปกติ)", callback_data="view_packages")],
             [InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")],
         ])
         try:

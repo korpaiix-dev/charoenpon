@@ -14,6 +14,7 @@ from .routers.customers import router as customers_router
 from .routers.payments import router as payments_router
 from .routers.promotions import router as promotions_router, ensure_promo_campaign_tables
 from .routers.promo_dayzero import router as promo_dayzero_router
+from .routers.customer_miniapp import router as customer_miniapp_router
 from .routers.content import router as content_router
 from .routers.groups import router as groups_router
 from .routers.team import router as team_router
@@ -117,6 +118,7 @@ app.include_router(dashboard_router)
 app.include_router(customers_router)
 app.include_router(payments_router)
 app.include_router(promo_dayzero_router)
+app.include_router(customer_miniapp_router)
 app.include_router(promotions_router)
 app.include_router(content_router)
 app.include_router(groups_router)

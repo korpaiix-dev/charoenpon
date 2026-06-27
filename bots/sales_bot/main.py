@@ -620,13 +620,98 @@ async def _global_error_handler(update, context):
 
 # Web App data handler — when WebApp calls tg.sendData("action")
 async def _handle_webapp_data(update, context):
+    """Receive data from any WebApp (Mini App).
+
+    Two formats supported:
+    1. String "open_packages" -> open packages view (legacy)
+    2. JSON {action: "buy", tier, package_id, price, name, promo_id} -> start payment
+    """
     if not update.message or not getattr(update.message, "web_app_data", None):
         return
     data = update.message.web_app_data.data or ""
     from bots.sales_bot.handlers.packages import view_packages_command
+    
+    # Legacy string commands
     if data == "open_packages":
         await view_packages_command(update, context)
         return
+    
+    # NEW: JSON buy action from Mini App
+    import json as _json
+    try:
+        payload = _json.loads(data)
+    except Exception:
+        await update.message.reply_text("ข้อมูลจาก WebApp ไม่ถูกต้องค่ะ")
+        return
+    
+    if payload.get("action") != "buy":
+        return
+    
+    tier_full = payload.get("tier", "")  # e.g. "TIER_300" or "GACHA_1"
+    short_tier = tier_full.replace("TIER_", "")
+    price = int(payload.get("price", 0))
+    pkg_name = payload.get("name", tier_full)
+    promo_id = payload.get("promo_id")
+    
+    # GACHA flow: route to existing gacha buy
+    if tier_full.startswith("GACHA_"):
+        await update.message.reply_text(
+            f"🎰 คุณเลือก: <b>{pkg_name}</b> ฿{price:,}\n\n"
+            "พิมพ์ /gacha เพื่อซื้อหมุนกาชาปองค่ะ",
+            parse_mode="HTML",
+        )
+        return
+    
+    # PACKAGE flow: record promo_click + show QR
+    context.user_data["selected_tier"] = short_tier
+    if promo_id:
+        try:
+            from shared.promotion_service import record_click
+            await record_click(int(promo_id), update.effective_user.id, tier_full)
+            context.user_data["dayzero_promo_id"] = int(promo_id)
+        except Exception:
+            pass
+    
+    # Pick receiver
+    from shared.receiver_pool import pick_random
+    acct = await pick_random()
+    if not acct:
+        from shared.contact_admin import contact_admin_kb as _cak
+        await update.message.reply_text(
+            "⚠️ ระบบรับเงินไม่พร้อม กรุณาทักแอดมิน",
+            reply_markup=_cak(),
+        )
+        return
+    
+    msg = (
+        f"💳 <b>คำสั่งซื้อ: {pkg_name}</b>\n"
+        "━━━━━━━━━━━━━━━\n\n"
+        f"💰 ยอดที่ต้องโอน: <b>฿{price:,}</b>\n\n"
+        f"🏦 ธนาคาร: <b>{acct.get('bank_name_th', '')}</b>\n"
+        f"👤 ชื่อบัญชี: <code>{acct.get('owner_name', '')}</code>\n"
+        f"🔢 เลขบัญชี: <code>{acct.get('account_no', '')}</code>\n"
+    )
+    if acct.get("promptpay_number"):
+        msg += f"📱 PromptPay: <code>{acct['promptpay_number']}</code>\n"
+    msg += (
+        "\n━━━━━━━━━━━━━━━\n"
+        "📸 ส่ง <b>สลิปการโอน</b> ในแชทนี้\n"
+        "⚡ ระบบจะอัปเกรดอัตโนมัติทันที"
+    )
+    
+    await update.message.reply_text(msg, parse_mode="HTML")
+    
+    qr_url = acct.get("qr_url") or ""
+    if qr_url:
+        try:
+            await context.bot.send_photo(
+                chat_id=update.message.chat_id,
+                photo=qr_url,
+                caption=f"📱 สแกน QR เพื่อโอน <b>฿{price:,}</b>",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
 
 
 def main() -> None:

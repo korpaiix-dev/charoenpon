@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>เจริญพร VIP — เลือกแพ็คเกจ</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+body {
+  font-family: -apple-system, 'Sukhumvit Set', 'Sarabun', sans-serif;
+  background: var(--tg-theme-bg-color, #0f0f12);
+  color: var(--tg-theme-text-color, #fff);
+  min-height: 100vh;
+  padding: 0.6rem 0.7rem 5rem;
+}
+
+.header {
+  text-align: center;
+  padding: 0.8rem 0 0.5rem;
+  border-bottom: 1px solid var(--tg-theme-section-separator-color, #2a2a2e);
+  margin-bottom: 0.8rem;
+}
+.header h1 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  background: linear-gradient(90deg, #f9a826, #e84545);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.header p {
+  font-size: 0.75rem;
+  color: var(--tg-theme-hint-color, #999);
+  margin-top: 0.2rem;
+}
+
+/* PROMO BANNER */
+.promo-banner {
+  background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
+  border-radius: 12px;
+  padding: 0.7rem 0.85rem;
+  margin-bottom: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.25);
+}
+.promo-banner-icon { font-size: 1.4rem; }
+.promo-banner-text {
+  flex: 1;
+  font-size: 0.8rem;
+  color: #fff;
+  line-height: 1.3;
+}
+.promo-banner-text strong { display: block; font-size: 0.92rem; margin-bottom: 0.1rem; }
+
+/* SECTION */
+.section-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--tg-theme-hint-color, #999);
+  margin: 1rem 0 0.5rem;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+/* PACKAGE GRID */
+.pkg-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.6rem;
+}
+.pkg-card {
+  background: var(--tg-theme-secondary-bg-color, #1c1c1f);
+  border: 1px solid var(--tg-theme-section-separator-color, #2a2a2e);
+  border-radius: 14px;
+  padding: 0.85rem 0.9rem;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  position: relative;
+  overflow: hidden;
+}
+.pkg-card:active { transform: scale(0.98); }
+.pkg-card.has-discount {
+  border-color: #ef4444;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.08), rgba(28, 28, 31, 1));
+}
+
+.pkg-discount-badge {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.62rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 6px;
+  font-weight: 700;
+}
+
+.pkg-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.45rem; }
+.pkg-icon { font-size: 1.7rem; line-height: 1; }
+.pkg-name { font-size: 0.97rem; font-weight: 700; flex: 1; }
+
+.pkg-price-block {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  margin-bottom: 0.4rem;
+}
+.pkg-price-original {
+  font-size: 0.85rem;
+  color: var(--tg-theme-hint-color, #999);
+  text-decoration: line-through;
+}
+.pkg-price-now {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: #fbbf24;
+}
+.pkg-price-now.discounted { color: #f87171; }
+.pkg-duration {
+  font-size: 0.75rem;
+  color: var(--tg-theme-hint-color, #999);
+  margin-left: auto;
+}
+
+.pkg-rooms {
+  font-size: 0.72rem;
+  color: var(--tg-theme-hint-color, #aaa);
+  line-height: 1.4;
+}
+
+.pkg-cta {
+  margin-top: 0.55rem;
+  background: var(--tg-theme-button-color, #f9a826);
+  color: var(--tg-theme-button-text-color, #000);
+  border: none;
+  border-radius: 10px;
+  padding: 0.55rem;
+  font-weight: 700;
+  font-size: 0.88rem;
+  width: 100%;
+  cursor: pointer;
+}
+.pkg-cta:active { opacity: 0.85; }
+
+/* GACHA SECTION */
+.gacha-card {
+  background: linear-gradient(135deg, #6d28d9, #ec4899);
+  border-radius: 14px;
+  padding: 0.85rem 0.9rem;
+  margin-bottom: 0.6rem;
+  cursor: pointer;
+}
+.gacha-card:active { transform: scale(0.98); }
+.gacha-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; }
+.gacha-icon { font-size: 1.5rem; }
+.gacha-name { font-size: 0.95rem; font-weight: 700; color: #fff; flex: 1; }
+.gacha-price { font-size: 1.1rem; font-weight: 800; color: #fbbf24; }
+.gacha-desc { font-size: 0.72rem; color: rgba(255, 255, 255, 0.85); line-height: 1.35; }
+
+/* LOADING */
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: 3rem 0;
+  color: var(--tg-theme-hint-color, #999);
+}
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--tg-theme-section-separator-color, #2a2a2e);
+  border-top-color: var(--tg-theme-button-color, #f9a826);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* CONTACT ADMIN */
+.contact-admin {
+  margin-top: 1.5rem;
+  text-align: center;
+  padding: 0.8rem;
+  background: var(--tg-theme-secondary-bg-color, #1c1c1f);
+  border-radius: 10px;
+}
+.contact-admin a {
+  color: var(--tg-theme-link-color, #60a5fa);
+  text-decoration: none;
+  font-size: 0.83rem;
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🎰 เจริญพร VIP</h1>
+  <p>เลือกแพ็คเกจที่สนใจ</p>
+</div>
+
+<div id="promo-banner-area"></div>
+
+<div class="section-title">📦 แพ็คเกจ VIP</div>
+<div id="pkg-area" class="loading"><div class="spinner"></div></div>
+
+<div class="section-title" style="margin-top: 1.4rem;">🎰 กาชาปอง — ลุ้นรางวัล</div>
+<div id="gacha-area" class="loading"><div class="spinner"></div></div>
+
+<div class="contact-admin">
+  มีคำถาม? <a href="https://t.me/sperm6969">💬 ติดต่อแอดมิน</a>
+</div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+if (tg) {
+  tg.ready();
+  tg.expand();
+  tg.setHeaderColor('#0f0f12');
+  tg.setBackgroundColor('#0f0f12');
+}
+
+const TIER_ICONS = {
+  TIER_100: '🎲', TIER_300: '🥉', TIER_500: '🥈',
+  TIER_1299: '🥇', TIER_2499: '💎',
+};
+const PKG_DESCRIPTIONS = {
+  TIER_100: '🏠 ห้องชัก — สำหรับน้องใหม่ทดลองชิม',
+  TIER_300: '🏠 VIP — งานทางบ้าน/แอบถ่าย/นักเรียน',
+  TIER_500: '🏠 VIP + OnlyFans — งานแรร์รวม 50+ คน',
+  TIER_1299: '🏠 ครบ 6 ห้อง: VIP, SSS, OnlyFans, นานาชาติ, V GOD, ซีรีส์',
+  TIER_2499: '🏠 ครบ 7 ห้อง — ตลอดชีพ! (รวม Summer Fest)',
+};
+
+async function loadData() {
+  try {
+    const resp = await fetch('/api/customer/packages-and-promos', {
+      headers: { 'X-Telegram-InitData': tg?.initData || '' },
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    renderPromos(data.promos || []);
+    renderPackages(data.packages || []);
+    renderGacha(data.gacha || []);
+  } catch (e) {
+    document.getElementById('pkg-area').innerHTML = `<p style="text-align:center;color:#ef4444;">โหลดข้อมูลไม่สำเร็จ: ${e.message}</p>`;
+  }
+}
+
+function renderPromos(promos) {
+  const area = document.getElementById('promo-banner-area');
+  if (!promos.length) { area.innerHTML = ''; return; }
+  const p = promos[0]; // show first active promo as banner
+  area.innerHTML = `
+    <div class="promo-banner">
+      <div class="promo-banner-icon">🔥</div>
+      <div class="promo-banner-text">
+        <strong>${p.name}</strong>
+        ใช้กับแพ็คเกจที่เลือกได้เลย — กดปุ่มราคาด้านล่าง
+      </div>
+    </div>
+  `;
+}
+
+function renderPackages(packages) {
+  const area = document.getElementById('pkg-area');
+  area.className = 'pkg-grid';
+  area.innerHTML = '';
+  // Order: high to low (2499 first)
+  const order = ['TIER_2499', 'TIER_1299', 'TIER_500', 'TIER_300', 'TIER_100'];
+  const sorted = packages.slice().sort((a, b) => {
+    return order.indexOf(a.tier) - order.indexOf(b.tier);
+  });
+
+  sorted.forEach(pkg => {
+    const hasDiscount = pkg.discount && pkg.discount.savings > 0;
+    const showPrice = hasDiscount ? pkg.discount.discounted : pkg.price;
+    const duration = pkg.duration_days === 0 ? '' :
+                     pkg.duration_days >= 36500 ? 'ถาวร' :
+                     `${pkg.duration_days} วัน`;
+
+    const card = document.createElement('div');
+    card.className = 'pkg-card' + (hasDiscount ? ' has-discount' : '');
+    card.innerHTML = `
+      ${hasDiscount ? `<div class="pkg-discount-badge">ลด ฿${Math.round(pkg.discount.savings)}</div>` : ''}
+      <div class="pkg-head">
+        <div class="pkg-icon">${TIER_ICONS[pkg.tier] || '📦'}</div>
+        <div class="pkg-name">${pkg.name}</div>
+      </div>
+      <div class="pkg-price-block">
+        ${hasDiscount ? `<span class="pkg-price-original">฿${Math.round(pkg.price)}</span>` : ''}
+        <span class="pkg-price-now ${hasDiscount ? 'discounted' : ''}">฿${Math.round(showPrice).toLocaleString()}</span>
+        <span class="pkg-duration">${duration}</span>
+      </div>
+      <div class="pkg-rooms">${PKG_DESCRIPTIONS[pkg.tier] || ''}</div>
+      <button class="pkg-cta" onclick="onBuy('${pkg.tier}', ${pkg.id}, ${showPrice}, '${pkg.name.replace(/'/g, "\\'")}', ${hasDiscount ? pkg.discount.promo_id : 'null'})">
+        ${hasDiscount ? `🎁 ซื้อราคาโปร ฿${Math.round(showPrice).toLocaleString()}` : `ซื้อเลย ฿${Math.round(showPrice).toLocaleString()}`}
+      </button>
+    `;
+    area.appendChild(card);
+  });
+}
+
+function renderGacha(gachas) {
+  const area = document.getElementById('gacha-area');
+  area.className = '';
+  area.innerHTML = '';
+  const order = ['GACHA_10', 'GACHA_3', 'GACHA_1'];
+  const sorted = gachas.slice().sort((a, b) => order.indexOf(a.tier) - order.indexOf(b.tier));
+
+  sorted.forEach(g => {
+    const spins = g.tier === 'GACHA_10' ? 10 : g.tier === 'GACHA_3' ? 3 : 1;
+    const card = document.createElement('div');
+    card.className = 'gacha-card';
+    card.onclick = () => onBuy(g.tier, g.id, g.price, g.name, null);
+    card.innerHTML = `
+      <div class="gacha-head">
+        <div class="gacha-icon">🎰</div>
+        <div class="gacha-name">${spins} หมุน</div>
+        <div class="gacha-price">฿${Math.round(g.price)}</div>
+      </div>
+      <div class="gacha-desc">ลุ้นรางวัลสูงสุด GOD MODE ถาวร ฿2,499</div>
+    `;
+    area.appendChild(card);
+  });
+}
+
+function onBuy(tier, pkgId, price, name, promoId) {
+  if (!tg) {
+    alert('โปรดเปิดผ่าน Telegram bot ค่ะ');
+    return;
+  }
+  // Send data back to bot — bot will generate QR + bank details
+  const payload = {
+    action: 'buy',
+    tier: tier,
+    package_id: pkgId,
+    price: Math.round(price),
+    name: name,
+    promo_id: promoId,
+  };
+  tg.sendData(JSON.stringify(payload));
+  tg.close();
+}
+
+loadData();
+</script>
+</body>
+</html>
