@@ -331,7 +331,7 @@ class CharoenponCommands(commands.Cog):
     @commands.command(name="status")
     async def status_cmd(self, ctx: commands.Context) -> None:
         """!status — สถานะทุก bot"""
-        now = datetime.now(timezone.utc)
+        from zoneinfo import ZoneInfo as _ZI; now = datetime.now(_ZI('Asia/Bangkok'))
         from discord_bot.channels import get_all_channel_ids
 
         channels = get_all_channel_ids()
@@ -372,7 +372,7 @@ class CharoenponCommands(commands.Cog):
     @commands.command(name="revenue")
     async def revenue_cmd(self, ctx: commands.Context, period: str = "today") -> None:
         """!revenue today — ยอดวันนี้"""
-        now = datetime.now(timezone.utc)
+        from zoneinfo import ZoneInfo as _ZI; now = datetime.now(_ZI('Asia/Bangkok'))
 
         if period == "today":
             start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -429,7 +429,7 @@ class CharoenponCommands(commands.Cog):
     @commands.command(name="members")
     async def members_cmd(self, ctx: commands.Context) -> None:
         """!members — จำนวน active"""
-        now = datetime.now(timezone.utc)
+        from zoneinfo import ZoneInfo as _ZI; now = datetime.now(_ZI('Asia/Bangkok'))
 
         async with get_session() as session:
             active_q = await session.execute(

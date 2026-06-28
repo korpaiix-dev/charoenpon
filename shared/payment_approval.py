@@ -263,7 +263,7 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
                     src_name, getattr(inp, "payment_id", None)
                 )
                 return ApprovalResult(
-                    ok=False,
+                    success=False,
                     error="maintenance_mode",
                     error_details="System in maintenance — slip queued for manual review",
                 )

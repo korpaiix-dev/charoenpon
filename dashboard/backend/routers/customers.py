@@ -175,8 +175,8 @@ async def broadcast_message(
             media_b64 = _base64.b64encode(media_bytes).decode("ascii")
 
     # Resolve target user IDs (set) — re-use existing helper
-    user_rows = await _get_broadcast_users(target)
-    user_ids = [int(r["telegram_id"] or 0) for r in user_rows if r["telegram_id"] is not None]
+    user_ids = await _get_broadcast_users(target)
+    # helper already returns list[int] of telegram_ids — no further mapping needed
     if not user_ids:
         raise HTTPException(400, "ไม่มีผู้รับ — ยกเลิก broadcast")
 

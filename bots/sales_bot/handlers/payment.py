@@ -651,6 +651,16 @@ async def handle_photo_slip(
                     pass
                 return
             _payid = _gp.payment_id
+
+            # ── Consume purchase_intent if recovered (GACHA path) ──
+            try:
+                _pi_g = locals().get("pending_intent")
+                if _pi_g:
+                    _pi_g_id = _pi_g.get("id")
+                    if _pi_g_id:
+                        await _intent_consume(int(_pi_g_id), int(_payid) if _payid else None)
+            except Exception as _gce:
+                logger.warning("INTENT consume (gacha) failed: %s", _gce)
             from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
             _kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton(
@@ -1169,6 +1179,16 @@ async def handle_photo_slip(
 
                     _new_pay_id = _ap_result.payment_id
                     _pkg_name_safe = _ap_result.package_name
+
+                    # ── Consume purchase_intent if Layer 0 fallback recovered tier (main path) ──
+                    try:
+                        _pi_main = locals().get("pending_intent")
+                        if _pi_main:
+                            _pi_id_m = _pi_main.get("id")
+                            if _pi_id_m:
+                                await _intent_consume(int(_pi_id_m), int(_new_pay_id) if _new_pay_id else None)
+                    except Exception as _ce_m:
+                        logger.warning("INTENT consume (main) failed: %s", _ce_m)
 
                     # Look up package + user for handler-needed fields + apply custom updates
                     async with get_session() as _sess:
