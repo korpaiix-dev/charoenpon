@@ -228,6 +228,12 @@ async function logout() {
     if (alertInterval) { clearInterval(alertInterval); alertInterval = null; }
     try { Object.values(charts).forEach(c => c && c.destroy && c.destroy()); } catch {}
     charts = {};
+    
+    // FIX 2026-06-28 (#436): clear page-scoped timers ก่อนเปลี่ยนหน้า
+    // เดิม _healthTimer (System Health) + _gaAutoRefresh ยังรันต่อ
+    // → setInterval 30s ทำงาน → repaint #page-content ทับหน้าอื่นที่ user เปิดอยู่
+    try { if (typeof _healthTimer !== "undefined" && _healthTimer) { clearInterval(_healthTimer); _healthTimer = null; } } catch (e) {}
+    try { if (typeof _gaAutoRefresh !== "undefined" && _gaAutoRefresh) { clearInterval(_gaAutoRefresh); _gaAutoRefresh = null; } } catch (e) {}
     lastAlertCount = { pending: -1, sos: -1 };
     document.getElementById('login-page').classList.remove('hidden');
     document.getElementById('app').classList.add('hidden');
@@ -285,6 +291,11 @@ function navigate(page) {
     Object.values(charts).forEach(c => c.destroy && c.destroy());
     charts = {};
     
+    // FIX 2026-06-28 (#436-navigate): clear timers ก่อน render หน้าใหม่
+    // ป้องกัน _healthTimer (System Health 30s) + _gaAutoRefresh (Group Analytics 30s)
+    // ที่ยังรันต่อ → repaint #page-content ทับหน้าใหม่ที่บอสเปิด
+    try { if (typeof _healthTimer !== 'undefined' && _healthTimer) { clearInterval(_healthTimer); _healthTimer = null; } } catch (e) {}
+    try { if (typeof _gaAutoRefresh !== 'undefined' && _gaAutoRefresh) { clearInterval(_gaAutoRefresh); _gaAutoRefresh = null; } } catch (e) {}
     const content = document.getElementById('page-content');
     content.innerHTML = '<div class="loading"><div class="spinner"></div> กำลังโหลด...</div>';
     
@@ -7844,7 +7855,7 @@ async function renderBotSchedules() {
           .ga2-seg-btn.active{background:var(--primary);color:#000;font-weight:600;}
           .sched-section{margin-bottom:1.2rem;}
           .sched-section-title{font-size:0.75rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.5rem;}
-          .sched-row{display:grid;grid-template-columns:auto 1fr auto auto;gap:0.75rem;align-items:center;padding:0.7rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:0.5rem;}
+          .sched-row{display:grid;grid-template-columns:auto 1fr auto auto auto;gap:0.75rem;align-items:center;padding:0.7rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:0.5rem;}
           /* Toggle switch — label wrapper because input::before doesnt work */
           .sched-switch{position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0;}
           .sched-switch input{opacity:0;width:0;height:0;margin:0;position:absolute;}
@@ -7894,6 +7905,7 @@ async function renderBotSchedules() {
                             <input type="number" min="0" max="59" value="${String(s.schedule_minute).padStart(2,'0')}" data-sched="${s.id}" data-field="minute" onchange="updateSchedTime(${s.id},'minute',this.value)">
                         </div>
                         <div style="font-size:0.7rem;color:var(--text-muted);font-family:var(--font-mono);">${esc(s.job_name)}</div>
+                        <button class="btn-icon-only" title="ลบ schedule นี้" onclick="schedDelete(${s.id}, ${JSON.stringify(s.display_name || s.job_name)})" style="background:transparent;border:1px solid #ef4444;color:#ef4444;padding:0.3rem 0.55rem;border-radius:6px;cursor:pointer;font-size:0.85rem;line-height:1;">🗑</button>
                     </div>
                 `).join('')}
             </div>`;

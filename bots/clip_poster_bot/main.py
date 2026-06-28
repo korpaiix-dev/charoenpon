@@ -215,10 +215,16 @@ def watermark_video(input_path: str, output_path: str, logo_path: str) -> bool:
 
 # ─── DB helpers ──────────────────────────────────────────────────────────────
 async def get_free_groups() -> list[dict]:
-    """Return active SAMPLE groups — the dedicated "ตัวอย่าง" rooms.
+    """Return target groups for clip distribution.
 
-    Renamed from 'free groups' historically — now strictly slug='SAMPLE'.
-    To add more sample rooms: INSERT into group_registry with slug=SAMPLE.
+    FIX 2026-06-28: อ่านจาก bot_group_targets (เลือกผ่าน Dashboard)
+    แทน hardcoded SAMPLE only — ทำให้ admin ติกเลือกกลุ่มเพิ่มได้
+
+    Fallback strategy:
+    1. ถ้ามี row ใน bot_group_targets WHERE bot_key='clip_poster_bot' AND is_active
+       → ใช้กลุ่มเหล่านั้น (รวม cross-join group_registry เพื่อกรอง active เพิ่ม)
+    2. ถ้าไม่มี (ระบบเพิ่งติด หรือ admin ลืมตั้ง) → fallback ใช้ SAMPLE
+       เพื่อกัน "ส่งไปไม่มีที่" ตอนเริ่มต้น
     """
     import asyncpg
     db_url = os.environ.get("DATABASE_URL", "")
@@ -228,6 +234,22 @@ async def get_free_groups() -> list[dict]:
     db_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
     conn = await asyncpg.connect(db_url)
     try:
+        # PRIMARY: read from bot_group_targets (Dashboard checkbox)
+        rows = await conn.fetch(
+            "SELECT bgt.chat_id, gr.slug::text AS slug, gr.title "
+            "FROM bot_group_targets bgt "
+            "JOIN group_registry gr ON gr.chat_id = bgt.chat_id "
+            "WHERE bgt.bot_key = 'clip_poster_bot' "
+            "  AND bgt.is_active = TRUE "
+            "  AND gr.is_active = TRUE "
+            "ORDER BY gr.id"
+        )
+        if rows:
+            logger.info("get_free_groups: %d targets from bot_group_targets", len(rows))
+            return [dict(r) for r in rows]
+
+        # FALLBACK: ไม่มี row → SAMPLE เดิม (กัน distribute fail ตอน initial)
+        logger.warning("get_free_groups: no bot_group_targets — fallback to SAMPLE")
         rows = await conn.fetch(
             "SELECT chat_id, slug::text AS slug, title FROM group_registry "
             "WHERE is_active = TRUE AND slug::text = 'SAMPLE' "
