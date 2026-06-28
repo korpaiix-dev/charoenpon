@@ -69,6 +69,7 @@ async def send_broadcast(
     parse_mode: str = Form("HTML"),
     disable_preview: bool = Form(False),
     image: Optional[UploadFile] = File(None),
+    buttons: Optional[str] = Form(None, description="JSON array of {text,url}"),
     admin=Depends(require_role("admin")),
 ):
     """Send broadcast message (with optional image) to selected groups."""
@@ -86,6 +87,23 @@ async def send_broadcast(
         raise HTTPException(400, "Message or image required")
     if len(message) > 4000:
         raise HTTPException(400, "Message too long (max 4000)")
+
+    # Parse buttons -> Telegram inline_keyboard
+    reply_markup = None
+    if buttons:
+        try:
+            btn_list = _json.loads(buttons)
+            if isinstance(btn_list, list) and btn_list:
+                keyboard = []
+                for b in btn_list[:10]:  # max 10 buttons
+                    txt = (b.get("text") or "").strip()[:64]
+                    url = (b.get("url") or "").strip()[:256]
+                    if txt and url and (url.startswith("http://") or url.startswith("https://") or url.startswith("tg://")):
+                        keyboard.append([{"text": txt, "url": url}])
+                if keyboard:
+                    reply_markup = {"inline_keyboard": keyboard}
+        except Exception as exc:
+            logger.warning("buttons parse failed: %s", exc)
 
     # Lookup chat_ids
     groups = await pool.fetch("""
@@ -125,6 +143,8 @@ async def send_broadcast(
                         "caption": message[:1024],
                         "parse_mode": parse_mode,
                     }
+                    if reply_markup:
+                        data["reply_markup"] = _json.dumps(reply_markup)
                     r = await cli.post(
                         f"https://api.telegram.org/bot{GUARDIAN_BOT_TOKEN}/sendPhoto",
                         files=files, data=data,
@@ -136,6 +156,8 @@ async def send_broadcast(
                         "parse_mode": parse_mode,
                         "disable_web_page_preview": disable_preview,
                     }
+                    if reply_markup:
+                        data["reply_markup"] = reply_markup
                     r = await cli.post(
                         f"https://api.telegram.org/bot{GUARDIAN_BOT_TOKEN}/sendMessage",
                         json=data,

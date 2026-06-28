@@ -5466,6 +5466,7 @@ async function openGroupBroadcastModal() {
 
         _gbSelectedSlugs = new Set();
         _gbImageFile = null;
+        _gbButtons = [];
 
         const renderGroup = (g) => `
             <label style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.5rem;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:var(--surface-2);">
@@ -5530,6 +5531,15 @@ async function openGroupBroadcastModal() {
                         <span id="gb-image-name" style="font-size:0.7rem;color:var(--text-muted);"></span>
                         <span id="gb-image-clear" style="display:none;font-size:0.7rem;color:var(--error);cursor:pointer;" onclick="gbClearImage()">✕ ลบรูป</span>
                     </div>
+                    <div id="gb-image-thumb-wrap" style="margin-top:0.5rem;display:none;">
+                        <img id="gb-image-thumb" alt="preview" style="max-width:100%;max-height:200px;border-radius:8px;border:1px solid var(--border);object-fit:contain;background:var(--surface);">
+                    </div>
+
+                    <div style="margin-top:1rem;display:flex;justify-content:space-between;align-items:center;">
+                        <strong style="font-size:0.78rem;">🔘 ปุ่มใต้โพสต์ (ไม่บังคับ)</strong>
+                        <button type="button" class="btn btn-sm btn-outline" onclick="gbAddButton()" style="font-size:0.7rem;">+ เพิ่มปุ่ม</button>
+                    </div>
+                    <div id="gb-buttons-list" style="margin-top:0.4rem;display:flex;flex-direction:column;gap:0.3rem;"></div>
 
                     <div style="margin-top:1rem;font-size:0.72rem;color:var(--text-muted);">📱 ตัวอย่าง</div>
                     <div id="gb-preview" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0.625rem;font-size:0.85rem;line-height:1.5;min-height:80px;max-height:25vh;overflow:auto;white-space:pre-wrap;word-break:break-word;color:var(--text-muted);">— ยังไม่มีข้อความ —</div>
@@ -5545,6 +5555,7 @@ async function openGroupBroadcastModal() {
                 <button class="btn btn-sm btn-outline" onclick="showGbHistory()">📜 ดูประวัติบรอดแคสต์</button>
             </div>
         `;
+        gbRenderButtons();
         gbUpdatePreview();
     } catch (err) {
         document.getElementById('gb-body').innerHTML = `<div style="color:var(--error);padding:1rem;">❌ ${esc(err.message || 'load failed')}</div>`;
@@ -5574,6 +5585,18 @@ function gbImageChange(input) {
         _gbImageFile = input.files[0];
         document.getElementById('gb-image-name').textContent = _gbImageFile.name + ` (${Math.round(_gbImageFile.size/1024)}KB)`;
         document.getElementById('gb-image-clear').style.display = 'inline';
+        // Show thumbnail preview
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = document.getElementById('gb-image-thumb');
+            const wrap = document.getElementById('gb-image-thumb-wrap');
+            if (img && wrap) {
+                img.src = e.target.result;
+                wrap.style.display = 'block';
+            }
+            gbUpdatePreview();
+        };
+        reader.readAsDataURL(_gbImageFile);
     }
 }
 
@@ -5582,7 +5605,49 @@ function gbClearImage() {
     document.getElementById('gb-image').value = '';
     document.getElementById('gb-image-name').textContent = '';
     document.getElementById('gb-image-clear').style.display = 'none';
+    const wrap = document.getElementById('gb-image-thumb-wrap');
+    if (wrap) wrap.style.display = 'none';
+    gbUpdatePreview();
 }
+
+// ===== Broadcast modal: button builder (inline keyboard) =====
+let _gbButtons = [];
+
+function gbRenderButtons() {
+    const wrap = document.getElementById('gb-buttons-list');
+    if (!wrap) return;
+    if (_gbButtons.length === 0) {
+        wrap.innerHTML = '<div style="font-size:0.7rem;color:var(--text-dim);font-style:italic;">— ยังไม่มีปุ่ม —</div>';
+        return;
+    }
+    wrap.innerHTML = _gbButtons.map((b, i) => `
+        <div style="display:flex;gap:0.3rem;align-items:center;padding:0.3rem;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;">
+            <input type="text" value="${esc(b.text || '')}" placeholder="ข้อความปุ่ม" oninput="gbBtnEdit(${i},'text',this.value)" style="flex:1;min-width:0;font-size:0.72rem;padding:0.25rem 0.4rem;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+            <input type="text" value="${esc(b.url || '')}" placeholder="https://..." oninput="gbBtnEdit(${i},'url',this.value)" style="flex:1.5;min-width:0;font-size:0.72rem;padding:0.25rem 0.4rem;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+            <button type="button" onclick="gbBtnDelete(${i})" title="ลบปุ่ม" style="background:transparent;border:none;color:var(--error);cursor:pointer;font-size:1rem;padding:0 0.3rem;">🗑</button>
+        </div>
+    `).join('');
+}
+
+function gbAddButton() {
+    _gbButtons.push({ text: '', url: '' });
+    gbRenderButtons();
+    gbUpdatePreview();
+}
+
+function gbBtnEdit(idx, field, value) {
+    if (_gbButtons[idx]) {
+        _gbButtons[idx][field] = value;
+        gbUpdatePreview();
+    }
+}
+
+function gbBtnDelete(idx) {
+    _gbButtons.splice(idx, 1);
+    gbRenderButtons();
+    gbUpdatePreview();
+}
+
 
 
 // ===== Broadcast modal: rich text helpers (reuse CT_EMOJIS + ctInsertAt) =====
@@ -5648,11 +5713,22 @@ function gbUpdatePreview() {
     const msg = document.getElementById('gb-msg')?.value || '';
     const el = document.getElementById('gb-preview');
     if (!el) return;
-    if (!msg.trim()) {
+    let html = '';
+    if (msg.trim()) html += msg;
+    // Render inline keyboard buttons preview
+    const validBtns = (_gbButtons || []).filter(b => (b.text || '').trim() && (b.url || '').trim());
+    if (validBtns.length > 0) {
+        html += '<div style="margin-top:0.6rem;display:flex;flex-direction:column;gap:0.3rem;">';
+        validBtns.forEach(b => {
+            html += `<div style="background:var(--surface-2);border:1px solid var(--accent);border-radius:8px;padding:0.4rem 0.6rem;text-align:center;font-size:0.78rem;color:var(--accent);">${esc(b.text)}</div>`;
+        });
+        html += '</div>';
+    }
+    if (!html) {
         el.innerHTML = '<span style="color:var(--text-dim);">— ยังไม่มีข้อความ —</span>';
         el.style.color = 'var(--text-muted)';
     } else {
-        el.innerHTML = msg;
+        el.innerHTML = html;
         el.style.color = 'var(--text)';
     }
 }
@@ -5674,6 +5750,11 @@ async function doGroupBroadcast() {
         form.append('message', msg);
         form.append('parse_mode', 'HTML');
         if (_gbImageFile) form.append('image', _gbImageFile);
+        // Append valid buttons (text + url both filled)
+        const validBtns = (_gbButtons || []).filter(b => (b.text || '').trim() && (b.url || '').trim());
+        if (validBtns.length > 0) {
+            form.append('buttons', JSON.stringify(validBtns));
+        }
 
         const resp = await fetch('/api/group-broadcast/send', {
             method: 'POST',
