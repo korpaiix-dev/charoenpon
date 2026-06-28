@@ -858,17 +858,31 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
         except Exception as exc:
             logger.error("[approval] customer DM failed tg=%s: %s", inp.telegram_id, exc)
 
-    # STEP 21 (NEW 2026-06-22): Immediate loyalty rank check
-    # ก่อนหน้านี้ลูกค้าต้องรอ scheduler 6 ชม. → trigger ทันทีหลังจ่ายแบบ idempotent
+    # STEP 21 (FIX 2026-06-28): Immediate loyalty rank check — force fresh total_spent
+    # BUG ก่อนหน้านี้: compute_rank_for_user อ่าน users.total_spent ก่อนที่ DB trigger
+    # sync_total_spent จะ commit → ค่าเก่า → ไม่ promote (ลูกค้าต้องรอ cron 6h)
+    # FIX: UPDATE total_spent ด้วยตัวเองสดจาก payments table ก่อนเรียก compute (idempotent)
     # promote_user_to_rank มี advisory lock + ตรวจ rank_higher ในตัว → ปลอดภัย
     try:
         from shared.loyalty_rank import compute_rank_for_user, promote_user_to_rank, rank_higher
         async with get_session() as _ls:
+            # Force-sync total_spent จาก payments สด (กัน race กับ trigger)
+            await _ls.execute(sql_text("""
+                UPDATE users SET total_spent = (
+                    SELECT COALESCE(SUM(amount), 0)
+                    FROM payments
+                    WHERE user_id = :uid AND status = CONFIRMED AND amount > 0
+                )
+                WHERE id = :uid
+            """), {"uid": db_user_id})
+            await _ls.commit()
             r = await _ls.execute(sql_text("SELECT loyalty_rank FROM users WHERE id=:i"), {"i": db_user_id})
             current_rank = (r.scalar() or "NONE")
         target_rank = await compute_rank_for_user(db_user_id)
+        # NOTE: เปลี่ยน logger.info → logger.warning เพื่อให้เห็นใน log (root level = WARNING)
+        logger.warning("[approval] loyalty check: user=%s current=%s target=%s", db_user_id, current_rank, target_rank)
         if target_rank and target_rank != "NONE" and rank_higher(target_rank, current_rank):
-            logger.info("[approval] loyalty trigger: user=%s %s -> %s", db_user_id, current_rank, target_rank)
+            logger.warning("[approval] loyalty TRIGGER: user=%s %s -> %s", db_user_id, current_rank, target_rank)
             await promote_user_to_rank(db_user_id, target_rank, silent=False)
     except Exception as exc:
         logger.warning("[approval] loyalty trigger failed: %s", exc)
