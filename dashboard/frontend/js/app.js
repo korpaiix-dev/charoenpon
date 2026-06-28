@@ -3084,7 +3084,7 @@ async function loadContentQueue() {
                 <td>${hasRole('admin') ? `<button class="btn btn-sm btn-danger" onclick="deleteQueueItem(${c.id})">🗑</button>` : ''}</td></tr>`;
         });
         html += '</tbody></table></div>';
-        document.getElementById('content-area').innerHTML = html;
+        document.getElementById('page-content').innerHTML = html;
         setupDropZone();
     } catch (e) { toast(e.message, 'error'); }
 }
@@ -5457,7 +5457,6 @@ let _cdmImageFile = null;
 let _cdmButtons = [];
 
 async function loadDmBroadcastPage() {
-    showLoading();
     let html = `
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
             <div>
