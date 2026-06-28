@@ -6860,54 +6860,6 @@ function _loadConfigCategory(category, titleHtml, helpHtml) {
 // END [#437] Friendly Settings UI
 // ============================================================
 
-function _renderConfigRow(c) {
-    const isBool = typeof c.value_json === 'boolean';
-    const isNumber = typeof c.value_json === 'number';
-    const isDict = typeof c.value_json === 'object' && c.value_json !== null && !Array.isArray(c.value_json);
-    let inputHtml = '';
-    if (isBool) {
-        inputHtml = `<label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
-            <input type="checkbox" id="cfg-${esc(c.config_key)}" ${c.value_json?'checked':''}>
-            <span>${c.value_json?'เปิด':'ปิด'}</span>
-        </label>`;
-    } else if (isNumber) {
-        inputHtml = `<input type="number" id="cfg-${esc(c.config_key)}" value="${c.value_json}" style="width:120px;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:6px;">`;
-    } else if (isDict) {
-        inputHtml = `<textarea id="cfg-${esc(c.config_key)}" style="width:100%;min-height:80px;padding:0.5rem;font-family:var(--font-mono);font-size:0.8rem;border:1px solid var(--border);border-radius:6px;">${esc(JSON.stringify(c.value_json, null, 2))}</textarea>`;
-    } else {
-        inputHtml = `<input type="text" id="cfg-${esc(c.config_key)}" value="${esc(c.value_json)}" style="width:240px;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:6px;">`;
-    }
-    return `<tr>
-        <td style="vertical-align:top;">
-            <code style="font-family:var(--font-mono);font-size:0.75rem;">${esc(c.config_key)}</code>
-            <div style="color:var(--text-dim);font-size:0.75rem;margin-top:0.2rem;">${esc(c.description||'')}</div>
-        </td>
-        <td style="vertical-align:top;">${inputHtml}</td>
-        <td style="vertical-align:top;">
-            <button class="btn btn-sm btn-primary" onclick="savePromoConfig('${esc(c.config_key)}', '${isBool?'bool':isNumber?'number':isDict?'dict':'string'}')">💾 บันทึก</button>
-        </td>
-    </tr>`;
-}
-
-async function _loadConfigCategory(category, titleHtml, helpHtml) {
-    const area = document.getElementById('promo-area');
-    try {
-        const items = await api('/promo-manager?category=' + category);
-        let html = titleHtml;
-        if (helpHtml) html += helpHtml;
-        if (!items.length) {
-            html += '<div class="empty-state"><div class="icon">⚙️</div><p>ยังไม่มี config ในหมวด ' + category + '</p></div>';
-        } else {
-            html += '<div class="table-wrap"><table><thead><tr><th>Setting</th><th>ค่าปัจจุบัน</th><th></th></tr></thead><tbody>';
-            items.forEach(c => { html += _renderConfigRow(c); });
-            html += '</tbody></table></div>';
-        }
-        area.innerHTML = html;
-    } catch (e) {
-        area.innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><p>' + esc(e.message) + '</p></div>';
-    }
-}
-
 async function savePromoConfig(key, dtype) {
     const el = document.getElementById('cfg-' + key);
     let value;
