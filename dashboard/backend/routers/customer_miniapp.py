@@ -13,6 +13,7 @@ import os, hmac, hashlib, urllib.parse
 from fastapi.responses import HTMLResponse
 
 from ..database import pool
+from shared.purchase_intent import create_intent as _create_intent
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["customer-miniapp"])

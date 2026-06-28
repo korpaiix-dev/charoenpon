@@ -1731,7 +1731,7 @@ async def handle_photo_slip(
                 _promo_txt = ""
                 if _has_promo:
                     try:
-                        _disc_pct = int((1 - float(_fp) / float(_op)) * 100)
+                        _disc_pct = round((1 - float(_fp) / float(_op)) * 100)
                         _promo_txt = f" (โปรลด {_disc_pct}%)"
                     except Exception:
                         _promo_txt = " (โปร)"
