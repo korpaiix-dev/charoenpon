@@ -45,7 +45,7 @@ MAIN_KEYBOARD = InlineKeyboardMarkup(
         # NOTE: ลบปุ่ม Flash Sale 2026-06-28 — Flash Friday scheduler ปิดตั้งแต่ 4 มิ.ย.
         # ถ้าเปิดอีก: ใช้ conditional ที่ start.py:431 — แสดงปุ่มเฉพาะตอนมี active sale ใน DB
         [InlineKeyboardButton("🛒 เลือกแพ็คเกจ + โปร", web_app=WebAppInfo(url="https://telebord.net/webapp/customer/packages?v=1782591275"))],
-        [InlineKeyboardButton("📦 ดูแพ็กเกจ (ปกติ)", callback_data="view_packages")],
+        # ลบ "ดูแพ็กเกจ (ปกติ)" 2026-06-28 — ซ้ำกับ Mini App แล้ว
         [InlineKeyboardButton("📊 ข้อมูลของฉัน", web_app=WebAppInfo(url="https://telebord.net/webapp/customer"))],
         [
             InlineKeyboardButton("📋 เช็คเครดิต/รีวิว", url="https://t.me/+hv7uXYj4bxFhODZl"),
@@ -449,24 +449,18 @@ async def _build_main_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
             "📊 ข้อมูลของฉัน",
             web_app=WebAppInfo(url=_URL_MINIAPP_PROFILE),
         )])
-        rows.append([InlineKeyboardButton(
-            "🎰 หมุนกาชาปอง",
-            callback_data="view_gacha_buy",
-        )])
+        # ลบ "🎰 หมุนกาชาปอง" 2026-06-28 — กาชาอยู่ที่ Menu Button (Mini App) แล้ว
         rows.append([InlineKeyboardButton(
             "🎁 ชวนเพื่อน ได้ VIP ฟรี!",
             callback_data="referral_menu",
         )])
     else:
-        # ── ลูกค้า ACTIVE (มี sub แต่ไม่ถาวร) — เน้น ต่ออายุ+กาชา ──
+        # ── ลูกค้า ACTIVE (มี sub แต่ไม่ถาวร) — เน้น ต่ออายุ ──
         rows.append([InlineKeyboardButton(
             "📊 ข้อมูลของฉัน (ต่ออายุ / อัพเกรด)",
             web_app=WebAppInfo(url=_URL_MINIAPP_PROFILE),
         )])
-        rows.append([InlineKeyboardButton(
-            "🎰 หมุนกาชาปอง",
-            callback_data="view_gacha_buy",
-        )])
+        # ลบ "🎰 หมุนกาชาปอง" 2026-06-28 — กาชาอยู่ที่ Menu Button (Mini App) แล้ว
         # Discount balance ถ้ามี
         try:
             from bots.sales_bot.handlers.discount_button import get_balance_for_user
