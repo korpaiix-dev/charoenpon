@@ -6677,7 +6677,6 @@ async function renderPromoManager() {
             <div class="tab ${promoTab==='retention'?'active':''}" onclick="promoTab='retention';renderPromoManager()">⏰ เตือนต่ออายุ</div>
             <div class="tab ${promoTab==='exit_survey'?'active':''}" onclick="promoTab='exit_survey';renderPromoManager()">🚪 Exit Survey</div>
             <div class="tab ${promoTab==='group_bot'?'active':''}" onclick="promoTab='group_bot';renderPromoManager()">🏛 บอทในกลุ่ม</div>
-            <div class="tab ${promoTab==='old_campaigns'?'active':''}" onclick="promoTab='old_campaigns';renderPromoManager()">📜 เก่า</div>
         </div>
         <div id="promo-area"><div class="loading"><div class="spinner"></div></div></div>
     `;
@@ -6689,20 +6688,177 @@ async function renderPromoManager() {
     else if (promoTab === 'retention') loadRetentionConfig();
     else if (promoTab === 'exit_survey') loadExitSurveyConfig();
     else if (promoTab === 'group_bot') loadGroupBotConfig();
-    else if (promoTab === 'old_campaigns') {
-        document.getElementById('promo-area').innerHTML = '<div style="padding:1rem;">โหลด UI campaign เก่า...</div>';
-        try {
-            if (typeof renderPromotions === 'function') {
-                // Switch to old promotions UI
-                await renderPromotions();
-            } else {
-                document.getElementById('promo-area').innerHTML = '<div class="empty-state"><div class="icon">📜</div><p>ระบบเก่า — เก็บไว้ดูเฉยๆ ไม่ได้ใช้แล้ว</p></div>';
-            }
-        } catch(e) {
-            document.getElementById('promo-area').innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><p>' + e.message + '</p></div>';
+}
+
+// ============================================================
+// [#437 2026-06-28] Friendly Settings UI
+// Friendly mapping: config_key -> { label, group, hint, widget, ... }
+// ============================================================
+const CONFIG_FRIENDLY = {
+    // ── COMEBACK DM ──
+    "comeback_enabled": { group: "เปิด/ปิดระบบ", label: "เปิดใช้ Comeback DM", widget: "toggle", order: 0, hint: "เปิด = ระบบส่ง DM ลูกค้าหมดอายุ" },
+    "comeback_r1_days_after_expiry": { group: "รอบที่ 1 (เร่งด่วน)", label: "ส่ง DM หลังหมดอายุ", widget: "number", suffix: "วัน", order: 1, hint: "ลูกค้าหมดอายุครบกี่วันแล้วค่อยส่ง" },
+    "comeback_r1_discount_pct": { group: "รอบที่ 1 (เร่งด่วน)", label: "ส่วนลดในรอบนี้", widget: "percent", order: 2, hint: "% ส่วนลดที่ให้" },
+    "comeback_r2_days_after_r1": { group: "รอบที่ 2 (โอกาสสุดท้าย)", label: "ส่งหลังรอบ 1 ผ่านไป", widget: "number", suffix: "วัน", order: 3, hint: "นับจากรอบ 1 ไปอีกกี่วัน" },
+    "comeback_r2_discount_pct": { group: "รอบที่ 2 (โอกาสสุดท้าย)", label: "ส่วนลดในรอบนี้", widget: "percent", order: 4, hint: "% ส่วนลดที่ให้" },
+    "comeback_base_price": { group: "ตัวอย่างการคำนวณ", label: "ราคาฐาน VIP 30 วัน", widget: "number", suffix: "บาท", order: 5, hint: "ใช้เป็น base ในการคำนวณยอดลด" },
+    "comeback_max_dm_per_day": { group: "ป้องกันการสแปม", label: "ส่งสูงสุดต่อวัน", widget: "number", suffix: "คน", order: 6, hint: "Rate limit ป้องกัน Telegram ban" },
+
+    // ── QUICK BUY ──
+    "quickbuy_default_discount_pct": { group: "ค่าเริ่มต้น", label: "% ส่วนลดเริ่มต้น (ถ้าโปรไม่ระบุ)", widget: "percent", order: 0, hint: "ใช้เมื่อ promo code ไม่ระบุ %ลด" },
+    "quickbuy_validity_hours": { group: "ค่าเริ่มต้น", label: "อายุลิงก์ Quick Buy", widget: "number", suffix: "ชั่วโมง", order: 1, hint: "ลิงก์จะใช้ได้นานกี่ชม. หลังคลิก" },
+
+    // ── GACHA DISCOUNT ──
+    "gacha_discount_default_amount": { group: "ค่าเริ่มต้น", label: "เงินรางวัลส่วนลด (default)", widget: "number", suffix: "บาท", order: 0, hint: "เมื่อลูกค้าหมุนได้รางวัล 'ส่วนลด'" },
+    "gacha_discount_cap_per_tier": { group: "เพดานส่วนลดต่อ tier", label: "เพดานส่วนลดตามราคา (JSON)", widget: "json", order: 1, hint: "ป้องกันลูกค้าใช้กาชา累ลดเกินราคาจริง", placeholder: '{"300": 50, "500": 50, "1299": 100, "2499": 200}' },
+
+    // ── WELCOME JOURNEY 24h ──
+    "welcome_enabled": { group: "เปิด/ปิดระบบ", label: "เปิดใช้ Welcome Journey", widget: "toggle", order: 0, hint: "ลูกค้าใหม่ /start → ส่ง DM 4 ครั้ง 24 ชม." },
+    "welcome_discount_pct": { group: "ส่วนลด", label: "% ส่วนลดลูกค้าใหม่", widget: "percent", order: 1, hint: "ลูกค้าใหม่ทุกคนรับลด % นี้ใน 24h" },
+    "welcome_valid_hours": { group: "ส่วนลด", label: "อายุโปรลูกค้าใหม่", widget: "number", suffix: "ชั่วโมง", order: 2, hint: "โปรใช้ได้กี่ชั่วโมงหลัง /start" },
+    "welcome_stage_1_hour": { group: "เวลาส่ง DM (4 stages)", label: "Stage 1: หลัง /start", widget: "number", suffix: "ชั่วโมง", order: 3, hint: "ครั้งที่ 2 (ครั้งแรก = ทันที)" },
+    "welcome_stage_2_hour": { group: "เวลาส่ง DM (4 stages)", label: "Stage 2: หลัง /start", widget: "number", suffix: "ชั่วโมง", order: 4, hint: "ครั้งที่ 3" },
+    "welcome_stage_3_hour": { group: "เวลาส่ง DM (4 stages)", label: "Stage 3: หลัง /start (ครั้งสุดท้าย)", widget: "number", suffix: "ชั่วโมง", order: 5, hint: "ครั้งที่ 4 — push final" },
+
+    // ── RETENTION (เตือนต่ออายุ) ──
+    "retention_enabled": { group: "เปิด/ปิดระบบ", label: "เปิดใช้ Retention Alert", widget: "toggle", order: 0, hint: "แจ้งเตือนลูกค้าก่อน + วันหมดอายุ" },
+    "retention_3d_discount_pct": { group: "ส่วนลดตามจังหวะ", label: "ลด % เมื่อเหลือ 3 วัน", widget: "percent", order: 1, hint: "แจ้งล่วงหน้า 3 วันก่อนหมด" },
+    "retention_1d_discount_pct": { group: "ส่วนลดตามจังหวะ", label: "ลด % เมื่อเหลือ 1 วัน", widget: "percent", order: 2, hint: "แจ้งล่วงหน้า 1 วันก่อนหมด" },
+    "retention_0d_discount_pct": { group: "ส่วนลดตามจังหวะ", label: "ลด % วันหมดอายุ (Day-0)", widget: "percent", order: 3, hint: "วันที่หมดอายุพอดี" },
+    "retention_promo_expiry_hours": { group: "ส่วนลดตามจังหวะ", label: "อายุ promo code", widget: "number", suffix: "ชั่วโมง", order: 4, hint: "ลิงก์ลด% ใช้ได้กี่ชม.หลังเปิด" },
+
+    // ── EXIT SURVEY ──
+    "exit_survey_enabled": { group: "เปิด/ปิดระบบ", label: "เปิดใช้ Exit Survey DM", widget: "toggle", order: 0, hint: "ลูกค้าหมดอายุ 24-48 ชม. → ส่งโปรไล่ลด" },
+    "exit_survey_tier_300_pct": { group: "ส่วนลดตาม tier", label: "ลด % สำหรับ VIP ฿300", widget: "percent", order: 1, hint: "อยากดึง tier เล็กกลับ → ลดเยอะหน่อย" },
+    "exit_survey_tier_500_pct": { group: "ส่วนลดตาม tier", label: "ลด % สำหรับ OF+VIP ฿500", widget: "percent", order: 2, hint: "" },
+    "exit_survey_tier_1299_pct": { group: "ส่วนลดตาม tier", label: "ลด % สำหรับ GOD 90วัน ฿1,299", widget: "percent", order: 3, hint: "" },
+    "exit_survey_tier_2499_pct": { group: "ส่วนลดตาม tier", label: "ลด % สำหรับ GOD ถาวร ฿2,499", widget: "percent", order: 4, hint: "" },
+    "exit_survey_valid_hours": { group: "ส่วนลดตาม tier", label: "อายุโปร Exit Survey", widget: "number", suffix: "ชั่วโมง", order: 5, hint: "" },
+
+    // ── GROUP BOT ──
+    "group_bot_daily_content_enabled": { group: "ฟีเจอร์", label: "Content bot: โพสต์รูปประจำวัน", widget: "toggle", order: 0, hint: "Content bot ที่โพสต์ในกลุ่มฟรี" },
+    "group_bot_welcome_enabled": { group: "ฟีเจอร์", label: "Guardian: ทักทายสมาชิกใหม่", widget: "toggle", order: 1, hint: "บอตหลุดกลุ่ม → จะส่งสวัสดี" },
+};
+
+function _friendlyValueInput(c, friendly) {
+    const key = c.config_key;
+    const v = c.value_json;
+    const widget = friendly.widget || "string";
+    const suffix = friendly.suffix || "";
+
+    if (widget === "toggle") {
+        return `<label class="cfg-toggle">
+            <input type="checkbox" id="cfg-${esc(key)}" ${v?'checked':''}>
+            <span class="cfg-toggle-slider"></span>
+            <span class="cfg-toggle-label">${v?'✅ เปิดใช้งาน':'❌ ปิดอยู่'}</span>
+        </label>`;
+    }
+    if (widget === "percent") {
+        return `<div style="display:flex;align-items:center;gap:0.5rem;max-width:280px;">
+            <input type="range" min="0" max="100" step="1" value="${v}" oninput="document.getElementById('cfg-${esc(key)}').value=this.value; document.getElementById('cfg-pct-${esc(key)}').textContent=this.value+'%'" style="flex:1;accent-color:var(--primary);">
+            <input type="number" id="cfg-${esc(key)}" value="${v}" min="0" max="100" style="width:64px;padding:0.4rem;border:1px solid var(--border);border-radius:6px;text-align:center;font-weight:600;" oninput="document.getElementById('cfg-pct-${esc(key)}').textContent=this.value+'%'">
+            <span id="cfg-pct-${esc(key)}" style="font-weight:600;color:var(--primary);min-width:42px;">${v}%</span>
+        </div>`;
+    }
+    if (widget === "number") {
+        return `<div style="display:inline-flex;align-items:center;gap:0.45rem;">
+            <input type="number" id="cfg-${esc(key)}" value="${v}" style="width:110px;padding:0.5rem 0.6rem;border:1px solid var(--border);border-radius:6px;font-weight:600;">
+            ${suffix ? `<span style="color:var(--text-muted);font-size:0.9rem;">${esc(suffix)}</span>` : ''}
+        </div>`;
+    }
+    if (widget === "json") {
+        const placeholder = friendly.placeholder || '';
+        return `<textarea id="cfg-${esc(key)}" placeholder="${esc(placeholder)}" style="width:100%;max-width:480px;min-height:90px;padding:0.6rem;font-family:var(--font-mono);font-size:0.82rem;border:1px solid var(--border);border-radius:6px;">${esc(JSON.stringify(v, null, 2))}</textarea>`;
+    }
+    return `<input type="text" id="cfg-${esc(key)}" value="${esc(String(v))}" style="width:240px;padding:0.5rem 0.6rem;border:1px solid var(--border);border-radius:6px;">`;
+}
+
+function _detectDtype(v) {
+    if (typeof v === 'boolean') return 'bool';
+    if (typeof v === 'number') return 'number';
+    if (typeof v === 'object' && v !== null) return 'dict';
+    return 'string';
+}
+
+async function _loadConfigCategoryFriendly(category, titleHtml, helpHtml) {
+    const area = document.getElementById('promo-area');
+    try {
+        const items = await api('/promo-manager?category=' + category);
+        let html = titleHtml || '';
+        if (helpHtml) html += helpHtml;
+        if (!items.length) {
+            html += '<div class="empty-state"><div class="icon">⚙️</div><p>ยังไม่มี config ในหมวด ' + category + '</p></div>';
+            area.innerHTML = html;
+            return;
         }
+
+        // Group items by friendly.group + sort by friendly.order
+        const groups = {};
+        items.forEach(c => {
+            const friendly = CONFIG_FRIENDLY[c.config_key] || { group: 'ตั้งค่าอื่นๆ', label: c.config_key, order: 999, widget: _detectDtype(c.value_json) === 'bool' ? 'toggle' : _detectDtype(c.value_json) === 'number' ? 'number' : _detectDtype(c.value_json) === 'dict' ? 'json' : 'string' };
+            const g = friendly.group;
+            (groups[g] = groups[g] || []).push({ c, friendly });
+        });
+        // Sort each group by order
+        Object.values(groups).forEach(arr => arr.sort((a, b) => (a.friendly.order || 999) - (b.friendly.order || 999)));
+
+        html += '<style>' +
+            '.cfg-section{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.3rem 1.5rem;margin-bottom:1rem;}' +
+            '.cfg-section-title{font-size:0.95rem;font-weight:700;color:var(--text);margin-bottom:1rem;padding-bottom:0.6rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:0.5rem;}' +
+            '.cfg-row-friendly{display:grid;grid-template-columns:1fr auto auto;gap:1rem;align-items:center;padding:0.85rem 0;border-bottom:1px dashed rgba(255,255,255,0.06);}' +
+            '.cfg-row-friendly:last-child{border-bottom:0;}' +
+            '.cfg-row-friendly:hover{background:rgba(255,255,255,0.015);}' +
+            '.cfg-label{font-weight:600;font-size:0.92rem;color:var(--text);}' +
+            '.cfg-hint{color:var(--text-muted);font-size:0.78rem;margin-top:0.2rem;}' +
+            '.cfg-key-mono{color:#52525b;font-size:0.65rem;font-family:var(--font-mono);margin-top:0.15rem;}' +
+            '.cfg-toggle{position:relative;display:inline-flex;align-items:center;gap:0.55rem;cursor:pointer;}' +
+            '.cfg-toggle input{position:absolute;opacity:0;width:0;height:0;}' +
+            '.cfg-toggle-slider{position:relative;display:inline-block;width:44px;height:24px;background:#3f3f46;border-radius:24px;transition:background 0.2s;flex-shrink:0;}' +
+            '.cfg-toggle-slider::before{content:"";position:absolute;height:18px;width:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:transform 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);}' +
+            '.cfg-toggle input:checked + .cfg-toggle-slider{background:#10b981;}' +
+            '.cfg-toggle input:checked + .cfg-toggle-slider::before{transform:translateX(20px);}' +
+            '.cfg-toggle-label{font-weight:500;color:var(--text);font-size:0.88rem;}' +
+            '.cfg-save-row{display:flex;justify-content:flex-end;margin-top:0.8rem;}' +
+            '</style>';
+
+        // Render sections in order: เปิด/ปิด first, then alphabetical
+        const groupOrder = ['เปิด/ปิดระบบ'];
+        Object.keys(groups).forEach(g => { if (!groupOrder.includes(g)) groupOrder.push(g); });
+
+        groupOrder.forEach(groupName => {
+            const arr = groups[groupName];
+            if (!arr || !arr.length) return;
+            html += '<div class="cfg-section"><div class="cfg-section-title">📂 ' + esc(groupName) + '</div>';
+            arr.forEach(({c, friendly}) => {
+                const dtype = _detectDtype(c.value_json);
+                html += '<div class="cfg-row-friendly">' +
+                    '<div>' +
+                        '<div class="cfg-label">' + esc(friendly.label) + '</div>' +
+                        (friendly.hint ? '<div class="cfg-hint">' + esc(friendly.hint) + '</div>' : '') +
+                    '</div>' +
+                    '<div>' + _friendlyValueInput(c, friendly) + '</div>' +
+                    '<div>' +
+                        '<button class="btn btn-sm btn-primary" onclick="savePromoConfig(\'' + esc(c.config_key) + '\', \'' + dtype + '\')">💾</button>' +
+                    '</div>' +
+                '</div>';
+            });
+            html += '</div>';
+        });
+
+        area.innerHTML = html;
+    } catch (e) {
+        area.innerHTML = '<div class="empty-state"><div class="icon">⚠️</div><p>' + esc(e.message) + '</p></div>';
     }
 }
+
+// Override _loadConfigCategory to use friendly version
+function _loadConfigCategory(category, titleHtml, helpHtml) {
+    return _loadConfigCategoryFriendly(category, titleHtml, helpHtml);
+}
+
+// ============================================================
+// END [#437] Friendly Settings UI
+// ============================================================
 
 function _renderConfigRow(c) {
     const isBool = typeof c.value_json === 'boolean';
