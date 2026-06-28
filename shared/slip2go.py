@@ -226,3 +226,29 @@ async def receiver_match_pool(data: dict) -> tuple[bool, str, dict | None]:
 def amount_to_tier(amount):
     from shared.pricing import amount_to_tier as _hub_amount_to_tier
     return _hub_amount_to_tier(amount)
+
+
+def _check_slip_age(slip_data: dict, max_days: int = 7) -> None:
+    """Reject slips older than max_days. Raises Slip2GoError on failure."""
+    from datetime import datetime, timedelta, timezone
+    try:
+        trans_date_raw = slip_data.get("transDate") or slip_data.get("date") or ""
+        if not trans_date_raw:
+            return  # no date info — let other guards handle
+        # Slip2Go returns ISO format usually
+        for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                td = datetime.strptime(trans_date_raw[:19], fmt)
+                if td.tzinfo is None:
+                    td = td.replace(tzinfo=timezone.utc)
+                age = datetime.now(timezone.utc) - td
+                if age > timedelta(days=max_days):
+                    raise Slip2GoError("TRANS_TOO_OLD", f"slip is {age.days} days old (max {max_days})")
+                return
+            except ValueError:
+                continue
+    except Slip2GoError:
+        raise
+    except Exception:
+        pass  # silent — don't break verification on parse error
+

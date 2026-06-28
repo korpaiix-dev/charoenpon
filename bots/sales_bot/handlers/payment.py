@@ -1165,7 +1165,7 @@ async def handle_photo_slip(
                         matched_receiver_account_id=(
                             _matched_account.get("id") if _matched_account else None
                         ),
-                        skip_sender_ring=True,  # already checked upstream
+                        skip_sender_ring=False,  # FIX 2026-06-28: sender ring check in main path
                         skip_dm=True,           # handler does its own reply
                     ))
                     if not _ap_result.success:

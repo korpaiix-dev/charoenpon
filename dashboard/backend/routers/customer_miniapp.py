@@ -181,7 +181,10 @@ async def customer_buy(request: Request):
     bot_token = os.environ.get("SALES_BOT_TOKEN", "")
     user_info = _verify_telegram_init_data(init_data, bot_token)
     if not user_info:
-        # ไม่ verify ผ่าน — fail-safe: ใช้ user_id จาก payload (ใน production เปิด verify)
+        # FIX 2026-06-28: fail-closed — reject if HMAC verify fails (gan spoof tg_id)
+        # Allow only when init_data is empty (e.g., bot uploaded direct test) AND ENV ALLOW_TEST_BUY=1
+        if init_data or os.environ.get("ALLOW_TEST_BUY", "0") != "1":
+            raise HTTPException(401, "initData verification failed")
         user_info = payload.get("user") or {}
     tg_id = int(user_info.get("id") or 0)
     if not tg_id:

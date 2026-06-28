@@ -104,7 +104,7 @@ async def verify_slip_with_vision(image_b64: str) -> dict:
                 return {"ok": True, "data": {
                     "amount": float(m.group(1)),
                     "receiver_name": n.group(1),
-                    "looks_real": True,
+                    "looks_real": False,
                 }, "error": None}
             logger.warning("Layer 2: JSON parse failed: %s | raw=%s", e, raw[:200])
             return {"ok": False, "data": None, "error": f"json_parse: {e}"}
@@ -131,7 +131,7 @@ def evaluate_layer2_decision(
     if not vision_data:
         return {"approve": False, "confidence": 0.0, "reason": "no_vision_data"}
 
-    if not vision_data.get("looks_real", True):
+    if not vision_data.get("looks_real", False):
         return {"approve": False, "confidence": 0.0,
                 "reason": f"AI suspicious: {vision_data.get('suspicious_reason', '?')}"}
 
