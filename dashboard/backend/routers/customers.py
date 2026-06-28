@@ -83,6 +83,42 @@ class BroadcastRequest(BaseModel):
     parse_mode: Optional[str] = "HTML"
 
 
+
+# --- Broadcast helpers ----------------------------------------------------
+async def _get_broadcast_users(target: str) -> list[int]:
+    """Return list of telegram_id for the given target.
+    Always excludes banned and blocked-bot users."""
+    base = "FROM users u WHERE NOT u.is_banned AND NOT COALESCE(u.is_blocked_bot, FALSE)"
+    if target == "all":
+        sql = f"SELECT u.telegram_id {base}"
+    elif target == "active":
+        sql = f"SELECT u.telegram_id {base} AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id AND s.status = 'ACTIVE')"
+    elif target == "expired":
+        sql = f"SELECT u.telegram_id {base} AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id) AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id AND s.status = 'ACTIVE')"
+    elif target == "trial":
+        sql = f"SELECT u.telegram_id {base} AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id)"
+    else:
+        return []
+    rows = await pool.fetch(sql)
+    return [int(r["telegram_id"]) for r in rows if r["telegram_id"]]
+
+
+async def _get_broadcast_count(target: str) -> int:
+    """Cheap COUNT(*) version (no list materialization)."""
+    base = "FROM users u WHERE NOT u.is_banned AND NOT COALESCE(u.is_blocked_bot, FALSE)"
+    if target == "all":
+        sql = f"SELECT COUNT(*) {base}"
+    elif target == "active":
+        sql = f"SELECT COUNT(*) {base} AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id AND s.status = 'ACTIVE')"
+    elif target == "expired":
+        sql = f"SELECT COUNT(*) {base} AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id) AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id AND s.status = 'ACTIVE')"
+    elif target == "trial":
+        sql = f"SELECT COUNT(*) {base} AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id)"
+    else:
+        return 0
+    return int(await pool.fetchval(sql) or 0)
+
+
 @router.get("/broadcast/count")
 async def broadcast_count(target: str = "all", admin=Depends(require_role("admin"))):
     """Get count of users that would receive the broadcast."""
