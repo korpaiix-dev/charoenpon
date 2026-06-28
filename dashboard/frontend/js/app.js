@@ -121,6 +121,7 @@ const NAV_ITEMS = [
     { type: 'divider', label: 'สื่อสาร + โปร' },
     { id: 'promotions', icon: '🎁', label: 'โปรโมชั่น + บอท', minRole: 'admin' },
     { id: 'journey', icon: '📨', label: 'DM อัตโนมัติ (Journey)', minRole: 'admin' },
+    { id: 'dm_broadcast', icon: '📩', label: 'ส่ง DM ลูกค้า', minRole: 'admin' },
     { id: 'content', icon: '📸', label: 'Content', minRole: 'moderator' },
     { id: 'gacha', icon: '🎰', label: 'กาชา', minRole: 'admin' },
     { id: 'prae_logs', icon: '💭', label: 'บทสนทนา Prae', minRole: 'admin' },
@@ -273,7 +274,7 @@ function navigate(page) {
     renderSidebar();
     const titles = {
         dashboard: '📊 ภาพรวม', inbox: '📥 Inbox สลิป', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน', gacha: '🎰 กาชา',
-        promotions: '🎁 โปรโมชั่น + ตั้งค่าบอท', journey: '📨 DM อัตโนมัติ (Customer Journey)', content: '📸 Content', groups: '📱 กลุ่ม', bot_groups: '🤖 จัดการบอท', group_analytics: '📊 สถิติกลุ่ม', bot_schedules: '⏰ ตารางเวลาบอท', content_editor: '📝 คอนเทนต์บอท',
+        promotions: '🎁 โปรโมชั่น + ตั้งค่าบอท', journey: '📨 DM อัตโนมัติ (Customer Journey)', content: '📸 Content', groups: '📱 กลุ่ม', bot_groups: '🤖 จัดการบอท', group_analytics: '📊 สถิติกลุ่ม', bot_schedules: '⏰ ตารางเวลาบอท', content_editor: '📝 คอนเทนต์บอท', dm_broadcast: '📩 ส่ง DM ลูกค้า',
         team: '👨‍💼 ทีมงาน', settings: '⚙️ ตั้งค่า', marketing: '📊 Marketing',
         activity: '📋 Activity Log', health: '🚦 สถานะระบบ (System Health)', prae_logs: '💬 Prae Logs',
     };
@@ -289,7 +290,7 @@ function navigate(page) {
     
     const pages = {
         today: renderToday, dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance, receivers: renderReceivers, gacha: renderGacha,
-        promotions: renderPromoManager, journey: renderJourney, content: renderContent, groups: renderGroups, bot_groups: renderBotGroups, group_analytics: renderGroupAnalytics, bot_schedules: renderBotSchedules, content_editor: renderContentEditor,
+        promotions: renderPromoManager, journey: renderJourney, dm_broadcast: loadDmBroadcastPage, content: renderContent, groups: renderGroups, bot_groups: renderBotGroups, group_analytics: renderGroupAnalytics, bot_schedules: renderBotSchedules, content_editor: renderContentEditor,
         team: renderTeam, settings: renderSettings, marketing: renderMarketing,
         activity: renderActivityLog, health: renderSystemHealth, prae_logs: renderPraeLogs,
     };
@@ -5445,6 +5446,336 @@ async function loadCustomerGroups(uid) {
         el.innerHTML = html;
     } catch (err) {
         el.innerHTML = `<div style="color:var(--error);font-size:0.78rem;">${esc(err.message || 'check failed')}</div>`;
+    }
+}
+
+
+// ===== Customer DM Broadcast (manual blast via sales bot, queued via broadcast_worker) =====
+let _cdmTargets = { all: 0, active: 0, expired: 0, trial: 0 };
+let _cdmTarget = 'all';
+let _cdmImageFile = null;
+let _cdmButtons = [];
+
+async function loadDmBroadcastPage() {
+    showLoading();
+    let html = `
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+            <div>
+                <h2 style="margin:0;font-size:1.2rem;">📩 ส่ง DM ลูกค้า</h2>
+                <p style="margin:0.2rem 0 0;font-size:0.78rem;color:var(--text-muted);">ส่งข้อความถึงลูกค้าหลายคนพร้อมกันผ่าน sales bot (โปรโมท / ประกาศ / อัพเดท)</p>
+            </div>
+            <button class="btn btn-primary" onclick="openDmBroadcastModal()" style="white-space:nowrap;">➕ สร้างบรอดแคสต์ใหม่</button>
+        </div>
+        <div id="cdm-history-area"><div class="loading"><div class="spinner"></div></div></div>
+    `;
+    document.getElementById('content-area').innerHTML = html;
+    loadDmBroadcastHistory();
+}
+
+async function loadDmBroadcastHistory() {
+    try {
+        const data = await api('/customers/broadcast/history?per_page=25');
+        const list = data.items || data.results || data || [];
+        const wrap = document.getElementById('cdm-history-area');
+        if (!list.length) {
+            wrap.innerHTML = `<div class="card" style="text-align:center;padding:2rem;color:var(--text-muted);">— ยังไม่มีประวัติบรอดแคสต์ —</div>`;
+            return;
+        }
+        wrap.innerHTML = `
+            <div class="card" style="padding:0;">
+                <table class="table" style="margin:0;">
+                    <thead><tr>
+                        <th>เมื่อ</th>
+                        <th>ผู้ส่ง</th>
+                        <th>กลุ่มเป้าหมาย</th>
+                        <th style="text-align:right;">สำเร็จ / รวม</th>
+                        <th>ข้อความ</th>
+                    </tr></thead>
+                    <tbody>
+                        ${list.map(b => `
+                            <tr>
+                                <td style="font-size:0.78rem;color:var(--text-muted);">${fmtDateTime(b.started_at)}</td>
+                                <td style="font-size:0.78rem;">${esc(b.sent_by_username || '?')}</td>
+                                <td><span class="badge">${esc(b.target_type || '-')}</span></td>
+                                <td style="text-align:right;font-weight:600;color:${b.failed_count > 0 ? 'var(--warning)' : 'var(--success)'};">${b.success_count || 0} / ${b.total_count || 0}</td>
+                                <td style="font-size:0.78rem;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc((b.message_text || '').slice(0, 80))}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    } catch (e) {
+        document.getElementById('cdm-history-area').innerHTML = `<div class="card" style="color:var(--error);padding:1rem;">โหลดประวัติไม่ได้: ${esc(e.message || '?')}</div>`;
+    }
+}
+
+async function openDmBroadcastModal() {
+    _cdmTarget = 'all';
+    _cdmImageFile = null;
+    _cdmButtons = [];
+    _cdmTargets = { all: 0, active: 0, expired: 0, trial: 0 };
+
+    openModal('📩 ส่ง DM ลูกค้า', `<div id="cdm-body" style="text-align:center;padding:1rem;"><div class="spinner"></div></div>`, { wide: true });
+
+    // Load counts for all targets in parallel
+    try {
+        const [a, ac, ex, tr] = await Promise.all([
+            api('/customers/broadcast/count?target=all'),
+            api('/customers/broadcast/count?target=active'),
+            api('/customers/broadcast/count?target=expired'),
+            api('/customers/broadcast/count?target=trial'),
+        ]);
+        _cdmTargets = { all: a.count || 0, active: ac.count || 0, expired: ex.count || 0, trial: tr.count || 0 };
+    } catch (e) { toast('โหลดจำนวนผู้รับไม่ได้: ' + e.message, 'error'); }
+
+    const radio = (val, label, hint) => `
+        <label style="display:flex;align-items:center;gap:0.5rem;padding:0.55rem 0.7rem;border:1px solid var(--border);border-radius:8px;cursor:pointer;background:var(--surface-2);">
+            <input type="radio" name="cdm-target" value="${val}" ${val === _cdmTarget ? 'checked' : ''} onchange="cdmSetTarget('${val}')" style="margin:0;">
+            <div style="flex:1;">
+                <div style="font-weight:600;font-size:0.85rem;">${label}</div>
+                <div style="font-size:0.7rem;color:var(--text-muted);">${hint}</div>
+            </div>
+            <div style="font-weight:700;font-size:0.9rem;color:var(--accent);">${(_cdmTargets[val] || 0).toLocaleString()} คน</div>
+        </label>
+    `;
+
+    document.getElementById('cdm-body').innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(min(100%, 380px), 1fr));gap:1rem;">
+
+            <!-- LEFT: target picker -->
+            <div>
+                <strong style="font-size:0.85rem;">เลือกผู้รับ</strong>
+                <div style="display:flex;flex-direction:column;gap:0.4rem;margin-top:0.5rem;">
+                    ${radio('all', 'ทั้งหมด', 'ลูกค้าทุกคนที่ไม่ banned + ไม่ block bot')}
+                    ${radio('active', 'มี VIP active', 'มี subscription สถานะ ACTIVE')}
+                    ${radio('expired', 'หมดอายุแล้ว', 'ไม่มี active sub แต่เคยซื้อ/เคย /start')}
+                    ${radio('trial', 'ยังไม่เคยซื้อ', 'ลูกค้าใหม่ที่ /start แต่ยังไม่จ่าย')}
+                </div>
+                <div style="margin-top:0.8rem;padding:0.6rem;background:rgba(245, 158, 11, 0.1);border-left:3px solid #f59e0b;border-radius:6px;font-size:0.72rem;color:var(--text);">
+                    💡 <strong>หมายเหตุ:</strong> Worker จะส่งทีละ ~25 ข้อความ/วินาที กัน rate limit ของ Telegram<br>
+                    ⚠️ ลูกค้าที่บล็อกบอทจะถูกข้ามอัตโนมัติ (ไม่นับเปลือง quota)
+                </div>
+            </div>
+
+            <!-- RIGHT: compose -->
+            <div>
+                <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
+                    <strong style="font-size:0.85rem;margin-right:0.4rem;">รูปภาพ</strong>
+                    <label style="font-size:0.72rem;display:flex;align-items:center;gap:0.3rem;cursor:pointer;">
+                        <input type="file" id="cdm-image" accept="image/*" style="display:none;" onchange="cdmImageChange(this)">
+                        <span class="btn btn-sm btn-outline" onclick="document.getElementById('cdm-image').click()">🖼 เลือกรูป</span>
+                    </label>
+                    <span id="cdm-image-name" style="font-size:0.7rem;color:var(--text-muted);"></span>
+                    <span id="cdm-image-clear" style="display:none;font-size:0.7rem;color:var(--error);cursor:pointer;" onclick="cdmClearImage()">✕ ลบรูป</span>
+                </div>
+                <div id="cdm-image-thumb-wrap" style="margin-top:0.5rem;display:none;">
+                    <img id="cdm-image-thumb" alt="preview" style="max-width:100%;max-height:200px;border-radius:8px;border:1px solid var(--border);object-fit:contain;background:var(--surface);">
+                </div>
+
+                <div style="margin-top:0.8rem;"><strong style="font-size:0.85rem;">เขียนข้อความ</strong></div>
+                <div class="ct-toolbar" style="display:flex;gap:0.25rem;flex-wrap:wrap;margin-top:0.3rem;padding:0.35rem;background:var(--surface-2);border:1px solid var(--border);border-radius:6px 6px 0 0;border-bottom:none;">
+                    <button type="button" onclick="cdmFormat('b')" title="ตัวหนา" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:0.25rem 0.55rem;cursor:pointer;font-size:0.78rem;"><b>B</b></button>
+                    <button type="button" onclick="cdmFormat('i')" title="ตัวเอียง" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:0.25rem 0.55rem;cursor:pointer;font-size:0.78rem;"><i>I</i></button>
+                    <button type="button" onclick="cdmFormat('u')" title="ขีดเส้นใต้" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:0.25rem 0.55rem;cursor:pointer;font-size:0.78rem;"><u>U</u></button>
+                    <button type="button" onclick="cdmFormat('s')" title="ขีดทับ" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:0.25rem 0.55rem;cursor:pointer;font-size:0.78rem;"><s>S</s></button>
+                    <span style="color:var(--text-dim);align-self:center;">|</span>
+                    <button type="button" onclick="cdmInsertLink()" title="ลิ้ง" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:0.25rem 0.55rem;cursor:pointer;font-size:0.78rem;">🔗 ลิ้ง</button>
+                    <button type="button" onclick="cdmInsertDivider()" title="เส้นคั่น" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:0.25rem 0.55rem;cursor:pointer;font-size:0.78rem;">〰️ เส้นคั่น</button>
+                    <button type="button" onclick="cdmOpenEmoji(this)" title="อีโมจิ" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:0.25rem 0.55rem;cursor:pointer;font-size:0.78rem;">😊 อีโมจิ</button>
+                </div>
+                <textarea id="cdm-msg" rows="12" placeholder="พิมพ์ข้อความ DM... รองรับ HTML &lt;b&gt;หนา&lt;/b&gt; &lt;i&gt;เอียง&lt;/i&gt; &lt;a href='url'&gt;ลิงก์&lt;/a&gt;" style="width:100%;font-family:var(--font-sans);font-size:0.85rem;padding:0.625rem;background:var(--surface);border:1px solid var(--border);border-radius:0 0 6px 6px;color:var(--text);line-height:1.5;resize:vertical;margin-top:0;" oninput="cdmUpdatePreview()"></textarea>
+
+                <div style="margin-top:1rem;display:flex;justify-content:space-between;align-items:center;">
+                    <strong style="font-size:0.78rem;">🔘 ปุ่มใต้ข้อความ (ไม่บังคับ)</strong>
+                    <button type="button" class="btn btn-sm btn-outline" onclick="cdmAddButton()" style="font-size:0.7rem;">+ เพิ่มปุ่ม</button>
+                </div>
+                <div id="cdm-buttons-list" style="margin-top:0.4rem;display:flex;flex-direction:column;gap:0.3rem;"></div>
+
+                <div style="margin-top:1rem;font-size:0.72rem;color:var(--text-muted);">📱 ตัวอย่าง <span id="cdm-target-info" style="margin-left:0.5rem;color:var(--accent);font-weight:600;"></span></div>
+                <div id="cdm-preview" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0.625rem;font-size:0.85rem;line-height:1.5;min-height:80px;max-height:25vh;overflow:auto;white-space:pre-wrap;word-break:break-word;color:var(--text-muted);">— ยังไม่มีข้อความ —</div>
+
+                <div style="margin-top:1rem;display:flex;gap:0.5rem;justify-content:flex-end;border-top:1px solid var(--border);padding-top:0.75rem;">
+                    <button class="btn btn-outline" onclick="closeModal()">ยกเลิก</button>
+                    <button class="btn btn-primary" onclick="doDmBroadcast()" id="cdm-send-btn">📩 ส่ง DM</button>
+                </div>
+            </div>
+        </div>
+    `;
+    cdmRenderButtons();
+    cdmUpdateTargetInfo();
+    cdmUpdatePreview();
+}
+
+function cdmSetTarget(t) { _cdmTarget = t; cdmUpdateTargetInfo(); }
+
+function cdmUpdateTargetInfo() {
+    const cnt = _cdmTargets[_cdmTarget] || 0;
+    const el = document.getElementById('cdm-target-info');
+    if (el) el.textContent = `→ จะส่ง ${cnt.toLocaleString()} คน (≈ ${Math.max(1, Math.ceil(cnt / 25))} วินาที)`;
+}
+
+// Image preview
+function cdmImageChange(input) {
+    if (input.files && input.files[0]) {
+        _cdmImageFile = input.files[0];
+        document.getElementById('cdm-image-name').textContent = _cdmImageFile.name + ` (${Math.round(_cdmImageFile.size/1024)}KB)`;
+        document.getElementById('cdm-image-clear').style.display = 'inline';
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = document.getElementById('cdm-image-thumb');
+            const wrap = document.getElementById('cdm-image-thumb-wrap');
+            if (img && wrap) { img.src = e.target.result; wrap.style.display = 'block'; }
+            cdmUpdatePreview();
+        };
+        reader.readAsDataURL(_cdmImageFile);
+    }
+}
+function cdmClearImage() {
+    _cdmImageFile = null;
+    document.getElementById('cdm-image').value = '';
+    document.getElementById('cdm-image-name').textContent = '';
+    document.getElementById('cdm-image-clear').style.display = 'none';
+    const wrap = document.getElementById('cdm-image-thumb-wrap');
+    if (wrap) wrap.style.display = 'none';
+    cdmUpdatePreview();
+}
+
+// Text helpers — reuse global ctInsertAt + CT_EMOJIS
+function _cdmTA() { return document.getElementById('cdm-msg'); }
+function cdmFormat(tag) { const ta = _cdmTA(); if (!ta) return; ctInsertAt(ta, '<' + tag + '>', '</' + tag + '>'); cdmUpdatePreview(); }
+function cdmInsertText(text) { const ta = _cdmTA(); if (!ta) return; ctInsertAt(ta, text, ''); cdmUpdatePreview(); }
+function cdmInsertLink() {
+    const url = prompt('ใส่ URL ลิ้ง:', 'https://t.me/NamwarnJarern_bot');
+    if (!url) return;
+    const label = prompt('ข้อความที่ลูกค้าเห็น:', 'กดที่นี่') || url;
+    const ta = _cdmTA(); if (!ta) return;
+    ctInsertAt(ta, '<a href="' + url + '">' + label + '</a>', '');
+    cdmUpdatePreview();
+}
+function cdmInsertDivider() { cdmInsertText('\n━━━━━━━━━━━━━━━━━━\n'); }
+function cdmOpenEmoji(btn) {
+    document.querySelectorAll('.ct-emoji-popover, .gb-emoji-popover, .cdm-emoji-popover').forEach(p => p.remove());
+    const ta = _cdmTA(); if (!ta) return;
+    const pop = document.createElement('div');
+    pop.className = 'cdm-emoji-popover';
+    pop.style.cssText = 'position:absolute;background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:0.4rem;display:grid;grid-template-columns:repeat(8,1fr);gap:0.2rem;z-index:100001;box-shadow:0 4px 16px rgba(0,0,0,0.5);';
+    CT_EMOJIS.forEach(emoji => {
+        const b = document.createElement('button');
+        b.textContent = emoji; b.type = 'button';
+        b.style.cssText = 'background:transparent;border:none;font-size:1.2rem;cursor:pointer;padding:0.25rem;border-radius:4px;color:#fff;';
+        b.onmouseover = () => b.style.background = '#3f3f46';
+        b.onmouseout = () => b.style.background = 'transparent';
+        b.onclick = (e) => { e.stopPropagation(); ctInsertAt(ta, emoji, ''); cdmUpdatePreview(); pop.remove(); };
+        pop.appendChild(b);
+    });
+    const r = btn.getBoundingClientRect();
+    pop.style.top = (r.bottom + window.scrollY + 4) + 'px';
+    pop.style.left = (r.left + window.scrollX) + 'px';
+    document.body.appendChild(pop);
+    setTimeout(() => {
+        const cls = (e) => { if (!pop.contains(e.target) && e.target !== btn) { pop.remove(); document.removeEventListener('click', cls); } };
+        document.addEventListener('click', cls);
+    }, 100);
+}
+
+// Button builder
+function cdmRenderButtons() {
+    const wrap = document.getElementById('cdm-buttons-list');
+    if (!wrap) return;
+    if (_cdmButtons.length === 0) {
+        wrap.innerHTML = '<div style="font-size:0.7rem;color:var(--text-dim);font-style:italic;">— ยังไม่มีปุ่ม —</div>';
+        return;
+    }
+    wrap.innerHTML = _cdmButtons.map((b, i) => `
+        <div style="display:flex;gap:0.3rem;align-items:center;padding:0.3rem;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;">
+            <input type="text" value="${esc(b.text || '')}" placeholder="ข้อความปุ่ม" oninput="cdmBtnEdit(${i},'text',this.value)" style="flex:1;min-width:0;font-size:0.72rem;padding:0.25rem 0.4rem;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+            <input type="text" value="${esc(b.url || '')}" placeholder="https://..." oninput="cdmBtnEdit(${i},'url',this.value)" style="flex:1.5;min-width:0;font-size:0.72rem;padding:0.25rem 0.4rem;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);">
+            <button type="button" onclick="cdmBtnDelete(${i})" title="ลบ" style="background:transparent;border:none;color:var(--error);cursor:pointer;font-size:1rem;padding:0 0.3rem;">🗑</button>
+        </div>
+    `).join('');
+}
+function cdmAddButton() { _cdmButtons.push({ text: '', url: '' }); cdmRenderButtons(); cdmUpdatePreview(); }
+function cdmBtnEdit(idx, field, value) { if (_cdmButtons[idx]) { _cdmButtons[idx][field] = value; cdmUpdatePreview(); } }
+function cdmBtnDelete(idx) { _cdmButtons.splice(idx, 1); cdmRenderButtons(); cdmUpdatePreview(); }
+
+function cdmUpdatePreview() {
+    const msg = (document.getElementById('cdm-msg') || {}).value || '';
+    const el = document.getElementById('cdm-preview');
+    if (!el) return;
+    let html = '';
+    if (msg.trim()) html += msg;
+    const validBtns = (_cdmButtons || []).filter(b => (b.text || '').trim() && (b.url || '').trim());
+    if (validBtns.length > 0) {
+        html += '<div style="margin-top:0.6rem;display:flex;flex-direction:column;gap:0.3rem;">';
+        validBtns.forEach(b => {
+            html += `<div style="background:var(--surface-2);border:1px solid var(--accent);border-radius:8px;padding:0.4rem 0.6rem;text-align:center;font-size:0.78rem;color:var(--accent);">${esc(b.text)}</div>`;
+        });
+        html += '</div>';
+    }
+    if (!html) {
+        el.innerHTML = '<span style="color:var(--text-dim);">— ยังไม่มีข้อความ —</span>';
+        el.style.color = 'var(--text-muted)';
+    } else {
+        el.innerHTML = html;
+        el.style.color = 'var(--text)';
+    }
+}
+
+async function doDmBroadcast() {
+    const msg = (document.getElementById('cdm-msg') || {}).value.trim();
+    const count = _cdmTargets[_cdmTarget] || 0;
+
+    if (!msg && !_cdmImageFile) { toast('ใส่ข้อความหรือรูปก่อน', 'error'); return; }
+    if (count === 0) { toast('ไม่มีผู้รับใน target นี้', 'error'); return; }
+
+    const targetLabel = { all: 'ทุกคน', active: 'มี VIP active', expired: 'หมดอายุ', trial: 'ยังไม่ซื้อ' }[_cdmTarget];
+    const etaSec = Math.max(1, Math.ceil(count / 25));
+    const etaText = etaSec < 60 ? `${etaSec} วินาที` : `${Math.ceil(etaSec / 60)} นาที`;
+
+    const danger = count > 500;
+    const ok1 = await confirmModal({
+        title: '📩 ยืนยันส่ง DM',
+        message: `จะส่ง DM ไปยังลูกค้า "<strong>${targetLabel}</strong>" <strong>${count.toLocaleString()} คน</strong><br>ระยะเวลาประมาณ <strong>${etaText}</strong><br><br>ข้อความนี้จะถูกส่งทันที — ไม่สามารถยกเลิกได้`,
+        okLabel: 'ดำเนินการ', cancelLabel: 'ยกเลิก', dangerous: danger
+    });
+    if (!ok1) return;
+
+    if (danger) {
+        const ok2 = await confirmModal({
+            title: '⚠️ เกิน 500 คน — ยืนยันอีกครั้ง',
+            message: `กำลังจะส่งหา <strong>${count.toLocaleString()} คน</strong><br>คุณแน่ใจหรือไม่?`,
+            okLabel: 'ส่งจริง', cancelLabel: 'ยกเลิก', dangerous: true
+        });
+        if (!ok2) return;
+    }
+
+    const btn = document.getElementById('cdm-send-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ กำลังส่ง...'; }
+
+    try {
+        const form = new FormData();
+        form.append('message', msg);
+        form.append('target', _cdmTarget);
+        form.append('parse_mode', 'HTML');
+        if (_cdmImageFile) form.append('media', _cdmImageFile);
+        const validBtns = (_cdmButtons || []).filter(b => (b.text || '').trim() && (b.url || '').trim());
+        if (validBtns.length > 0) form.append('buttons', JSON.stringify(validBtns));
+
+        const resp = await fetch('/api/customers/broadcast', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: form,
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || data.message || 'ส่งไม่สำเร็จ');
+
+        toast(`✅ เริ่มส่ง — broadcast_id ${data.broadcast_id} (${data.total} คน, ETA ${data.eta_minutes || 1} นาที)`, 'success');
+        closeModal();
+        loadDmBroadcastHistory();
+    } catch (e) {
+        toast('ส่งไม่สำเร็จ: ' + e.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '📩 ส่ง DM'; }
     }
 }
 

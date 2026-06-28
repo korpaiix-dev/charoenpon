@@ -100,6 +100,7 @@ async def broadcast_message(
     target: str = Form("all"),
     parse_mode: str = Form("HTML"),
     media: UploadFile | None = File(None),
+    buttons: str | None = Form(None, description="JSON array of {text,url}"),
     admin=Depends(require_role("admin")),
 ):
     """Enqueue a broadcast into the `broadcasts` queue — picked up by broadcast_worker."""
@@ -140,20 +141,38 @@ async def broadcast_message(
     if not user_ids:
         raise HTTPException(400, "ไม่มีผู้รับ — ยกเลิก broadcast")
 
+    # Parse inline buttons (optional) — JSON array of {text, url}
+    inline_buttons_json = None
+    if buttons:
+        try:
+            btn_list = json.loads(buttons)
+            if isinstance(btn_list, list) and btn_list:
+                clean = []
+                for b in btn_list[:10]:
+                    txt = (b.get("text") or "").strip()[:64]
+                    url = (b.get("url") or "").strip()[:256]
+                    if txt and url and (url.startswith("http://") or url.startswith("https://") or url.startswith("tg://")):
+                        clean.append({"text": txt, "url": url})
+                if clean:
+                    inline_buttons_json = json.dumps(clean)
+        except Exception:
+            pass
+
     # Enqueue — broadcast_worker container will pick this row up via SELECT ... FOR UPDATE SKIP LOCKED
     broadcast_id = await pool.fetchval("""
         INSERT INTO broadcasts (
             message_text, message_photo_id, target_type, target_value,
             total_count, sent_by, sent_by_username, status, target_user_ids,
-            started_at, parse_mode, media_type, media_b64
+            started_at, parse_mode, media_type, media_b64, inline_buttons
         )
         VALUES ($1, NULL, $2, $2, $3, $4, $5, 'PENDING', $6::jsonb,
-                NOW(), $7, $8, $9)
+                NOW(), $7, $8, $9, $10::jsonb)
         RETURNING id
     """,
         message, target, len(user_ids),
         admin["id"], admin.get("display_name") or admin.get("username"),
         json.dumps(user_ids), parse_mode, media_type, media_b64,
+        inline_buttons_json,
     )
 
     ip = request.client.host if request.client else None
