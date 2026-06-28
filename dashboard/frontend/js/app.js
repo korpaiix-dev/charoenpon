@@ -5467,7 +5467,7 @@ async function loadDmBroadcastPage() {
         </div>
         <div id="cdm-history-area"><div class="loading"><div class="spinner"></div></div></div>
     `;
-    document.getElementById('content-area').innerHTML = html;
+    document.getElementById('page-content').innerHTML = html;
     loadDmBroadcastHistory();
 }
 
