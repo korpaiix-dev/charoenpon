@@ -5510,7 +5510,17 @@ async function openGroupBroadcastModal() {
                 <!-- RIGHT: Compose -->
                 <div>
                     <strong style="font-size:0.85rem;">เขียนข้อความ</strong>
-                    <textarea id="gb-msg" rows="14" placeholder="พิมพ์ข้อความที่จะส่ง... รองรับ HTML เช่น <b>หนา</b>, <i>เอียง</i>, <a href='url'>ลิงก์</a>" style="width:100%;font-family:var(--font-sans);font-size:0.85rem;padding:0.625rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);line-height:1.5;resize:vertical;margin-top:0.3rem;" oninput="gbUpdatePreview()"></textarea>
+                    <div class="ct-toolbar" style="display:flex;gap:0.25rem;flex-wrap:wrap;margin-top:0.3rem;padding:0.35rem;background:var(--surface-2);border:1px solid var(--border);border-radius:6px 6px 0 0;border-bottom:none;">
+                        <button type="button" onclick="gbFormat('"'"'b'"'"')" title="ตัวหนา" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:0.25rem 0.55rem;cursor:pointer;font-size:0.78rem;"><b>B</b></button>
+                        <button type="button" onclick="gbFormat('"'"'i'"'"')" title="ตัวเอียง" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:0.25rem 0.55rem;cursor:pointer;font-size:0.78rem;"><i>I</i></button>
+                        <button type="button" onclick="gbFormat('"'"'u'"'"')" title="ขีดเส้นใต้" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:0.25rem 0.55rem;cursor:pointer;font-size:0.78rem;"><u>U</u></button>
+                        <button type="button" onclick="gbFormat('"'"'s'"'"')" title="ขีดทับ" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:0.25rem 0.55rem;cursor:pointer;font-size:0.78rem;"><s>S</s></button>
+                        <span style="color:var(--text-dim);align-self:center;">|</span>
+                        <button type="button" onclick="gbInsertLink()" title="ลิ้ง" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:0.25rem 0.55rem;cursor:pointer;font-size:0.78rem;">🔗 ลิ้ง</button>
+                        <button type="button" onclick="gbInsertDivider()" title="เส้นคั่น" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:0.25rem 0.55rem;cursor:pointer;font-size:0.78rem;">〰️ เส้นคั่น</button>
+                        <button type="button" onclick="gbOpenEmoji(this)" title="อีโมจิ" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:0.25rem 0.55rem;cursor:pointer;font-size:0.78rem;">😊 อีโมจิ</button>
+                    </div>
+                    <textarea id="gb-msg" rows="14" placeholder="พิมพ์ข้อความที่จะส่ง... รองรับ HTML เช่น <b>หนา</b>, <i>เอียง</i>, <a href='url'>ลิงก์</a>" style="width:100%;font-family:var(--font-sans);font-size:0.85rem;padding:0.625rem;background:var(--surface);border:1px solid var(--border);border-radius:0 0 6px 6px;color:var(--text);line-height:1.5;resize:vertical;margin-top:0;" oninput="gbUpdatePreview()"></textarea>
 
                     <div style="display:flex;gap:0.4rem;align-items:center;margin-top:0.5rem;flex-wrap:wrap;">
                         <label style="font-size:0.72rem;display:flex;align-items:center;gap:0.3rem;cursor:pointer;">
@@ -5572,6 +5582,66 @@ function gbClearImage() {
     document.getElementById('gb-image').value = '';
     document.getElementById('gb-image-name').textContent = '';
     document.getElementById('gb-image-clear').style.display = 'none';
+}
+
+
+// ===== Broadcast modal: rich text helpers (reuse CT_EMOJIS + ctInsertAt) =====
+function _gbTA() { return document.getElementById("gb-msg"); }
+function gbFormat(tag) {
+    const ta = _gbTA(); if (!ta) return;
+    ctInsertAt(ta, "<" + tag + ">", "</" + tag + ">");
+    gbUpdatePreview();
+}
+function gbInsertText(text) {
+    const ta = _gbTA(); if (!ta) return;
+    ctInsertAt(ta, text, "");
+    gbUpdatePreview();
+}
+function gbInsertLink() {
+    const url = prompt("ใส่ URL ลิ้ง:", "https://t.me/NamwarnJarern_bot");
+    if (!url) return;
+    const label = prompt("ข้อความที่ลูกค้าเห็น:", "กดที่นี่") || url;
+    const ta = _gbTA(); if (!ta) return;
+    ctInsertAt(ta, "<a href=\"" + url + "\">" + label + "</a>", "");
+    gbUpdatePreview();
+}
+function gbInsertDivider() {
+    gbInsertText("\n━━━━━━━━━━━━━━━━━━\n");
+}
+function gbOpenEmoji(btn) {
+    document.querySelectorAll(".ct-emoji-popover, .gb-emoji-popover").forEach(p => p.remove());
+    const ta = _gbTA(); if (!ta) return;
+    const pop = document.createElement("div");
+    pop.className = "gb-emoji-popover";
+    pop.style.cssText = "position:absolute;background:#27272a;border:1px solid #3f3f46;border-radius:8px;padding:0.4rem;display:grid;grid-template-columns:repeat(8,1fr);gap:0.2rem;z-index:100001;box-shadow:0 4px 16px rgba(0,0,0,0.5);";
+    CT_EMOJIS.forEach(emoji => {
+        const b = document.createElement("button");
+        b.textContent = emoji;
+        b.type = "button";
+        b.style.cssText = "background:transparent;border:none;font-size:1.2rem;cursor:pointer;padding:0.25rem;border-radius:4px;color:#fff;";
+        b.onmouseover = () => b.style.background = "#3f3f46";
+        b.onmouseout = () => b.style.background = "transparent";
+        b.onclick = (e) => {
+            e.stopPropagation();
+            ctInsertAt(ta, emoji, "");
+            gbUpdatePreview();
+            pop.remove();
+        };
+        pop.appendChild(b);
+    });
+    const r = btn.getBoundingClientRect();
+    pop.style.top = (r.bottom + window.scrollY + 4) + "px";
+    pop.style.left = (r.left + window.scrollX) + "px";
+    document.body.appendChild(pop);
+    setTimeout(() => {
+        const cls = (e) => {
+            if (!pop.contains(e.target) && e.target !== btn) {
+                pop.remove();
+                document.removeEventListener("click", cls);
+            }
+        };
+        document.addEventListener("click", cls);
+    }, 100);
 }
 
 function gbUpdatePreview() {
