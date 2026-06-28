@@ -54,6 +54,7 @@ from shared.models import (
 )
 from shared.contact_admin import contact_admin_kb
 from shared.slip2go import verify_slip_image, Slip2GoError, receiver_is_boss, receiver_match_pool, amount_to_tier
+from shared.purchase_intent import find_latest_pending as _intent_find_pending, consume_intent as _intent_consume
 from shared.endmonth_vip_promo import (
     PROMO_2499_PRICE,
     PROMO_DATE_TEXT,
@@ -485,6 +486,34 @@ async def handle_photo_slip(
                 context.user_data["selected_tier"] = _tinfo[0]
         except Exception as _ge:
             logger.warning("GACHA detect fallback failed: %s", _ge)
+
+
+    # ───────────────────────────────────────────────────────────────
+    # LAYER 0: PURCHASE INTENT FALLBACK (Mini App ticket)
+    # ───────────────────────────────────────────────────────────────
+    # ถ้าลูกค้าซื้อผ่าน Mini App — Dashboard backend จะสร้าง intent ไว้ก่อน
+    # แม้ selected_tier ในบอท memory จะว่าง — ระบบยังรู้ว่าลูกค้าซื้ออะไร
+    # ทำก่อน PRAE-CHAT FALLBACK + ก่อน Layer 2 → เร็วและแม่นยำสุด
+    pending_intent = None
+    if missing_context:
+        try:
+            pending_intent = await _intent_find_pending(user.id)
+            if pending_intent:
+                _i_tier_full = (pending_intent.get("tier") or "").strip()
+                _i_short = _i_tier_full.replace("TIER_", "") if _i_tier_full else ""
+                if _i_short:
+                    selected_tier = _i_short
+                    context.user_data["selected_tier"] = _i_short
+                    expected_price = await _get_effective_price(_i_short, context.user_data)
+                    if expected_price:
+                        missing_context = False
+                        logger.info(
+                            "INTENT-FALLBACK: tg=%s intent_id=%s tier=%s final=%s — recovering missing_context",
+                            user.id, pending_intent.get("id"),
+                            _i_short, pending_intent.get("final_price"),
+                        )
+        except Exception as _ie:
+            logger.warning("INTENT-FALLBACK failed: %s", _ie)
 
     # FIX 2026-06-26 (PRAE-CHAT FALLBACK): if customer talked via Prae chat instead of pressing buttons,
     # selected_tier may be empty. Use Slip2Go amount → tier mapping as fallback.
@@ -1688,7 +1717,37 @@ async def handle_photo_slip(
 
         full_name = " ".join(part for part in [user.first_name, user.last_name] if part).strip() or safe_name
         selected_pkg_price_label = f" ({format_thb(expected_price)})" if not missing_context else ""
-        fallback_caption = "\n⚠️ <b>Fallback:</b> ไม่พบ package context, ต้องตรวจมือ" if missing_context else ""
+
+        # ── Intent / Fallback caption ──
+        _intent_caption = ""
+        try:
+            _pi = locals().get("pending_intent")
+            if _pi:
+                _fp = _pi.get("final_price")
+                _op = _pi.get("original_price")
+                _src = _pi.get("source") or "miniapp"
+                _promo_id = _pi.get("promo_id")
+                _has_promo = bool(_promo_id) and _fp and _op and float(_fp) < float(_op)
+                _promo_txt = ""
+                if _has_promo:
+                    try:
+                        _disc_pct = int((1 - float(_fp) / float(_op)) * 100)
+                        _promo_txt = f" (โปรลด {_disc_pct}%)"
+                    except Exception:
+                        _promo_txt = " (โปร)"
+                _intent_caption = (
+                    f"\n\n🎫 <b>ตั๋วลูกค้ากด ({_src}):</b>\n"
+                    f"• แพ็กเกจ: {_selected_pkg_name}\n"
+                    f"• ราคา: ฿{int(_fp):,}{_promo_txt}"
+                )
+        except Exception:
+            pass
+
+        fallback_caption = ""
+        if missing_context and not _intent_caption:
+            fallback_caption = "\n⚠️ <b>Fallback:</b> ไม่พบ package context, ต้องตรวจมือ"
+        elif _intent_caption:
+            fallback_caption = _intent_caption
 
         caption = (
             f"📩 <b>สลิปใหม่ (รอตรวจ)</b>\n"

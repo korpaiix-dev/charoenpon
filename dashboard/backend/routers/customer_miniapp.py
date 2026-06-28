@@ -210,6 +210,16 @@ async def customer_buy(request: Request):
                 {"text": f"🎫 ซื้อ {spins} หมุน ฿{price:,}", "callback_data": f"gacha_buy_{spins}"}
             ]]
         }
+        # GACHA intent (กรณีลูกค้าโอนเลยไม่กดปุ่ม callback)
+        try:
+            await _create_intent(
+                tg_id=tg_id, tier=tier_full,
+                original_price=price, final_price=price,
+                promo_id=int(promo_id) if promo_id else None,
+                source="miniapp", ttl_minutes=30,
+            )
+        except Exception as _gex:
+            logger.warning("gacha intent create failed: %s", _gex)
         await _send_bot_message(bot_token, tg_id, msg, reply_markup=keyboard)
         return {"ok": True, "action": "gacha_button_sent"}
 
@@ -220,6 +230,26 @@ async def customer_buy(request: Request):
             await record_click(int(promo_id), tg_id, tier_full)
         except Exception as exc:
             logger.warning("promo click record failed: %s", exc)
+
+    # Create purchase_intent (ตั๋ว) — sales bot ใช้เป็น fallback selected_tier
+    _orig_price = price
+    if promo_id:
+        try:
+            from shared.pricing import TIER_PRICES as _TP
+            _short = tier_full.replace("TIER_", "")
+            _orig_dec = _TP.get(_short) or _TP.get(tier_full) or price
+            _orig_price = int(_orig_dec)
+        except Exception:
+            _orig_price = price
+    _intent_id = await _create_intent(
+        tg_id=tg_id,
+        tier=tier_full if tier_full.startswith("TIER_") else f"TIER_{tier_full}",
+        original_price=_orig_price,
+        final_price=price,
+        promo_id=int(promo_id) if promo_id else None,
+        source="miniapp",
+        ttl_minutes=30,
+    )
 
     from shared.receiver_pool import pick_random
     acct = await pick_random()
