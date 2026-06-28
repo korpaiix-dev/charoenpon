@@ -1098,3 +1098,17 @@ async def reset_payment(payment_id: int, admin=Depends(require_role("admin"))):
     )
     return {"ok": True, "payment_id": payment_id, "from_status": row["status"]}
 
+
+
+@router.get("/admin/orphan-subs")
+async def list_orphan_subs(days: int = 7, admin=Depends(require_role("admin"))):
+    """List ACTIVE subscriptions with NULL payment_id — data integrity audit."""
+    from shared.orphan_subs_watchdog import find_orphan_subs
+    items = await find_orphan_subs(within_days=days)
+    total = sum(float(r.get("price") or 0) for r in items)
+    return {
+        "items": items,
+        "count": len(items),
+        "total_revenue_missing": total,
+        "scope_days": days,
+    }

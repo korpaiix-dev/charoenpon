@@ -390,6 +390,10 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
                     .values(status=SubscriptionStatus.EXPIRED)
                 )
 
+            # ⚠️ WARNING 2026-06-28: This path creates Subscription WITHOUT a Payment row!
+            # → Causes ORPHAN subs (revenue missing from reports).
+            # → MIGRATE to shared.payment_approval.apply_payment_approval() ASAP.
+            # → For now, payment_id will be NULL — backfill via daily watchdog.
             # Create subscription
             now = datetime.utcnow()
             # Trial 24 ชม.: ใช้ hours=24 แทน days=1
