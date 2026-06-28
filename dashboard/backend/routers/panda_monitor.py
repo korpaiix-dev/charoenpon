@@ -95,7 +95,7 @@ async def panda_monitor_data(request: Request, token: str = Query(None)):
             (SELECT COUNT(*) FROM users WHERE is_blocked_bot = TRUE) AS blocked_users
     """)
     health = dict(row)
-    health["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    from shared.tz import now_th as _now_th_; health["timestamp"] = _now_th_().strftime("%Y-%m-%d %H:%M:%S")
 
     return {
         "revenue": revenue, "customers": customers, "loyalty": loyalty,

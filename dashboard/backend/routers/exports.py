@@ -96,7 +96,7 @@ async def export_payments(
     for col_letter, width in zip("ABCDEFGHIJKLMNOP", [6, 16, 16, 10, 8, 6, 9, 22, 22, 16, 14, 22, 18, 18, 18, 24]):
         ws.column_dimensions[col_letter].width = width
 
-    ts = datetime.now().strftime("%Y%m%d_%H%M")
+    from shared.tz import now_th as _now_th_; ts = _now_th_().strftime("%Y%m%d_%H%M")
     return _stream_workbook(wb, f"payments_{ts}.xlsx")
 
 
@@ -161,7 +161,7 @@ async def export_customers(
     for col_letter, width in zip("ABCDEFGHIJKLMN", [6, 14, 14, 18, 18, 14, 10, 10, 8, 12, 22, 11, 12, 16]):
         ws.column_dimensions[col_letter].width = width
 
-    ts = datetime.now().strftime("%Y%m%d_%H%M")
+    from shared.tz import now_th as _now_th_; ts = _now_th_().strftime("%Y%m%d_%H%M")
     return _stream_workbook(wb, f"customers_{status}_{ts}.xlsx")
 
 
@@ -208,7 +208,7 @@ async def export_marketing_links(admin=Depends(require_role("admin"))):
     for col_letter, width in zip("ABCDEFGHIJKLMN", [5, 10, 12, 14, 14, 11, 50, 9, 9, 8, 10, 10, 9, 16]):
         ws.column_dimensions[col_letter].width = width
 
-    ts = datetime.now().strftime("%Y%m%d_%H%M")
+    from shared.tz import now_th as _now_th_; ts = _now_th_().strftime("%Y%m%d_%H%M")
     return _stream_workbook(wb, f"marketing_links_{ts}.xlsx")
 
 
@@ -254,5 +254,5 @@ async def export_subscriptions(
             r["created_at"].strftime("%Y-%m-%d %H:%M") if r["created_at"] else "",
         ])
 
-    ts = datetime.now().strftime("%Y%m%d_%H%M")
+    from shared.tz import now_th as _now_th_; ts = _now_th_().strftime("%Y%m%d_%H%M")
     return _stream_workbook(wb, f"subscriptions_{ts}.xlsx")

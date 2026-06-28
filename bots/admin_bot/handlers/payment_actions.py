@@ -470,7 +470,7 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
         # Send invite links to customer (2 buttons per row)
         link_buttons = [links_list[i:i+2] for i in range(0, len(links_list), 2)]
 
-        expire_date = (datetime.utcnow() + timedelta(days=duration)).strftime("%d/%m/%Y")
+        from shared.tz import now_th as _now_th_; expire_date = (_now_th_() + timedelta(days=duration)).strftime("%d/%m/%Y")
         msg = (
             f"✅ <b>อนุมัติยอด {price} บาท เรียบร้อยค่ะ</b>\n"
             f"📦 แพ็กเกจ: {pkg_name}\n"
@@ -868,7 +868,7 @@ async def approve_promo_callback(update: Update, context: ContextTypes.DEFAULT_T
 
         # Send invite links to customer
         link_buttons = [links_list[i:i+2] for i in range(0, len(links_list), 2)]
-        expire_date = (datetime.utcnow() + timedelta(days=duration)).strftime("%d/%m/%Y")
+        from shared.tz import now_th as _now_th_; expire_date = (_now_th_() + timedelta(days=duration)).strftime("%d/%m/%Y")
         msg = (
             f"✅ <b>อนุมัติยอด {discounted_price} บาท ({source} ลด {discount_pct}%) เรียบร้อยค่ะ</b>\n"
             f"📦 แพ็กเกจ: {pkg_name}\n"

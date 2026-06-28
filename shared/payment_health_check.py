@@ -280,7 +280,7 @@ async def run_health_check_and_alert(context):
         alert = "🩺 <b>PAYMENT HEALTH CHECK ALERT</b>\n━━━━━━━━━━━━━━\n"
         for issue in issues:
             alert += f"\n{issue}"
-        alert += f"\n\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        alert += f"\n\n⏰ {__import__('shared.tz', fromlist=['now_th']).now_th().strftime('%Y-%m-%d %H:%M:%S')}"
         await notify_admin_report(alert, parse_mode="HTML")
         logger.warning("Payment health alert sent: %d issues", len(issues))
     except Exception as exc:

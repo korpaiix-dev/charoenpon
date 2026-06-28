@@ -110,7 +110,7 @@ async def api_me(request: Request,
             srow = dict(sub_row)
             days_left = None
             if srow["end_date"]:
-                days_left = (srow["end_date"] - datetime.utcnow()).days
+                from shared.tz import now_th as _now_th_; _end = srow["end_date"]; _end = _end.replace(tzinfo=None) if hasattr(_end, 'tzinfo') and _end.tzinfo else _end; days_left = (_end - _now_th_().replace(tzinfo=None)).days
             # Friendly tier label (strip TIER_ prefix; LIFETIME = 36500 days)
             tier_label = (srow.get("tier_name") or "").replace("TIER_", "") or str(srow.get("package_id") or "?")
             sub = {
