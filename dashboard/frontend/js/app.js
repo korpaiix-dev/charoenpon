@@ -5510,7 +5510,19 @@ async function openGroupBroadcastModal() {
 
                 <!-- RIGHT: Compose -->
                 <div>
-                    <strong style="font-size:0.85rem;">เขียนข้อความ</strong>
+                    <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
+                        <strong style="font-size:0.85rem;margin-right:0.4rem;">รูปภาพ</strong>
+                        <label style="font-size:0.72rem;display:flex;align-items:center;gap:0.3rem;cursor:pointer;">
+                            <input type="file" id="gb-image" accept="image/*" style="display:none;" onchange="gbImageChange(this)">
+                            <span class="btn btn-sm btn-outline" onclick="document.getElementById('gb-image').click()">🖼 เลือกรูป</span>
+                        </label>
+                        <span id="gb-image-name" style="font-size:0.7rem;color:var(--text-muted);"></span>
+                        <span id="gb-image-clear" style="display:none;font-size:0.7rem;color:var(--error);cursor:pointer;" onclick="gbClearImage()">✕ ลบรูป</span>
+                    </div>
+                    <div id="gb-image-thumb-wrap" style="margin-top:0.5rem;display:none;">
+                        <img id="gb-image-thumb" alt="preview" style="max-width:100%;max-height:200px;border-radius:8px;border:1px solid var(--border);object-fit:contain;background:var(--surface);">
+                    </div>
+                    <div style="margin-top:0.8rem;"><strong style="font-size:0.85rem;">เขียนข้อความ</strong></div>
                     <div class="ct-toolbar" style="display:flex;gap:0.25rem;flex-wrap:wrap;margin-top:0.3rem;padding:0.35rem;background:var(--surface-2);border:1px solid var(--border);border-radius:6px 6px 0 0;border-bottom:none;">
                         <button type="button" onclick="gbFormat('"'"'b'"'"')" title="ตัวหนา" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:0.25rem 0.55rem;cursor:pointer;font-size:0.78rem;"><b>B</b></button>
                         <button type="button" onclick="gbFormat('"'"'i'"'"')" title="ตัวเอียง" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:0.25rem 0.55rem;cursor:pointer;font-size:0.78rem;"><i>I</i></button>
@@ -5522,18 +5534,6 @@ async function openGroupBroadcastModal() {
                         <button type="button" onclick="gbOpenEmoji(this)" title="อีโมจิ" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:0.25rem 0.55rem;cursor:pointer;font-size:0.78rem;">😊 อีโมจิ</button>
                     </div>
                     <textarea id="gb-msg" rows="14" placeholder="พิมพ์ข้อความที่จะส่ง... รองรับ HTML เช่น <b>หนา</b>, <i>เอียง</i>, <a href='url'>ลิงก์</a>" style="width:100%;font-family:var(--font-sans);font-size:0.85rem;padding:0.625rem;background:var(--surface);border:1px solid var(--border);border-radius:0 0 6px 6px;color:var(--text);line-height:1.5;resize:vertical;margin-top:0;" oninput="gbUpdatePreview()"></textarea>
-
-                    <div style="display:flex;gap:0.4rem;align-items:center;margin-top:0.5rem;flex-wrap:wrap;">
-                        <label style="font-size:0.72rem;display:flex;align-items:center;gap:0.3rem;cursor:pointer;">
-                            <input type="file" id="gb-image" accept="image/*" style="display:none;" onchange="gbImageChange(this)">
-                            <span class="btn btn-sm btn-outline" onclick="document.getElementById('gb-image').click()">🖼 เลือกรูป</span>
-                        </label>
-                        <span id="gb-image-name" style="font-size:0.7rem;color:var(--text-muted);"></span>
-                        <span id="gb-image-clear" style="display:none;font-size:0.7rem;color:var(--error);cursor:pointer;" onclick="gbClearImage()">✕ ลบรูป</span>
-                    </div>
-                    <div id="gb-image-thumb-wrap" style="margin-top:0.5rem;display:none;">
-                        <img id="gb-image-thumb" alt="preview" style="max-width:100%;max-height:200px;border-radius:8px;border:1px solid var(--border);object-fit:contain;background:var(--surface);">
-                    </div>
 
                     <div style="margin-top:1rem;display:flex;justify-content:space-between;align-items:center;">
                         <strong style="font-size:0.78rem;">🔘 ปุ่มใต้โพสต์ (ไม่บังคับ)</strong>
