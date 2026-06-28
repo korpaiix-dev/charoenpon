@@ -42,7 +42,8 @@ async def _get_welcome_text() -> str:
 
 MAIN_KEYBOARD = InlineKeyboardMarkup(
     [
-        [InlineKeyboardButton("⚡ Flash Sale", callback_data="view_flashsale")],
+        # NOTE: ลบปุ่ม Flash Sale 2026-06-28 — Flash Friday scheduler ปิดตั้งแต่ 4 มิ.ย.
+        # ถ้าเปิดอีก: ใช้ conditional ที่ start.py:431 — แสดงปุ่มเฉพาะตอนมี active sale ใน DB
         [InlineKeyboardButton("🛒 เลือกแพ็คเกจ + โปร", web_app=WebAppInfo(url="https://telebord.net/webapp/customer/packages?v=1782591275"))],
         [InlineKeyboardButton("📦 ดูแพ็กเกจ (ปกติ)", callback_data="view_packages")],
         [InlineKeyboardButton("📊 ข้อมูลของฉัน", web_app=WebAppInfo(url="https://telebord.net/webapp/customer"))],
