@@ -309,6 +309,44 @@ function restoreLastPage() {
 }
 
 // ========== TOAST ==========
+/**
+ * Custom confirm modal — ใช้แทน window.confirm() ที่หน้าตาแย่
+ * Usage: const ok = await confirmModal({title, message, okLabel, dangerous});
+ */
+function confirmModal({ title = 'ยืนยันการกระทำ', message = '', okLabel = 'ยืนยัน', cancelLabel = 'ยกเลิก', dangerous = false } = {}) {
+    return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:99999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);animation:fadein 0.15s';
+        overlay.innerHTML = `
+            <div class="card" style="max-width:440px;width:90%;padding:1.5rem;animation:slideup 0.2s">
+                <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.8rem">
+                    <span style="font-size:1.6rem">${dangerous ? '⚠️' : '❓'}</span>
+                    <h3 style="margin:0;font-size:1.1rem">${title}</h3>
+                </div>
+                <div style="margin-bottom:1.2rem;white-space:pre-line;line-height:1.6;font-size:0.95rem;opacity:0.9">${message}</div>
+                <div style="display:flex;gap:0.6rem;justify-content:flex-end">
+                    <button class="btn btn-outline" id="_cm_cancel">${cancelLabel}</button>
+                    <button class="btn ${dangerous ? 'btn-danger' : 'btn-primary'}" id="_cm_ok">${okLabel}</button>
+                </div>
+            </div>
+            <style>
+                @keyframes fadein { from { opacity: 0 } to { opacity: 1 } }
+                @keyframes slideup { from { transform: translateY(20px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+                .btn-danger { background:#ef4444 !important; color:#fff !important; border-color:#ef4444 !important; }
+                .btn-danger:hover { background:#dc2626 !important; }
+            </style>
+        `;
+        document.body.appendChild(overlay);
+        const cleanup = (val) => { overlay.remove(); resolve(val); };
+        overlay.querySelector('#_cm_ok').onclick = () => cleanup(true);
+        overlay.querySelector('#_cm_cancel').onclick = () => cleanup(false);
+        overlay.onclick = (e) => { if (e.target === overlay) cleanup(false); };
+        // Auto-focus OK button
+        setTimeout(() => overlay.querySelector('#_cm_ok').focus(), 50);
+    });
+}
+
+
 function toast(msg, type = 'info') {
     const container = document.getElementById('toast-container');
     const el = document.createElement('div');
@@ -730,7 +768,7 @@ async function renderReceivers() {
 }
 
 async function receiverReset(rid, owner, currentBaht) {
-    if (!confirm(`Reset ยอดสะสมของ "${owner}"?\n\nยอดปัจจุบัน: ${fmtBaht(currentBaht)}\nจะกลับเป็น ฿0\n\nใช้หลังถอนเงินออกจากบัญชีแล้วเท่านั้น`)) return;
+    if (!await confirmModal({ message: `Reset ยอดสะสมของ "${owner}"?\n\nยอดปัจจุบัน: ${fmtBaht(currentBaht)}\nจะกลับเป็น ฿0\n\nใช้หลังถอนเงินออกจากบัญชีแล้วเท่านั้น`, dangerous: true })) return;
     try {
         await api(`/receivers/${rid}/reset`, { method: 'POST' });
         toast(`✅ Reset ${owner} เรียบร้อย`, 'success');
@@ -742,7 +780,7 @@ async function receiverReset(rid, owner, currentBaht) {
 
 async function receiverToggle(rid, newEnabled) {
     const action = newEnabled ? 'เปิด' : 'ปิด';
-    if (!confirm(`${action}บัญชีนี้?`)) return;
+    if (!await confirmModal({ message: `${action}บัญชีนี้?`, dangerous: true })) return;
     try {
         await api(`/receivers/${rid}`, {
             method: 'PATCH',
@@ -870,7 +908,7 @@ async function doReceiverUploadQr(rid) {
 }
 
 async function doReceiverRemoveQr(rid) {
-    if (!confirm('ลบรูป QR ออกจากบัญชีนี้?')) return;
+    if (!await confirmModal({ message: 'ลบรูป QR ออกจากบัญชีนี้?', dangerous: true })) return;
     try {
         await api(`/receivers/${rid}`, {
             method: 'PATCH',
@@ -1190,7 +1228,7 @@ async function renderBannedTable() {
 }
 
 async function unbanSlip(id) {
-    if (!confirm('ปลดแบนสลิปนี้? ลูกค้าจะส่งสลิปนี้ได้อีกครั้ง')) return;
+    if (!await confirmModal({ message: 'ปลดแบนสลิปนี้? ลูกค้าจะส่งสลิปนี้ได้อีกครั้ง', dangerous: true })) return;
     try {
         await api(`/settings/banned/slips/${id}`, { method: 'DELETE' });
         toast('✅ ปลดแบนเรียบร้อย', 'success');
@@ -1201,7 +1239,7 @@ async function unbanSlip(id) {
 }
 
 async function unbanSender(id) {
-    if (!confirm('ปลดแบนชื่อผู้โอนนี้?')) return;
+    if (!await confirmModal({ message: 'ปลดแบนชื่อผู้โอนนี้?', dangerous: true })) return;
     try {
         await api(`/settings/banned/senders/${id}`, { method: 'DELETE' });
         toast('✅ ปลดแบนเรียบร้อย', 'success');
@@ -1244,7 +1282,7 @@ async function doMarketingLinkCost(linkId) {
 }
 
 async function marketingLinkRevoke(linkId, marketer, platform) {
-    if (!confirm('Revoke link #' + linkId + ' (' + marketer + ' / ' + platform + ')?\n\nลิ้งนี้จะใช้ไม่ได้อีก:\n• Short URL จะ return 410\n• Group invite ถูก revoke ใน Telegram\n• Click logs จะไม่ track ใหม่')) return;
+    if (!await confirmModal({ message: 'Revoke link #' + linkId + ' (' + marketer + ' / ' + platform + ')?\n\nลิ้งนี้จะใช้ไม่ได้อีก:\n• Short URL จะ return 410\n• Group invite ถูก revoke ใน Telegram\n• Click logs จะไม่ track ใหม่', dangerous: true })) return;
     try {
         await api(`/marketing/links/${linkId}/revoke`, { method: 'POST' });
         toast('✅ Revoked เรียบร้อย', 'success');
@@ -1909,7 +1947,7 @@ async function renderInbox() {
 async function inboxAction(action, id) {
     try {
         if (action === 'approve_payment') {
-            if (!confirm('Approve payment #' + id + '?')) return;
+            if (!await confirmModal({ message: 'Approve payment #' + id + '?', dangerous: true })) return;
             await api(`/payments/${id}/approve`, { method: 'POST' });
             toast('✅ Approve เรียบร้อย', 'success');
             renderInbox();
@@ -1917,7 +1955,7 @@ async function inboxAction(action, id) {
             await showRejectReasonModal(id);
             return;
         } else if (action === 'resolve_sos') {
-            if (!confirm('จบ SOS ticket #' + id + '?')) return;
+            if (!await confirmModal({ message: 'จบ SOS ticket #' + id + '?', dangerous: true })) return;
             await api(`/dashboard/sos/${id}/resolve`, { method: 'POST' });
             toast('✅ Resolved', 'success');
             renderInbox();
@@ -2175,7 +2213,7 @@ async function loadSOSAlerts() {
 }
 
 async function resendSOSLinks(telegramId, btn) {
-    if (!confirm(`ส่งลิงก์เข้ากลุ่มใหม่ให้ลูกค้า ID: ${telegramId}?`)) return;
+    if (!await confirmModal({ message: `ส่งลิงก์เข้ากลุ่มใหม่ให้ลูกค้า ID: ${telegramId}?`, dangerous: true })) return;
     btn.disabled = true;
     btn.textContent = '⏳ กำลังส่ง...';
     try {
@@ -2212,7 +2250,7 @@ async function sosContactCustomer(telegramId, name) {
 }
 
 async function resolveSOSManual(telegramId) {
-    if (!confirm(`จบเคส SOS ของ ID ${telegramId}? (mark as resolved)`)) return;
+    if (!await confirmModal({ message: `จบเคส SOS ของ ID ${telegramId}? (mark as resolved)`, dangerous: true })) return;
     try {
         await api(`/dashboard/sos/${telegramId}/resolve`, { method: 'POST' });
         toast('✅ จบเคสแล้ว', 'success');
@@ -2222,7 +2260,7 @@ async function resolveSOSManual(telegramId) {
 }
 
 async function batchResolveAllSOS() {
-    if (!confirm('Resolve SOS ทั้งหมดที่ค้างอยู่?')) return;
+    if (!await confirmModal({ message: 'Resolve SOS ทั้งหมดที่ค้างอยู่?', dangerous: true })) return;
     try {
         const result = await api('/dashboard/sos/batch-resolve', { method: 'POST' });
         toast(`✅ Resolve สำเร็จ ${result.resolved_count} รายการ`, 'success');
@@ -2383,7 +2421,7 @@ async function customerAction(userId, action) {
     } else if (action === 'ban') {
         const user = await api(`/customers/${userId}`);
         if (user.user.is_banned) {
-            if (confirm('ปลดแบนผู้ใช้นี้?')) {
+            if (await confirmModal({ message: 'ปลดแบนผู้ใช้นี้?', dangerous: true })) {
                 await api(`/customers/${userId}/unban`, { method: 'POST' });
                 toast('ปลดแบนแล้ว', 'success'); closeModal(); loadCustomers();
             }
@@ -2548,7 +2586,7 @@ async function loadExpiredPending() {
 
 async function approvePayment(id) {
     if (_busy.has(`appr-${id}`)) return;
-    if (!confirm('อนุมัติสลิปนี้?')) return;
+    if (!await confirmModal({ message: 'อนุมัติสลิปนี้?', dangerous: true })) return;
     _busy.add(`appr-${id}`);
     try {
         await api(`/payments/${id}/approve`, { method: 'POST' });
@@ -2770,7 +2808,7 @@ async function togglePromotionCampaign(id) {
     loadPromotionCampaigns();
 }
 async function deletePromotionCampaign(id) {
-    if (!confirm('ลบแคมเปญนี้?')) return;
+    if (!await confirmModal({ message: 'ลบแคมเปญนี้?', dangerous: true })) return;
     await api(`/promotion-campaigns/${id}`, { method: 'DELETE' });
     loadPromotionCampaigns();
 }
@@ -2881,7 +2919,7 @@ async function toggleFlashSale(id) {
     await api(`/flash-sales/${id}/toggle`, { method: 'POST' }); loadFlashSales();
 }
 async function deleteFlashSale(id) {
-    if (!confirm('ลบ Flash Sale นี้?')) return;
+    if (!await confirmModal({ message: 'ลบ Flash Sale นี้?', dangerous: true })) return;
     await api(`/flash-sales/${id}`, { method: 'DELETE' }); loadFlashSales();
 }
 
@@ -2934,7 +2972,7 @@ async function createPromoCode() {
 }
 
 async function togglePromoCode(id) { await api(`/promo-codes/${id}/toggle`, { method: 'POST' }); loadPromoCodes(); }
-async function deletePromoCode(id) { if (!confirm('ลบ?')) return; await api(`/promo-codes/${id}`, { method: 'DELETE' }); loadPromoCodes(); }
+async function deletePromoCode(id) { if (!await confirmModal({ message: 'ลบ?', dangerous: true })) return; await api(`/promo-codes/${id}`, { method: 'DELETE' }); loadPromoCodes(); }
 
 async function loadScheduledPromos() {
     try {
@@ -2999,7 +3037,7 @@ async function createScheduledPromo() {
 }
 
 async function deleteScheduledPromo(id) {
-    if (!confirm('ลบ?')) return;
+    if (!await confirmModal({ message: 'ลบ?', dangerous: true })) return;
     await api(`/scheduled-promotions/${id}`, { method: 'DELETE' }); loadScheduledPromos();
 }
 
@@ -3086,7 +3124,7 @@ async function handleContentUpload(files) {
 }
 
 async function deleteQueueItem(id) {
-    if (!confirm('ลบ?')) return;
+    if (!await confirmModal({ message: 'ลบ?', dangerous: true })) return;
     await api(`/content/queue/${id}`, { method: 'DELETE' }); loadContentQueue();
 }
 
@@ -3285,7 +3323,7 @@ async function updateGroup(id) {
 }
 
 async function deleteGroup(id) {
-    if (!confirm('ลบกลุ่มนี้?')) return;
+    if (!await confirmModal({ message: 'ลบกลุ่มนี้?', dangerous: true })) return;
     try {
         await api(`/groups/${id}`, { method: 'DELETE' });
         toast('ลบกลุ่มแล้ว', 'success'); renderGroups();
@@ -3380,13 +3418,13 @@ async function renderTeam() {
 }
 
 async function deleteTeamMember(id, name) {
-    if (!confirm(`ลบทีมงาน "${name}"?
+    if (!await confirmModal({ message: `ลบทีมงาน "${name}"?
 
 • Account จะ disabled (soft delete)
 • Session ทั้งหมดถูก revoke (logout ทันที)
 • Activity history ยังคงอยู่ในระบบ
 
-กลับคืนได้โดยให้ owner รีเปิด is_active`)) return;
+กลับคืนได้โดยให้ owner รีเปิด is_active`, dangerous: true })) return;
     try {
         await api(`/team/${id}`, { method: 'DELETE' });
         toast(`✅ ลบ ${name} เรียบร้อย`, 'success');
@@ -3498,7 +3536,7 @@ async function resetTeamPwd(id) {
 }
 
 async function deleteTeam(id) {
-    if (!confirm('ลบทีมงานนี้?')) return;
+    if (!await confirmModal({ message: 'ลบทีมงานนี้?', dangerous: true })) return;
     try {
         await api(`/team/${id}`, { method: 'DELETE' });
         toast('ลบแล้ว', 'success'); closeModal(); renderTeam();
@@ -3659,7 +3697,7 @@ async function deletePkg(id, name, activeSubs) {
         toast(`ลบไม่ได้ — มีลูกค้า ${activeSubs} คนใช้แพ็คเกจนี้อยู่`, 'error');
         return;
     }
-    if (!confirm(`ลบแพ็คเกจ "${name}"?\n(จะ soft-delete = is_active=false ไม่ใช่ลบจริง)`)) return;
+    if (!await confirmModal({ message: `ลบแพ็คเกจ "${name}"?\n(จะ soft-delete = is_active=false ไม่ใช่ลบจริง)`, dangerous: true })) return;
     try {
         await api(`/settings/packages/${id}`, { method: 'DELETE' });
         toast('ลบแล้ว ✅', 'success'); loadPackages();
@@ -3680,7 +3718,7 @@ function startEditToken(name) {
 
 
 async function testDM(type) {
-    if (!confirm(`ทดสอบส่ง ${type} DM ให้ 1 คน?`)) return;
+    if (!await confirmModal({ message: `ทดสอบส่ง ${type} DM ให้ 1 คน?`, dangerous: true })) return;
     try {
         const result = await api(`/marketing/test-dm?type=${type}`, { method: 'POST' });
         toast(`✅ ส่ง ${type} DM ทดสอบสำเร็จ: ${result.message || 'sent'}`, 'success');
@@ -4060,7 +4098,7 @@ async function customerCancelSub(uid) {
 }
 
 async function customerReactivateSub(uid) {
-    if (!confirm('Reactivate sub ที่ยกเลิกล่าสุด? (ใช้ได้ถ้า end_date ยังไม่หมดจริง)')) return;
+    if (!await confirmModal({ message: 'Reactivate sub ที่ยกเลิกล่าสุด? (ใช้ได้ถ้า end_date ยังไม่หมดจริง)', dangerous: true })) return;
     try {
         await api(`/customers/${uid}/reactivate-sub`, { method: 'POST' });
         toast('✅ Reactivate เรียบร้อย', 'success');
@@ -4152,7 +4190,7 @@ async function inboxBulkApprove() {
         `  • DM ส่งไปทุกคนพร้อม invite link\n` +
         `  • Subscription/credit สร้างใน DB\n\n` +
         `⚠️ Action นี้กลับไม่ได้ — ถ้ามีสลิปปลอมหลุดผ่าน ลูกค้าจะได้ VIP ฟรี`;
-    if (!confirm(msg)) return;
+    if (!await confirmModal({ message: msg, dangerous: true })) return;
     try {
         const result = await api('/payments/bulk-approve', {
             method: 'POST',
@@ -4846,7 +4884,7 @@ async function previewPromptVersion(vid) {
 }
 
 async function activatePromptVersion(vid) {
-    if (!confirm('Activate เวอร์ชันนี้? Prae จะใช้ prompt นี้ภายใน 1 นาที')) return;
+    if (!await confirmModal({ message: 'Activate เวอร์ชันนี้? Prae จะใช้ prompt นี้ภายใน 1 นาที', dangerous: true })) return;
     try {
         await api(`/prae-prompt/activate/${vid}`, { method: 'POST' });
         toast('✅ Activated', 'success');
@@ -4857,7 +4895,7 @@ async function activatePromptVersion(vid) {
 }
 
 async function resetPraePrompt() {
-    if (!confirm('รีเซ็ตเป็น prompt ค่าเริ่มต้นจากโค้ด?\n\nเวอร์ชันที่บันทึกไว้จะยังคงอยู่ แต่จะไม่ active')) return;
+    if (!await confirmModal({ message: 'รีเซ็ตเป็น prompt ค่าเริ่มต้นจากโค้ด?\n\nเวอร์ชันที่บันทึกไว้จะยังคงอยู่ แต่จะไม่ active', dangerous: true })) return;
     try {
         await api('/prae-prompt/override', { method: 'DELETE' });
         toast('✅ Reset เรียบร้อย', 'success');
@@ -5555,7 +5593,7 @@ async function doGroupBroadcast() {
 
     if (slugs.length === 0) { toast('เลือกอย่างน้อย 1 กลุ่ม', 'error'); return; }
     if (!msg && !_gbImageFile) { toast('ใส่ข้อความหรือรูป', 'error'); return; }
-    if (!confirm(`ส่งบรอดแคสต์ไปยัง ${slugs.length} กลุ่ม?\n\nอาจใช้เวลา ${Math.round(slugs.length * 0.6)} วินาที`)) return;
+    if (!await confirmModal({ message: `ส่งบรอดแคสต์ไปยัง ${slugs.length} กลุ่ม?\n\nอาจใช้เวลา ${Math.round(slugs.length * 0.6)} วินาที`, dangerous: true })) return;
 
     const btn = document.getElementById('gb-send-btn');
     if (btn) { btn.disabled = true; btn.textContent = '⏳ กำลังส่ง...'; }
@@ -5767,7 +5805,7 @@ async function doAddPrize() {
 }
 
 async function deletePrize(pid, name) {
-    if (!confirm(`ลบรางวัล "${name}"?\n\n(ถ้าเคยมีคนได้รางวัลนี้ จะ soft-delete = disabled ไม่ลบจริง)`)) return;
+    if (!await confirmModal({ message: `ลบรางวัล "${name}"?\n\n(ถ้าเคยมีคนได้รางวัลนี้ จะ soft-delete = disabled ไม่ลบจริง)`, dangerous: true })) return;
     try {
         const r = await api(`/gacha-admin/prize-pool/${pid}`, { method: 'DELETE' });
         if (r.soft_deleted) toast(`✅ Disabled (มีคนได้ ${r.winners} ครั้ง — เก็บประวัติ)`, 'success');
@@ -5780,7 +5818,7 @@ async function deletePrize(pid, name) {
 
 // ===== Admin Telegram IDs — add delete button =====
 async function deleteAdminId(tid) {
-    if (!confirm(`ลบ Telegram ID ${tid}?\n\nบอททั้ง 4 ตัว (admin/content/sales/guardian) จะ restart`)) return;
+    if (!await confirmModal({ message: `ลบ Telegram ID ${tid}?\n\nบอททั้ง 4 ตัว (admin/content/sales/guardian) จะ restart`, dangerous: true })) return;
     try {
         const r = await api(`/admin/admin-ids/${tid}`, { method: 'DELETE' });
         toast(`✅ ลบ ${tid} เรียบร้อย (restart: ${Object.keys(r.restarts || {}).filter(k => r.restarts[k].ok).join(', ')})`, 'success');
@@ -5949,7 +5987,7 @@ async function toggleFlag(flagKey, newEnabled) {
                 `Feature : ${flagKey}\n` +
                 `Scope   : ${scope} (${scopeText})\n\n` +
                 (scope === 'all' ? `⚠️ ระวัง: จะเปิดให้ลูกค้าทุกคนทันที! ถ้ายังไม่ทดสอบ เปลี่ยน scope = canary ก่อน` : '✓ ทดสอบกับ canary list ก่อน — ปลอดภัย');
-            if (!confirm(msg)) return;
+            if (!await confirmModal({ message: msg, dangerous: true })) return;
         }
         await api(`/feature-flags/${flagKey}`, { method: 'PATCH', body: JSON.stringify({ enabled: newEnabled }) });
         toast(`✅ ${flagKey} → ${newEnabled ? 'ON' : 'OFF'}`, 'success');
@@ -6110,7 +6148,7 @@ async function saveBotMessage(key) {
 }
 
 async function restoreVersion(key, versionId) {
-    if (!confirm('ย้อนกลับไป version นี้?')) return;
+    if (!await confirmModal({ message: 'ย้อนกลับไป version นี้?', dangerous: true })) return;
     try {
         await api(`/bot-messages/${encodeURIComponent(key)}/restore/${versionId}`, { method: 'POST' });
         toast('✅ ย้อนกลับแล้ว', 'success');
@@ -6120,7 +6158,7 @@ async function restoreVersion(key, versionId) {
 }
 
 async function deleteBotMessage(key) {
-    if (!confirm(`ลบคำพูด "${key}"? ระบบจะ fallback ไปใช้ค่า hardcoded`)) return;
+    if (!await confirmModal({ message: `ลบคำพูด "${key}"? ระบบจะ fallback ไปใช้ค่า hardcoded`, dangerous: true })) return;
     try {
         await api(`/bot-messages/${encodeURIComponent(key)}`, { method: 'DELETE' });
         toast('✅ ลบแล้ว', 'success');
@@ -6444,7 +6482,7 @@ async function toggleNotePin(userId, noteId, newPinState) {
 }
 
 async function deleteCustomerNote(userId, noteId) {
-    if (!confirm('ลบโน้ตนี้?')) return;
+    if (!await confirmModal({ message: 'ลบโน้ตนี้?', dangerous: true })) return;
     try {
         await api('/customers/' + userId + '/notes/' + noteId, { method: 'DELETE' });
         toast('✅ ลบแล้ว', 'success');
@@ -6801,7 +6839,7 @@ async function loadBotsStatus() {
 }
 
 async function restartBotContainer(container) {
-    if (!confirm('⚠️ Restart ' + container + '?\n\nบอตจะ offline ~5-10 วินาที\nลูกค้าที่กำลังใช้งานอาจเจอ timeout 1 ครั้ง\n\nยืนยัน?')) return;
+    if (!await confirmModal({ message: '⚠️ Restart ' + container + '?\n\nบอตจะ offline ~5-10 วินาที\nลูกค้าที่กำลังใช้งานอาจเจอ timeout 1 ครั้ง\n\nยืนยัน?', dangerous: true })) return;
     try {
         const r = await api('/bots/' + encodeURIComponent(container) + '/restart', { method: 'POST' });
         toast('✅ ' + container + ' restarting...', 'success');
@@ -7924,7 +7962,7 @@ async function ctSubmitAddTemplate() {
 }
 
 async function ctDeleteTemplate(id, key) {
-    if (!confirm(`ลบ template "${key}" และ schedule ที่ใช้ template นี้ ?`)) return;
+    if (!await confirmModal({ message: `ลบ template "${key}" และ schedule ที่ใช้ template นี้ ?`, dangerous: true })) return;
     try {
         await api(`/admin/content-templates/${id}`, { method: 'DELETE' });
         toast('🗑 ลบ template + schedule ที่เกี่ยวข้องแล้ว');
@@ -8001,7 +8039,7 @@ async function schedSubmitAdd() {
 }
 
 async function schedDelete(id, jobName) {
-    if (!confirm(`ลบ schedule "${jobName}" ?\n\nบอตจะ restart 1 ครั้งเพื่อให้มีผล`)) return;
+    if (!await confirmModal({ message: `ลบ schedule "${jobName}" ?\n\nบอตจะ restart 1 ครั้งเพื่อให้มีผล`, dangerous: true })) return;
     try {
         await api(`/admin/bots/schedules/${id}`, { method: 'DELETE' });
         toast('🗑 ลบแล้ว + กำลัง restart...');
@@ -8315,7 +8353,7 @@ async function toggleDayZeroPromo(id, newState) {
 }
 
 async function deleteDayZeroPromo(id, code) {
-    if (!confirm(`ลบโปร "${code}" ?\n\nการลบนี้จะลบข้อมูลทุก click ของลูกค้าที่กดโปรนี้ด้วย`)) return;
+    if (!await confirmModal({ message: `ลบโปร "${code}" ?\n\nการลบนี้จะลบข้อมูลทุก click ของลูกค้าที่กดโปรนี้ด้วย`, dangerous: true })) return;
     try {
         await api(`/admin/day0-promos/${id}`, { method: 'DELETE' });
         toast('🗑 ลบแล้ว');
