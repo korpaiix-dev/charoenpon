@@ -119,6 +119,39 @@ async def _get_broadcast_count(target: str) -> int:
     return int(await pool.fetchval(sql) or 0)
 
 
+@router.get("/{user_id}/intents")
+async def get_user_intents(user_id: int, admin=Depends(get_current_admin)):
+    """List purchase_intents for a customer (pending + history) — Dashboard Customer 360."""
+    rows = await pool.fetch("""
+        SELECT pi.id, pi.tier, pi.original_price, pi.final_price, pi.promo_id,
+               pi.source, pi.created_at, pi.expires_at, pi.consumed_at,
+               pi.consumed_payment_id,
+               p.code AS promo_code, p.name AS promo_name
+        FROM purchase_intents pi
+        LEFT JOIN promotions p ON p.id = pi.promo_id
+        WHERE pi.user_telegram_id = (SELECT telegram_id FROM users WHERE id = $1)
+        ORDER BY pi.created_at DESC
+        LIMIT 50
+    """, user_id)
+    items = []
+    for r in rows:
+        items.append({
+            "id": r["id"],
+            "tier": r["tier"],
+            "original_price": float(r["original_price"] or 0),
+            "final_price": float(r["final_price"] or 0),
+            "promo_id": r["promo_id"],
+            "promo_code": r["promo_code"],
+            "promo_name": r["promo_name"],
+            "source": r["source"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "expires_at": r["expires_at"].isoformat() if r["expires_at"] else None,
+            "consumed_at": r["consumed_at"].isoformat() if r["consumed_at"] else None,
+            "consumed_payment_id": r["consumed_payment_id"],
+        })
+    return {"items": items, "total": len(items)}
+
+
 @router.get("/broadcast/count")
 async def broadcast_count(target: str = "all", admin=Depends(require_role("admin"))):
     """Get count of users that would receive the broadcast."""
@@ -1002,4 +1035,66 @@ async def regen_link_options(user_id: int, admin=Depends(get_current_admin)):
         "groups": groups,
         "default_message": default_msg,
     }
+
+
+@router.post("/admin/payments/{payment_id}/force-approve")
+async def force_approve_payment(payment_id: int, admin=Depends(require_role("admin"))):
+    """Force approve a PENDING payment without slip verify (emergency tool — logged)."""
+    from sqlalchemy import select
+    from shared.payment_approval import apply_payment_approval, ApprovalInput, ApprovalSource
+    from shared.models import Payment as _P
+    from decimal import Decimal
+
+    # Read payment
+    row = await pool.fetchrow("""
+        SELECT id, user_id, amount, status, package_id,
+               (SELECT telegram_id FROM users WHERE id = payments.user_id) AS tg_id,
+               (SELECT tier::text FROM packages WHERE id = payments.package_id) AS tier
+        FROM payments WHERE id = $1
+    """, payment_id)
+    if not row:
+        raise HTTPException(404, "payment not found")
+    if row["status"] != "PENDING":
+        raise HTTPException(400, f"payment status is {row['status']}, must be PENDING")
+
+    # Apply approval
+    result = await apply_payment_approval(ApprovalInput(
+        user_id=row["user_id"],
+        telegram_id=row["tg_id"],
+        source=ApprovalSource.ADMIN_BY_PID,
+        amount_paid=Decimal(str(row["amount"])),
+        explicit_package_id=row["package_id"],
+        admin_id=admin["id"],
+        method="SLIP",
+        skip_dup_check=True,
+        skip_sender_ring=True,
+    ))
+    if not result.success:
+        raise HTTPException(500, f"approval failed: {result.error}")
+
+    return {
+        "ok": True,
+        "payment_id": payment_id,
+        "approved_by": admin["id"],
+        "subscription_id": getattr(result, "subscription_id", None),
+    }
+
+
+@router.post("/admin/payments/{payment_id}/reset")
+async def reset_payment(payment_id: int, admin=Depends(require_role("admin"))):
+    """Reset a stuck payment back to PENDING (emergency tool — logged)."""
+    row = await pool.fetchrow("SELECT id, status FROM payments WHERE id = $1", payment_id)
+    if not row:
+        raise HTTPException(404, "payment not found")
+    if row["status"] == "PENDING":
+        return {"ok": True, "note": "already pending"}
+    await pool.execute(
+        "UPDATE payments SET status = 'PENDING' WHERE id = $1",
+        payment_id,
+    )
+    await _log(
+        admin["id"], "force_reset_payment", "payment", payment_id,
+        {"from_status": row["status"], "to_status": "PENDING"}, None,
+    )
+    return {"ok": True, "payment_id": payment_id, "from_status": row["status"]}
 
