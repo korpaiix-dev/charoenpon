@@ -9,7 +9,7 @@
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
   body{font-family:-apple-system,"SF Pro",system-ui,sans-serif;background:var(--tg-theme-bg-color,#0f0f23);color:var(--tg-theme-text-color,#fff);padding:16px;min-height:100vh}
   .header{text-align:center;padding:24px 0 20px}
-  .logo{font-size:32px;margin-bottom:8px}
+  .logo{display:block;margin:0 auto 8px;max-width:260px;width:80%;height:auto}
   h1{font-size:22px;font-weight:700;background:linear-gradient(90deg,#ffd700,#ff6b6b);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
   .card{background:var(--tg-theme-secondary-bg-color,#1a1a3e);border-radius:16px;padding:18px;margin-bottom:14px;border:1px solid rgba(255,215,0,.2)}
   .card-title{font-size:12px;text-transform:uppercase;color:var(--tg-theme-hint-color,#888);margin-bottom:8px;letter-spacing:1px}
@@ -32,7 +32,7 @@
 </head>
 <body>
 <div class="header">
-  <div class="logo">👑</div>
+  <img class="logo" src="/webapp/logo.png" alt="เจริญพร VIP">
   <h1>เจริญพร VIP</h1>
   <div style="color:#888;font-size:13px;margin-top:4px">ข้อมูลสมาชิกของคุณ</div>
 </div>

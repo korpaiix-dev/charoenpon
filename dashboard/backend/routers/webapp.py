@@ -52,6 +52,19 @@ def _verify_init_data(init_data: str) -> dict | None:
     return user
 
 
+_LOGO_PATH = Path(__file__).parent.parent / "static" / "logo_charoenpon.png"
+
+
+@router.get("/logo.png")
+async def webapp_logo():
+    """Serve VIP เจริญพร logo (transparent PNG) for Mini App."""
+    from fastapi.responses import FileResponse
+    if _LOGO_PATH.exists():
+        return FileResponse(str(_LOGO_PATH), media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+    from fastapi import HTTPException
+    raise HTTPException(404, "logo not found")
+
+
 @router.get("/customer", response_class=HTMLResponse)
 async def customer_page():
     try:
