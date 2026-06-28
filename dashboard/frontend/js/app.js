@@ -1481,7 +1481,7 @@ async function renderGacha() {
 }
 
 async function gachaToggleLegacy(code, newActive) {
-    if (!confirm((newActive ? 'เปิด' : 'ปิด') + ' รางวัล ' + code + ' ?')) return;
+    if (!await confirmModal({ message: (newActive ? 'เปิด' : 'ปิด') + ' รางวัล ' + code + ' ?', dangerous: true })) return;
     try {
         await api(`/gacha-admin/prizes/legacy/${encodeURIComponent(code)}`, {
             method: 'PATCH',
@@ -1495,7 +1495,7 @@ async function gachaToggleLegacy(code, newActive) {
 }
 
 async function gachaTogglePool(id, newEnabled) {
-    if (!confirm((newEnabled ? 'เปิด' : 'ปิด') + ' รางวัล id=' + id + ' ?')) return;
+    if (!await confirmModal({ message: (newEnabled ? 'เปิด' : 'ปิด') + ' รางวัล id=' + id + ' ?', dangerous: true })) return;
     try {
         await api(`/gacha-admin/prize-pool/${id}`, {
             method: 'PATCH',
@@ -3180,7 +3180,7 @@ async function renderRelaySync() {
 }
 
 async function syncRelayBot(force) {
-    if (!force && !confirm('Sync กลุ่มทั้งหมดไปยัง relay-bot + restart container?\n\nrelay-bot จะ down ~15 วินาที — broadcast ระหว่างนั้นจะไม่ส่ง')) return;
+    if (!force && !await confirmModal({ message: 'Sync กลุ่มทั้งหมดไปยัง relay-bot + restart container?\n\nrelay-bot จะ down ~15 วินาที — broadcast ระหว่างนั้นจะไม่ส่ง', dangerous: true })) return;
     try {
         toast('🔄 กำลัง sync + restart relay-bot...', 'info', 10000);
         const r = await api('/groups/relay-sync', { method: 'POST' });
@@ -4854,7 +4854,7 @@ async function savePraePrompt(activate) {
     const content = document.getElementById('prae-prompt-textarea').value;
     const notes = document.getElementById('prae-prompt-notes').value.trim();
     if (!content.trim()) { toast('content ว่าง', 'error'); return; }
-    if (activate && !confirm('Activate prompt ใหม่นี้ไหม?\n\nบอท Prae จะใช้ prompt ใหม่ภายใน 1 นาที')) return;
+    if (activate && !await confirmModal({ message: 'Activate prompt ใหม่นี้ไหม?\n\nบอท Prae จะใช้ prompt ใหม่ภายใน 1 นาที', dangerous: true })) return;
     try {
         const r = await api('/prae-prompt/save', {
             method: 'POST',
