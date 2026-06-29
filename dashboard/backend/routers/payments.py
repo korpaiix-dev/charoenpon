@@ -818,27 +818,40 @@ async def bulk_approve(req: _BulkApproveReq, request: Request, admin=Depends(get
     results = {'approved': [], 'failed': []}
     for pid in req.payment_ids[:50]:  # safety cap
         try:
-            # reuse the existing approve handler logic by calling internally
-            # safest: call the apply_payment_approval service directly
-            from shared.payment_approval import apply_payment_approval, PaymentApprovalInput
+            # FIX 2026-06-29 (P0#2): class name + field shape mismatch — bulk-approve
+            # was always throwing ImportError/TypeError → every payment marked 'failed'
+            # while admin assumed it worked.
+            from shared.payment_approval import (
+                apply_payment_approval, ApprovalInput, ApprovalSource,
+            )
             from shared.database import get_session
             from sqlalchemy import text as _t
+            from decimal import Decimal as _D
             async with get_session() as s:
-                row = (await s.execute(_t('SELECT user_id, amount, package_id, status::text AS status FROM payments WHERE id=:id'), {'id': pid})).first()
+                row = (await s.execute(_t(
+                    'SELECT p.user_id, p.amount, p.package_id, p.status::text AS status, '
+                    'p.slip_trans_ref, p.slip_hash, p.method::text AS method, '
+                    'u.telegram_id '
+                    'FROM payments p JOIN users u ON u.id = p.user_id '
+                    'WHERE p.id=:id'
+                ), {'id': pid})).first()
                 if not row:
                     results['failed'].append({'id': pid, 'reason': 'not found'})
                     continue
                 if row.status == 'CONFIRMED':
                     results['failed'].append({'id': pid, 'reason': 'already confirmed'})
                     continue
-                inp = PaymentApprovalInput(
+                inp = ApprovalInput(
+                    user_id=row.user_id,
+                    telegram_id=row.telegram_id,
+                    source=ApprovalSource.ADMIN_BY_PID,
                     payment_id=pid,
-                    db_user_id=row.user_id,
-                    amount_paid=float(row.amount or 0),
-                    package_id=row.package_id,
-                    method='SLIP',
-                    path='dashboard:bulk',
-                    decided_by=admin['telegram_id'],
+                    amount_paid=_D(str(row.amount or 0)),
+                    explicit_package_id=row.package_id,
+                    method=(row.method or 'SLIP'),
+                    slip_trans_ref=row.slip_trans_ref,
+                    slip_hash=row.slip_hash,
+                    admin_id=admin['telegram_id'],
                 )
                 result = await apply_payment_approval(inp)
                 if result.success:

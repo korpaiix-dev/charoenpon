@@ -274,18 +274,23 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
                     ), {"uid": _gurow.id, "amt": _amt, "admin": query.from_user.id if query.from_user else None})
                     await _gs.commit()
                 try:
+                    # FIX 2026-06-29 (P0#4): use sales_bot token (customer's /start'ed bot)
+                    # not context.bot (admin_bot) — admin_bot DM → "Chat not found" silent fail
                     from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
                     _kb = InlineKeyboardMarkup([[InlineKeyboardButton(
                         f"🎰 หมุนเลย! (มี {_spins} สิทธิ์)",
                         web_app=WebAppInfo(url="https://telebord.net/gacha/"))]])
                     _gacha_msg = "🎉 <b>ได้รับสิทธิ์หมุนกาชาปอง " + str(_spins) + " ครั้ง!</b>\n\nกดปุ่มด้านล่างเริ่มหมุนเลยค่ะ 🎁"
-                    await context.bot.send_message(
-                        chat_id=target_user_id,
+                    from shared.customer_dm import send_to_customer
+                    await send_to_customer(
+                        telegram_id=target_user_id,
                         text=_gacha_msg,
-                        parse_mode="HTML", reply_markup=_kb,
+                        parse_mode="HTML",
+                        reply_markup=_kb,
                     )
-                except Exception:
-                    pass
+                except Exception as _exc_gacha_dm:
+                    import logging as _logging
+                    _logging.getLogger(__name__).warning("gacha DM failed: %s", _exc_gacha_dm)
                 try:
                     actor = query.from_user.username or query.from_user.first_name or "admin"
                     new_marker = "\n\n✅ <b>GACHA APPROVED</b> (" + str(_spins) + " spins) by @" + str(actor)

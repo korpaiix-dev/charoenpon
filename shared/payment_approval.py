@@ -734,6 +734,10 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
         # ───── End transactional region ─────
 
         # STEP 16: record_payment_received (outside main session, own commit)
+        # FIX 2026-06-29 (P0#3): ALSO update payments.matched_receiver_account_id
+        # ก่อนหน้า: STEP 16 update cumulative ใน receiver_accounts + log admin_logs
+        #          แต่ payments row ไม่มี FK ไป receiver_accounts → reconciliation ทำไม่ได้
+        # → root cause task #418 (ยอดดิฟ 5k) — admin manual ก็ไม่ record link ตรงนี้
         if inp.matched_receiver_account_id and inp.method.upper() in ("SLIP", "PROMPTPAY"):
             try:
                 from shared.receiver_pool import record_payment_received
@@ -743,6 +747,16 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
                 )
             except Exception as exc:
                 logger.warning("[approval] record_payment_received failed: %s", exc)
+            # FIX 2026-06-29 (P0#3): update payments.matched_receiver_account_id
+            try:
+                async with get_session() as _rs:
+                    await _rs.execute(sql_text(
+                        "UPDATE payments SET matched_receiver_account_id = :rid "
+                        "WHERE id = :pid AND matched_receiver_account_id IS NULL"
+                    ), {"rid": inp.matched_receiver_account_id, "pid": payment_id_final})
+                    await _rs.commit()
+            except Exception as exc:
+                logger.warning("[approval] update matched_receiver_account_id failed: %s", exc)
 
         # STEP 17: log_admin_action
         try:
@@ -871,7 +885,7 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
                 UPDATE users SET total_spent = (
                     SELECT COALESCE(SUM(amount), 0)
                     FROM payments
-                    WHERE user_id = :uid AND status = CONFIRMED AND amount > 0
+                    WHERE user_id = :uid AND status = 'CONFIRMED' AND amount > 0
                 )
                 WHERE id = :uid
             """), {"uid": db_user_id})

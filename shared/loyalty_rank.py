@@ -187,7 +187,20 @@ async def _dm_customer_rank_up(telegram_id: int, new_rank: str, rewards: dict) -
                 gbot = _tg.Bot(token=g_tok)
                 await gbot.initialize()
                 try:
-                    links = await generate_invite_links_for_user(gbot, telegram_id, pkg_id)
+                    # FIX 2026-06-29 (P0#5): retry + alert admin if link gen fails completely
+                    links = None
+                    last_exc = None
+                    import asyncio as _aio_retry
+                    for _attempt in range(2):
+                        try:
+                            links = await generate_invite_links_for_user(gbot, telegram_id, pkg_id)
+                            if links:
+                                break
+                        except Exception as _le:
+                            last_exc = _le
+                            if _attempt == 0:
+                                await _aio_retry.sleep(1.0)
+                                continue
                     titles = {
                         "G300": "VIP (งานทางบ้าน)",
                         "G500": "OnlyFans + งานแรร์",
@@ -200,11 +213,29 @@ async def _dm_customer_rank_up(telegram_id: int, new_rank: str, rewards: dict) -
                     for slug, link in (links or {}).items():
                         t = titles.get(slug, slug)
                         invite_lines.append(f'   • <a href="{link}">{t}</a>')
+                    if last_exc is not None or not links:
+                        logger.error("Silver invite link gen failed after retry tg=%s err=%s", telegram_id, last_exc)
                 finally:
                     try: await gbot.shutdown()
                     except: pass
         except Exception as _e:
             logger.warning("Silver invite link gen failed tg=%s: %s", telegram_id, _e)
+
+        # FIX 2026-06-29 (P0#5): ถ้าไม่มี invite link → alert admin + ส่ง DM แบบไม่ promise reward
+        if not invite_lines:
+            try:
+                from shared.admin_alert import notify_admin_group as _notify_report
+                import html as _h
+                await _notify_report(
+                    f"⚠️ <b>Silver promotion: invite link generation failed</b>\n"
+                    f"━━━━━━━━━━━━━━\n"
+                    f"👤 user_id=<code>{user_id}</code> tg=<code>{telegram_id}</code>\n"
+                    f"🎁 ระบบ promote เป็น Silver แล้ว แต่สร้างลิงก์ไม่สำเร็จ\n"
+                    f"👉 กรุณาใช้ Dashboard regen-links manual",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
 
         links_block = ("\n🚪 <b>ลิงก์เข้าห้อง</b>:\n" + "\n".join(invite_lines) + "\n") if invite_lines else ""
         msg = (
