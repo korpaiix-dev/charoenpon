@@ -257,11 +257,106 @@ def active_campaigns() -> list[Campaign]:
 
 # ─── Public API ───────────────────────────────────────────────────────────
 
+# FIX 2026-06-29 (#446): cache + sync reader for DB promotions table
+# (amount_to_tier ถูกเรียกจาก sync context — ใช้ psycopg2 ไม่ใช่ asyncpg)
+_PROMO_CACHE = {"items": None, "expires": 0.0}
+
+
+def _load_active_db_promotions_sync() -> list[dict]:
+    """Load active promotions from DB (psycopg2 sync). Cached 60s."""
+    import time as _t
+    now = _t.time()
+    if _PROMO_CACHE["items"] is not None and _PROMO_CACHE["expires"] > now:
+        return _PROMO_CACHE["items"]
+    items: list[dict] = []
+    try:
+        import os as _os
+        db_url = _os.environ.get("DATABASE_URL", "")
+        if not db_url:
+            return items
+        db_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
+        import psycopg2  # type: ignore
+        from psycopg2.extras import RealDictCursor  # type: ignore
+        conn = psycopg2.connect(db_url)
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT id, code, name, package_codes, discount_type, discount_value
+                      FROM promotions
+                     WHERE is_active = TRUE
+                       AND (starts_at IS NULL OR starts_at <= NOW())
+                       AND (ends_at   IS NULL OR ends_at   >= NOW())
+                """)
+                for r in cur.fetchall():
+                    items.append(dict(r))
+        finally:
+            conn.close()
+    except Exception:
+        # fail-open: no DB promos → fallback to base_map
+        pass
+    _PROMO_CACHE["items"] = items
+    _PROMO_CACHE["expires"] = now + 60
+    return items
+
+
+def _check_db_promotion_match(amt: int) -> Optional[tuple[str, str, bool]]:
+    """If amt matches a Day-0 promo discounted price → return (tier_str, label, is_promo).
+    Else None.
+    """
+    promos = _load_active_db_promotions_sync()
+    if not promos:
+        return None
+    # Map TIER_xxx in package_codes → base price + label from existing TIER_PRICES + base_map
+    # We mirror the base_map's tier-label so output is callback-compatible
+    base_label_by_tier_str = {
+        "100":  ("100", "ห้องมีคนชัก"),
+        "300":  ("300", "VIP 30 วัน"),
+        "500":  ("500", "OnlyFans+VIP 30 วัน"),
+        "1299": ("1299", "GOD MODE 90 วัน"),
+        "2499": ("2499", "GOD MODE ถาวร"),
+    }
+    for p in promos:
+        codes = p.get("package_codes") or []
+        if isinstance(codes, str):
+            import json as _j
+            try: codes = _j.loads(codes)
+            except Exception: codes = []
+        dtype = (p.get("discount_type") or "").lower()
+        try:
+            dval = float(p.get("discount_value") or 0)
+        except Exception:
+            dval = 0.0
+        if dval <= 0:
+            continue
+        for code in codes:
+            tier_str = code.replace("TIER_", "")
+            if tier_str not in base_label_by_tier_str:
+                continue
+            base = float(TIER_PRICES.get(tier_str, 0))
+            if base <= 0:
+                continue
+            if dtype == "percent":
+                discounted = int(round(base * (100 - dval) / 100))
+            elif dtype in ("fixed", "amount", "baht"):
+                discounted = int(round(base - dval))
+            else:
+                continue
+            # ±1 baht tolerance for rounding
+            if abs(amt - discounted) <= 1:
+                _, lbl = base_label_by_tier_str[tier_str]
+                promo_name = p.get("name") or p.get("code") or "Promo"
+                return (tier_str, f"{promo_name} — {lbl}", True)
+    return None
+
+
 def amount_to_tier(amount) -> Optional[tuple[str, str, bool]]:
     """Map a paid amount to a tier callback string.
 
     Returns (tier_str, label, is_promo) or None if no match.
     Used by Slip2Go auto-approve AND TrueMoney verification.
+
+    FIX 2026-06-29 (#446): also check promotions table for Day-0 promos
+    (Dashboard "Promo Manager" promos like ENDMONTH20 ลด 20%)
     """
     amt = int(Decimal(amount))
     # Base prices always match
@@ -280,12 +375,16 @@ def amount_to_tier(amount) -> Optional[tuple[str, str, bool]]:
     }
     if amt in base_map:
         return base_map[amt]
-    # Promo prices — only if their campaign is active
+    # Promo prices — only if their campaign is active (legacy hardcoded campaigns)
     for c in active_campaigns():
         hit = c.amount_to_tier(amt)
         if hit:
             tier_str, label = hit
             return (tier_str, f"{c.label} — {label}", True)
+    # FIX 2026-06-29 (#446): Day-0 promos from promotions table (Dashboard Promo Manager)
+    db_hit = _check_db_promotion_match(amt)
+    if db_hit:
+        return db_hit
     return None
 
 
