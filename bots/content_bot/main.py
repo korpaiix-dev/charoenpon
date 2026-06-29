@@ -1534,12 +1534,23 @@ async def _load_template_from_db(template_key: str) -> dict | None:
             if not row or not row["is_enabled"]:
                 _TEMPLATE_CACHE[template_key] = None
                 return None
+            # FIX 2026-06-29 (#468): asyncpg ไม่ register JSONB codec ใน content_bot
+            # → row["buttons"] เป็น raw str ไม่ใช่ list → _build_inline_keyboard
+            # loop char by char → ทุก template post ไม่มีปุ่ม
+            # → parse json.loads ตรงนี้
+            _btns_raw = row["buttons"]
+            if isinstance(_btns_raw, str):
+                try:
+                    import json as _json_btn
+                    _btns_raw = _json_btn.loads(_btns_raw)
+                except Exception:
+                    _btns_raw = []
             data = {
                 "template_key": row["template_key"],
                 "display_name": row["display_name"],
                 "caption_html": row["caption_html"] or "",
                 "image_path": row["image_path"] or "",
-                "buttons": row["buttons"] or [],
+                "buttons": _btns_raw or [],
             }
             _TEMPLATE_CACHE[template_key] = data
             return data
