@@ -888,9 +888,11 @@ async def handle_photo_slip(
                     if _l2.get("approve") and _l2.get("confidence", 0) >= 0.85:
                         _vd = _l2.get("vision_data") or {}
                         slip2go_data["receiver"] = slip2go_data.get("receiver") or {}
-                        slip2go_data["receiver"]["account"] = {
-                            "name": _vd.get("receiver_name") or _rcv_name,
-                        }
+                        # AUDIT FIX H2: เก็บ bank/account จริงจาก Slip2Go ไว้ แก้แค่ name
+                        # (เดิมเขียนทับ account ทั้ง dict -> เหลือแต่ name -> re-match ผ่านด้วยชื่ออย่างเดียว = forge ชื่อผ่านได้)
+                        _acct_keep = dict(slip2go_data["receiver"].get("account") or {})
+                        _acct_keep["name"] = _vd.get("receiver_name") or _rcv_name
+                        slip2go_data["receiver"]["account"] = _acct_keep
                         try:
                             rcv_ok, rcv_reason, _matched_account = await receiver_match_pool(slip2go_data)
                         except Exception:
