@@ -777,10 +777,22 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
         if inp.matched_receiver_account_id and inp.method.upper() in ("SLIP", "PROMPTPAY"):
             try:
                 from shared.receiver_pool import record_payment_received
-                await record_payment_received(
+                _rcv_rec = await record_payment_received(
                     inp.matched_receiver_account_id, inp.amount_paid,
                     payment_id=payment_id_final,
                 )
+                if _rcv_rec and _rcv_rec.get("alert"):
+                    try:
+                        from shared.admin_alert import notify_admin_group as _nag
+                        await _nag(
+                            "⚠️ <b>ยอดสะสมถึง threshold</b> — บัญชี <b>"
+                            + str(_rcv_rec.get("owner_name","?"))
+                            + "</b> ยอดสะสม ฿" + format(int(_rcv_rec.get("cumulative",0)), ",")
+                            + " (ผ่าน ฿" + format(int(_rcv_rec.get("milestone",0)), ",")
+                            + ") 📌 พิจารณาถอนเงิน + กด Reset ยอดสะสม"
+                        )
+                    except Exception as _ae:
+                        logger.warning("[approval] milestone alert failed: %s", _ae)
             except Exception as exc:
                 # FIX 2026-06-29 (P0 DM batch): queue retry + admin alert (no longer silent)
                 logger.warning("[approval] record_payment_received failed: %s", exc)
