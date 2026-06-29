@@ -131,6 +131,7 @@ async def send_to_customer(
 
     bot = await _get_sales_bot()
     last_err: Exception | None = None
+    _ra_tries = 0  # AUDIT FIX: cap RetryAfter
 
     for attempt in range(max_retries + 1):
         try:
@@ -191,7 +192,11 @@ async def send_to_customer(
                 telegram_id, ra,
             )
             try:
-                await asyncio.sleep(float(ra) + 0.5)
+                _ra_tries += 1
+                if _ra_tries > 5:
+                    logger.error("customer_dm: tg=%s gave up after RetryAfter x%d", telegram_id, _ra_tries)
+                    return False
+                await asyncio.sleep(min(float(ra) + 0.5, 30.0))
             except Exception:
                 pass
             # Don't count against max_retries — flood control is not a real failure

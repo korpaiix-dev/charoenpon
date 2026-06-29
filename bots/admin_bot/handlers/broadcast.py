@@ -96,7 +96,7 @@ def _is_admin_group(update: Update) -> bool:
             "ADMIN_USER_IDS env not set — broadcast accessible to anyone in admin group. "
             "Set ADMIN_USER_IDS=<comma-separated tg_ids> to lock down."
         )
-        return True
+        return False  # AUDIT FIX: fail-closed (was return True)
     user = update.effective_user
     user_ok = user is not None and user.id in _ADMIN_USER_IDS
     if not user_ok:

@@ -30,6 +30,7 @@ from telegram.ext import ContextTypes, CallbackQueryHandler
 
 from shared.database import get_session
 from shared.models import Payment, PaymentStatus, User
+from shared.admin_perms import is_admin_for_bot_async
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,13 @@ async def cb_slip_review_approve(update: Update, context: ContextTypes.DEFAULT_T
     """
     q = update.callback_query
     if not q:
+        return
+    _actor = q.from_user.id if q.from_user else None
+    if not _actor or not await is_admin_for_bot_async(_actor, "admin_bot"):
+        try:
+            await q.answer("⛔ ไม่มีสิทธิ์อนุมัติ/ปฏิเสธ", show_alert=True)
+        except Exception:
+            pass
         return
     try:
         await q.answer("Approving...")
@@ -218,6 +226,13 @@ async def cb_slip_review_reject(update: Update, context: ContextTypes.DEFAULT_TY
     """Admin clicked Reject."""
     q = update.callback_query
     if not q:
+        return
+    _actor = q.from_user.id if q.from_user else None
+    if not _actor or not await is_admin_for_bot_async(_actor, "admin_bot"):
+        try:
+            await q.answer("⛔ ไม่มีสิทธิ์อนุมัติ/ปฏิเสธ", show_alert=True)
+        except Exception:
+            pass
         return
     try:
         await q.answer("Rejecting...")
