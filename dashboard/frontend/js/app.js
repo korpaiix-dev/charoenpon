@@ -746,6 +746,7 @@ async function renderReceivers() {
                         <button class="btn btn-outline btn-sm" onclick="receiverReset(${r.id}, '${esc(r.owner_name).replace(/'/g, "\\'")}', ${parseFloat(r.cumulative_received || 0)})">🔄 Reset ยอดสะสม</button>
                         <button class="btn btn-outline btn-sm" onclick="receiverToggle(${r.id}, ${!r.enabled})">${r.enabled ? '⛔ ปิดบัญชี' : '✅ เปิดบัญชี'}</button>
                         <button class="btn btn-outline btn-sm" onclick="receiverEdit(${r.id}, ${r.weight}, ${parseFloat(r.alert_threshold || 0)})">⚙️ ตั้งค่า</button>
+                        <button class="btn btn-outline btn-sm" onclick="receiverEditQr(${r.id}, '${esc(r.owner_name).replace(/'/g, "\\'")}', '${r.qr_url || ''}')">📱 QR</button>
                         <button class="btn btn-outline btn-sm" onclick="receiverHistory(${r.id}, '${esc(r.owner_name).replace(/'/g, "\\'")}')">📜 ประวัติ</button>
                     </div>
                 </div>
