@@ -317,7 +317,10 @@ async def _send_bot_photo(token: str, chat_id: int, photo_url: str, caption: str
                 r = await c.post(url, json={"chat_id": chat_id, "photo": photo_url, "caption": caption, "parse_mode": "HTML"})
             else:
                 # AUDIT FIX: relative /assets path -> upload bytes (Telegram fetch relative URL ไม่ได้)
-                local = "/app/dashboard/frontend" + photo_url
+                local = _os.path.realpath("/app/dashboard/frontend" + photo_url)
+                if not local.startswith("/app/dashboard/frontend/assets/receiver_qr/"):
+                    logger.warning("QR path rejected (traversal?): %s", photo_url)
+                    return
                 if not _os.path.exists(local):
                     logger.warning("QR file not found: %s", local)
                     return

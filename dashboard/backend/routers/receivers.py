@@ -14,6 +14,15 @@ from pydantic import BaseModel
 
 from ..auth.dependencies import require_role
 from ..database import pool
+def _valid_qr_url(u):
+    if not u:
+        return True
+    if u.startswith(("http://", "https://")):
+        return True
+    if u.startswith("/assets/receiver_qr/"):
+        _n = u[len("/assets/receiver_qr/"):]
+        return bool(_n) and "/" not in _n and ".." not in _n
+    return False
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/receivers", tags=["receivers"])
@@ -107,6 +116,8 @@ async def update_receiver(rid: int, req: ReceiverUpdate, admin=Depends(require_r
         sets.append(f"cumulative_received = ${idx}")
         params.append(Decimal(str(req.cumulative_received)))
         idx += 1
+    if req.qr_url is not None and not _valid_qr_url(req.qr_url):
+        raise HTTPException(400, "qr_url ต้องเป็น http(s) หรือ /assets/receiver_qr/...")
     if req.qr_url is not None:
         sets.append(f"qr_url = ${idx}")
         params.append(req.qr_url[:1000] if req.qr_url else None)

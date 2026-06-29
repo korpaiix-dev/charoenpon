@@ -67,7 +67,7 @@ async def create_intent(
         return None
 
 
-async def find_latest_pending(tg_id: int) -> Optional[dict]:
+async def find_latest_pending(tg_id: int, amount=None) -> Optional[dict]:
     """หา intent ล่าสุดที่ยังใช้ได้ของลูกค้า (unconsumed + not expired).
 
     Returns: {id, tier, original_price, final_price, promo_id, source, created_at, expires_at}
@@ -76,6 +76,17 @@ async def find_latest_pending(tg_id: int) -> Optional[dict]:
     try:
         conn = await _connect()
         try:
+            if amount is not None:
+                # AUDIT: เลือก intent ที่ยอดตรงกับที่จ่ายจริง (กันหยิบ intent ผิดใบ)
+                _ar = await conn.fetchrow(
+                    "SELECT id, tier, original_price, final_price, promo_id, source, "
+                    "created_at, expires_at, receiver_account_id FROM purchase_intents "
+                    "WHERE user_telegram_id=$1 AND consumed_at IS NULL AND expires_at>NOW() "
+                    "AND final_price=$2 ORDER BY created_at DESC LIMIT 1",
+                    int(tg_id), Decimal(str(amount)),
+                )
+                if _ar:
+                    return dict(_ar)
             row = await conn.fetchrow(
                 """
                 SELECT id, tier, original_price, final_price, promo_id, source,
