@@ -34,7 +34,7 @@ import os
 from typing import Any
 
 import telegram as tg
-from telegram.error import BadRequest, Forbidden, NetworkError, TimedOut
+from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TimedOut
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +182,20 @@ async def send_to_customer(
             if alert_on_fail:
                 await _alert_admin_on_dm_failure(telegram_id, exc, text)
             return False
+
+        except RetryAfter as exc:
+            # Telegram flood control — sleep retry_after, then retry (silent, no admin alert)
+            ra = getattr(exc, "retry_after", 5)
+            logger.warning(
+                "customer_dm: tg=%s RetryAfter %ss — sleeping then retrying",
+                telegram_id, ra,
+            )
+            try:
+                await asyncio.sleep(float(ra) + 0.5)
+            except Exception:
+                pass
+            # Don't count against max_retries — flood control is not a real failure
+            continue
 
         except (NetworkError, TimedOut) as exc:
             last_err = exc

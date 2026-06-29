@@ -373,27 +373,29 @@ async def run_retention_alert_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 
             message_id = None
             try:
-                sent_msg = await bot.send_message(
-                    chat_id=sub["telegram_id"],
+                # FIX 2026-06-29: use unified send_to_customer (marks is_blocked_bot)
+                from shared.customer_dm import send_to_customer
+                ok = await send_to_customer(
+                    telegram_id=sub["telegram_id"],
                     text=msg,
                     parse_mode="HTML",
+                    alert_on_fail=False,
                 )
-                message_id = sent_msg.message_id
-                total_sent += 1
-
-                # Save promo code to comeback_dm_log
-                try:
-                    await _save_retention_promo(
-                        user_id=sub["user_id"],
-                        telegram_id=sub["telegram_id"],
-                        promo_code=promo_code,
-                        discount_pct=discount_pct,
-                        dm_round=dm_round,
-                    )
-                except Exception as promo_exc:
-                    logger.error("Failed to save retention promo for user %d: %s", sub["telegram_id"], promo_exc)
-            except Forbidden:
-                logger.info("Cannot DM user %d — blocked bot", sub["telegram_id"])
+                if ok:
+                    total_sent += 1
+                    # Save promo code to comeback_dm_log (only on success)
+                    try:
+                        await _save_retention_promo(
+                            user_id=sub["user_id"],
+                            telegram_id=sub["telegram_id"],
+                            promo_code=promo_code,
+                            discount_pct=discount_pct,
+                            dm_round=dm_round,
+                        )
+                    except Exception as promo_exc:
+                        logger.error("Failed to save retention promo for user %d: %s", sub["telegram_id"], promo_exc)
+                else:
+                    logger.info("Retention DM not delivered tg=%d — blocked/not started", sub["telegram_id"])
             except Exception as exc:
                 logger.error("Failed to send retention alert to %d: %s", sub["telegram_id"], exc)
 

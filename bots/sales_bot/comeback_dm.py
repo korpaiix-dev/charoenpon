@@ -561,28 +561,34 @@ async def send_comeback_dm(
         img_path = pick_campaign_image("winback")
     except Exception:
         img_path = None
+    # FIX 2026-06-29: use unified send_to_customer (marks is_blocked_bot on Forbidden)
+    from shared.customer_dm import send_to_customer
     try:
         if img_path and img_path.exists():
             with open(img_path, "rb") as _f:
-                await bot.send_photo(
-                    chat_id=user["telegram_id"],
-                    photo=_f,
-                    caption=message,
-                    parse_mode="HTML",
-                )
+                _photo_bytes = _f.read()
+            ok = await send_to_customer(
+                telegram_id=user["telegram_id"],
+                text=message,
+                photo=_photo_bytes,
+                photo_caption=message,
+                parse_mode="HTML",
+                alert_on_fail=False,
+            )
         else:
-            await bot.send_message(
-                chat_id=user["telegram_id"],
+            ok = await send_to_customer(
+                telegram_id=user["telegram_id"],
                 text=message,
                 parse_mode="HTML",
                 disable_web_page_preview=True,
+                alert_on_fail=False,
             )
-    except Forbidden:
-        logger.info(
-            "Cannot DM user %s (tg:%d) — never started bot or blocked",
-            user.get("username", "?"), user["telegram_id"],
-        )
-        return False
+        if not ok:
+            logger.info(
+                "Comeback DM not delivered to %s (tg:%d) — blocked / chat not found",
+                user.get("username", "?"), user["telegram_id"],
+            )
+            return False
     except Exception as exc:
         logger.error(
             "Failed to DM user %s (tg:%d): %s",

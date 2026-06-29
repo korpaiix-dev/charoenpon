@@ -213,11 +213,14 @@ async def send_instant_welcome(user_id: int, telegram_id: int,
     try:
         await _save_log(user_id, telegram_id, code, 301)
         msg = await _build_from_db_or_fallback(301, first_name, code)
-        await bot.send_message(
-            chat_id=telegram_id, text=msg,
+        # FIX 2026-06-29: use unified send_to_customer (marks is_blocked_bot on Forbidden)
+        from shared.customer_dm import send_to_customer
+        ok = await send_to_customer(
+            telegram_id=telegram_id, text=msg,
             parse_mode="HTML", disable_web_page_preview=True,
+            alert_on_fail=False,
         )
-        return True
+        return bool(ok)
     except Exception as e:
         logger.warning("welcome instant DM failed tg=%s: %s", telegram_id, e)
         return False
@@ -272,11 +275,17 @@ async def run_welcome_journey_job(context) -> dict:
             try:
                 await _save_log(u["user_id"], u["telegram_id"], code, round_id)
                 msg = await _build_from_db_or_fallback(round_id, u["first_name"], code)
-                await bot.send_message(
-                    chat_id=u["telegram_id"], text=msg,
+                # FIX 2026-06-29: use unified send_to_customer
+                from shared.customer_dm import send_to_customer
+                ok = await send_to_customer(
+                    telegram_id=u["telegram_id"], text=msg,
                     parse_mode="HTML", disable_web_page_preview=True,
+                    alert_on_fail=False,
                 )
-                sent += 1
+                if ok:
+                    sent += 1
+                else:
+                    fail += 1
                 await asyncio.sleep(0.5)
             except Exception as e:
                 fail += 1

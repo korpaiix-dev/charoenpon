@@ -296,12 +296,18 @@ async def run_exit_survey_job(context) -> dict:
                 [InlineKeyboardButton(REASON_LABELS["no_say"],
                                       callback_data=f"exitsv:{log_id}:no_say")],
             ]
-            await bot.send_message(
-                chat_id=u["telegram_id"], text=msg,
+            # FIX 2026-06-29: use unified send_to_customer (marks is_blocked_bot)
+            from shared.customer_dm import send_to_customer
+            ok = await send_to_customer(
+                telegram_id=u["telegram_id"], text=msg,
                 parse_mode="HTML", disable_web_page_preview=True,
                 reply_markup=InlineKeyboardMarkup(buttons),
+                alert_on_fail=False,
             )
-            sent += 1
+            if ok:
+                sent += 1
+            else:
+                failed += 1
             await _a.sleep(0.6)
         except Exception as e:
             failed += 1

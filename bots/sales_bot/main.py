@@ -237,9 +237,12 @@ async def _request_expiring_list(context: ContextTypes.DEFAULT_TYPE) -> None:
         if not text:
             text = hardcoded_text.format(first_name=first_name, days_left=int(days_left))
         try:
-            await context.bot.send_message(
-                chat_id=tg_id, text=text, parse_mode="HTML",
+            # FIX 2026-06-29: use unified send_to_customer (marks is_blocked_bot on Forbidden)
+            from shared.customer_dm import send_to_customer
+            await send_to_customer(
+                telegram_id=tg_id, text=text, parse_mode="HTML",
                 reply_markup=_make_renewal_kb(),
+                alert_on_fail=False,
             )
         except Exception as exc:
             logger.warning("expiry reminder failed tg=%s: %s", tg_id, exc)

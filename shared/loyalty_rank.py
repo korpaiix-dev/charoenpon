@@ -267,6 +267,19 @@ async def _dm_customer_rank_up(telegram_id: int, new_rank: str, rewards: dict) -
         await bot.send_message(chat_id=telegram_id, text=msg, parse_mode="HTML")
         return True
     except Forbidden:
+        # FIX 2026-06-29: mark is_blocked_bot so future jobs skip this user
+        try:
+            from shared.database import get_session
+            from sqlalchemy import text as _t_block
+            async with get_session() as _s_block:
+                await _s_block.execute(_t_block(
+                    "UPDATE users SET is_blocked_bot = TRUE, blocked_bot_at = NOW() "
+                    "WHERE telegram_id = :tg AND is_blocked_bot IS NOT TRUE"
+                ), {"tg": telegram_id})
+                await _s_block.commit()
+            logger.info("loyalty_rank: marked is_blocked_bot for tg=%s", telegram_id)
+        except Exception as _block_exc:
+            logger.warning("loyalty_rank: mark blocked_bot failed tg=%s: %s", telegram_id, _block_exc)
         return False
     except Exception as e:
         logger.warning("DM rank-up failed tg=%s: %s", telegram_id, e)
