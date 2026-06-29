@@ -62,39 +62,6 @@ async def funnel(days: int = 30, admin=Depends(require_role("admin"))):
         "vip_purchases": vip_purchases,
     }
 
-@router.get("/ai-insights")
-async def ai_insights(admin=Depends(require_role("admin"))):
-    # Get latest report with insights
-    row = await pool.fetchrow("""
-        SELECT ai_insights, report_date FROM marketing_daily_reports
-        WHERE ai_insights IS NOT NULL ORDER BY report_date DESC LIMIT 1
-    """)
-    if row:
-        return {"insights": row["ai_insights"], "date": str(row["report_date"])}
-    return {"insights": "ยังไม่มีข้อมูล AI Insights — ระบบจะสร้างอัตโนมัติเมื่อมี data เพียงพอ", "date": None}
-
-@router.get("/daily-reports")
-async def daily_reports(page: int = 1, per_page: int = 30, admin=Depends(require_role("admin"))):
-    # FIX 2025-05-21 (Phase D-6-business): clamp pagination
-    per_page = max(1, min(per_page, 100))
-    page = max(1, page)
-    offset = (page - 1) * per_page
-    total = await pool.fetchval("SELECT COUNT(*) FROM marketing_daily_reports")
-    rows = await pool.fetch("""
-        SELECT * FROM marketing_daily_reports ORDER BY report_date DESC
-        LIMIT $1 OFFSET $2
-    """, per_page, offset)
-    return {"items": [dict(r) for r in rows], "total": total, "page": page}
-
-@router.get("/daily-reports/{date}")
-async def daily_report_detail(date: str, admin=Depends(require_role("admin"))):
-    row = await pool.fetchrow("SELECT * FROM marketing_daily_reports WHERE report_date = $1::date", date)
-    if not row:
-        return {"error": "No report for this date"}
-    return dict(row)
-
-
-
 @router.get("/roi")
 async def marketing_roi(days: int = 30, admin=Depends(require_role("admin"))):
     """Per-marketer ROI summary for last N days."""

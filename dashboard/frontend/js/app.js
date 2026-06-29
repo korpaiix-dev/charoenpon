@@ -3741,11 +3741,10 @@ async function testDM(type) {
 async function renderMarketing() {
     const content = document.getElementById('page-content');
     try {
-        const [kpi, funnel, weekly, insights, roi, links] = await Promise.all([
+        const [kpi, funnel, weekly, roi, links] = await Promise.all([
             api('/marketing/kpi?days=30'),
             api('/marketing/funnel?days=30'),
             api('/marketing/weekly-comparison'),
-            api('/marketing/ai-insights'),
             api('/marketing/roi?days=30').catch(() => null),
             api('/marketing/links').catch(() => []),
         ]);
@@ -3919,12 +3918,6 @@ async function renderMarketing() {
             ` : ''}
 
             <div id="mkt-heatmap" style="margin-top:1.5rem;"></div>
-
-            <div class="card card-full" style="margin-top:1.5rem;">
-                <div class="card-label">🤖 AI Action Items</div>
-                <div style="padding:1rem;white-space:pre-wrap;color:var(--text);font-size:0.9rem;">${insights.insights || 'ยังไม่มี'}</div>
-                ${insights.date ? `<div style="font-size:0.75rem;color:var(--text-dim);padding:0 1rem 1rem;">อัพเดต: ${insights.date}</div>` : ''}
-            </div>
         `;
 
         // Weekly chart
