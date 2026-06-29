@@ -43,3 +43,4 @@ backups/
 *.pre_audit_*
 *.bak
 bots/relay_bot/data/
+dashboard/frontend/assets/receiver_qr/
