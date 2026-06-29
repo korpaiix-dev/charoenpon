@@ -187,10 +187,11 @@ async def post_shutdown(application: Application) -> None:
 
 
 async def _global_error_handler(update, context):
-    """[Phase 4 D] Catch unhandled exceptions and notify via hub.
+    """[DEPRECATED 2026-06-29] Forwards to shared.global_error_handler.
 
-    Transient network errors (httpx.ReadError, TimedOut, NetworkError) come
-    from long-polling and are auto-retried by PTB. Log but do NOT notify.
+    Actual handling (Forbidden → mark blocked, throttled admin alerts,
+    customer notification on slip photo errors) is done by shared handler
+    which is registered first in main().
     """
     import logging as _logging
     _log = _logging.getLogger(__name__)
@@ -201,11 +202,10 @@ async def _global_error_handler(update, context):
     if err_name in _TRANSIENT or "ReadError" in str(err):
         _log.warning("Transient network error (not alerting): %s: %s", err_name, err)
         return
+    # Forward to shared handler
     try:
-        from shared.notify import notify as _notify
-        await _notify("bot_crash",
-                     title=f"Unhandled exception in {__name__}",
-                     body=f"{err_name}: {err}")
+        from shared.global_error_handler import global_error_handler as _shared
+        await _shared(update, context)
     except Exception:
         pass
 
@@ -227,6 +227,12 @@ def main() -> None:
         .build()
     )
 
+    # FIX 2026-06-29: register shared global_error_handler FIRST (Forbidden → mark blocked + throttled admin alert)
+    try:
+        from shared.global_error_handler import global_error_handler as _shared_err
+        application.add_error_handler(_shared_err)
+    except Exception as _err_reg_exc:
+        logger.warning("admin_bot: shared global_error_handler register failed: %s", _err_reg_exc)
     # Broadcast conversation handlers (must be before simple command handlers)
     for handler in get_broadcast_handlers():
         application.add_error_handler(_global_error_handler)
