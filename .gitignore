@@ -34,3 +34,11 @@ promo_snapshot_*.json.pre_*
 *.bak.cap.*
 *.bak.j.*
 *.bak.s.*
+
+# AUDIT: keep secrets/backups/junk out of git
+credentials/*.json
+archive/*.sql
+backups/
+*.bundle
+*.pre_audit_*
+*.bak
