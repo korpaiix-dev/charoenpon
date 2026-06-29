@@ -134,11 +134,49 @@ async def _process_one(row: dict, bot: Bot) -> None:
         return
 
     # Amount must match expected
+    # FIX 2026-06-29 (#439): Re-calculate effective_price จาก current promo state
+    # เดิม: ใช้ row["expected_amount"] static ตอน enqueue → ไม่ apply Day-0 promo
+    # → ลูกค้าจ่ายราคาโปรลด → mismatch → reject ทุกใบ
+    # → admin ต้อง manual approve ทุกใบ (กระทบทั้งระบบ)
     s2g_amount = float(s2g.get("amount", 0))
-    expected = float(row["expected_amount"])
-    if s2g_amount != expected:
-        logger.warning("Slip2Go OK but amount mismatch (s2g=%s expected=%s) for payment %s — escalate",
-                       s2g_amount, expected, payment_id)
+    queue_expected = float(row["expected_amount"])
+    expected = queue_expected  # fallback
+
+    # Try recalc using selected_tier + current Day-0 promos
+    selected_tier = (row.get("selected_tier") or "").replace("TIER_", "").strip()
+    if selected_tier:
+        try:
+            from shared.pricing import TIER_PRICES
+            from shared.promotion_service import list_active_promotions, calculate_price
+            base = float(TIER_PRICES.get(selected_tier, queue_expected))
+            recalc = base
+            promos = await list_active_promotions()
+            tier_key = f"TIER_{selected_tier}"
+            best_savings = 0
+            for p in promos:
+                codes = p.get("package_codes") or []
+                if isinstance(codes, str):
+                    import json as _j
+                    try: codes = _j.loads(codes)
+                    except: codes = []
+                if tier_key in codes:
+                    calc = calculate_price(p, tier_key, base)
+                    if calc.get("applied") and calc.get("savings", 0) > best_savings:
+                        recalc = int(calc["discounted"])
+                        best_savings = calc["savings"]
+            if recalc != queue_expected:
+                logger.info(
+                    "Slip2Go expected recalc: queue=%s base=%s recalc=%s (tier=%s, promo savings=%s)",
+                    queue_expected, base, recalc, selected_tier, best_savings,
+                )
+                expected = float(recalc)
+        except Exception as exc:
+            logger.warning("expected recalc failed (non-fatal): %s — using queue value", exc)
+
+    # ±1 baht tolerance for rounding edge cases (e.g. 240.5 → 240 or 241)
+    if abs(s2g_amount - expected) > 1.0:
+        logger.warning("Slip2Go OK but amount mismatch (s2g=%s expected=%s queue=%s) for payment %s — escalate",
+                       s2g_amount, expected, queue_expected, payment_id)
         await _escalate_to_admin(row, attempt, f"amount mismatch s2g={s2g_amount} expected={expected}", bot)
         await _mark_status(row_id, "FAILED", attempt, "amount mismatch")
         return
