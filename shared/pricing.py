@@ -406,6 +406,11 @@ def admin_callback_tier_map() -> dict[str, str]:
         "ADD500": "ADD500",
         # Comeback (always-on)
         "180": "300", "210": "300",
+        # FIX 2026-06-29 (#443): amount_to_tier() ตี 1999/899 เป็น BIRTHDAY_*
+        #   → ต้องมีใน map เพื่อให้ Slip2Go auto-approve ผ่าน
+        #   (สำคัญตอนมีโปรลด 20% ทำให้ TIER_2499 → 1,999)
+        "BIRTHDAY_2499": "2499",   # 1999 → TIER_2499
+        "BIRTHDAY_1299": "1299",   # 899  → TIER_1299
     }
     # Add active campaign amounts
     for c in active_campaigns():
