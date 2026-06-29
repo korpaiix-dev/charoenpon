@@ -746,7 +746,48 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
                     payment_id=payment_id_final,
                 )
             except Exception as exc:
+                # FIX 2026-06-29 (P0 DM batch): queue retry + admin alert (no longer silent)
                 logger.warning("[approval] record_payment_received failed: %s", exc)
+                try:
+                    async with get_session() as _rq:
+                        await _rq.execute(sql_text(
+                            "CREATE TABLE IF NOT EXISTS receiver_credit_retry_queue ("
+                            "id SERIAL PRIMARY KEY, account_id INT NOT NULL, "
+                            "amount NUMERIC(10,2) NOT NULL, payment_id INT, error TEXT, "
+                            "attempts INT DEFAULT 0, created_at TIMESTAMP DEFAULT NOW(), "
+                            "updated_at TIMESTAMP DEFAULT NOW(), resolved_at TIMESTAMP)"
+                        ))
+                        await _rq.execute(sql_text(
+                            "INSERT INTO receiver_credit_retry_queue "
+                            "(account_id, amount, payment_id, error, attempts) "
+                            "VALUES (:a, :amt, :pid, :err, 0)"
+                        ), {
+                            "a": inp.matched_receiver_account_id,
+                            "amt": inp.amount_paid,
+                            "pid": payment_id_final,
+                            "err": str(exc)[:500],
+                        })
+                        await _rq.commit()
+                    logger.warning(
+                        "[approval] queued receiver credit retry: payment_id=%s account_id=%s amount=%s",
+                        payment_id_final, inp.matched_receiver_account_id, inp.amount_paid,
+                    )
+                except Exception as _q_exc:
+                    logger.error("[approval] receiver_credit retry queue insert failed: %s", _q_exc)
+                try:
+                    from shared.admin_alert import notify_admin_report as _notify_rep
+                    await _notify_rep(
+                        "⚠️ <b>Receiver credit ไม่ลงระบบ</b>\n"
+                        "━━━━━━━━━━━━━━\n"
+                        f"\U0001f4b0 payment_id=<code>{payment_id_final}</code>\n"
+                        f"\U0001f3e6 account_id=<code>{inp.matched_receiver_account_id}</code>\n"
+                        f"\U0001f4b5 amount=<code>{inp.amount_paid}</code>\n"
+                        f"❌ {type(exc).__name__}: {str(exc)[:200]}\n"
+                        "\U0001f4dd ถูก queue ลง receiver_credit_retry_queue รอ retry",
+                        parse_mode="HTML",
+                    )
+                except Exception:
+                    pass
             # FIX 2026-06-29 (P0#3): update payments.matched_receiver_account_id
             try:
                 async with get_session() as _rs:
