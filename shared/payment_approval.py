@@ -755,10 +755,25 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
         # ───── End transactional region ─────
 
         # STEP 16: record_payment_received (outside main session, own commit)
-        # FIX 2026-06-29 (P0#3): ALSO update payments.matched_receiver_account_id
-        # ก่อนหน้า: STEP 16 update cumulative ใน receiver_accounts + log admin_logs
-        #          แต่ payments row ไม่มี FK ไป receiver_accounts → reconciliation ทำไม่ได้
-        # → root cause task #418 (ยอดดิฟ 5k) — admin manual ก็ไม่ record link ตรงนี้
+        # FIX 2026-06-29 (P0#3 + #473): track receiver บน payment row + auto-default
+        # ก่อนหน้า: STEP 16 update cumulative ใน receiver_accounts เฉพาะตอน Slip2Go ส่ง
+        #          matched_receiver_account_id เข้ามา → admin manual paths bypass → drift
+        # ตอนนี้: ถ้า method=SLIP/PROMPTPAY และไม่มี matched → default active receiver เดียว
+        #         (ถ้ามี > 1 active → skip — ต้องระบุชัดเจน)
+        if inp.method.upper() in ("SLIP", "PROMPTPAY") and not inp.matched_receiver_account_id:
+            try:
+                async with get_session() as _rs0:
+                    _rs = await _rs0.execute(sql_text(
+                        "SELECT id FROM receiver_accounts WHERE enabled = TRUE ORDER BY id LIMIT 2"
+                    ))
+                    _active_ids = [r[0] for r in _rs.fetchall()]
+                    if len(_active_ids) == 1:
+                        # ใช้ default — บัญชี active เดียว
+                        inp.matched_receiver_account_id = _active_ids[0]
+                        logger.info("[approval] STEP 16: auto-defaulted receiver_id=%s for payment %s",
+                                    _active_ids[0], payment_id_final)
+            except Exception as exc:
+                logger.warning("[approval] auto-default receiver failed: %s", exc)
         if inp.matched_receiver_account_id and inp.method.upper() in ("SLIP", "PROMPTPAY"):
             try:
                 from shared.receiver_pool import record_payment_received
