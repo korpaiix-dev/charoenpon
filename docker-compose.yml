@@ -168,11 +168,10 @@ services:
       context: .
       dockerfile: dashboard/Dockerfile
     ports:
-      - "8010:8010"
+      - "127.0.0.1:8010:8010"
     env_file:
       - .env
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/host.env
       - ./docker-compose.yml:/app/docker-compose.yml:ro
       # Phase A.2 2026-06-27: mount frontend so JS/CSS/HTML changes
@@ -221,7 +220,7 @@ services:
         condition: service_healthy
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://postgres:***REMOVED***@charoenpon-postgres:5432/charoenpon
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@charoenpon-postgres:5432/charoenpon
     ports:
       - '127.0.0.1:8001:8001'
 
@@ -233,7 +232,7 @@ services:
     container_name: charoenpon-dashboard-staging
     restart: unless-stopped
     ports:
-      - "8011:80"
+      - "127.0.0.1:8011:80"
     volumes:
       - ./dashboard-staging/public:/usr/share/nginx/html:ro
       - ./dashboard-staging/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
@@ -250,13 +249,12 @@ services:
       context: .
       dockerfile: dashboard/Dockerfile
     ports:
-      - "8012:8010"
+      - "127.0.0.1:8012:8010"
     env_file:
       - .env
     environment:
       DASHBOARD_TEST_MODE: "true"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - ./.env:/app/host.env
       - ./docker-compose.yml:/app/docker-compose.yml:ro
       - ./dashboard/frontend:/app/dashboard/frontend:ro

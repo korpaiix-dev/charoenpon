@@ -32,7 +32,7 @@ from pydantic import BaseModel
 
 BOT_TOKEN = os.environ.get("SALES_BOT_TOKEN") or os.environ.get("BOT_TOKEN", "")
 DB_URL = os.environ.get("DATABASE_URL",
-                        "postgresql://postgres:***REMOVED***@charoenpon-postgres:5432/charoenpon")
+                        "postgresql://postgres:postgres@charoenpon-postgres:5432/charoenpon")
 
 app = FastAPI(title="Gachapon API v3", docs_url=None, redoc_url=None)
 
