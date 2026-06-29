@@ -350,13 +350,18 @@ async def claim(req: ClaimRequest):
                             "AND package_id IN (SELECT id FROM packages WHERE tier::text IN ('TIER_100','TIER_300','TIER_500'))",
                             int(pull["user_id"])
                         )
-                        end_expr = "'2099-12-31'::timestamp" if prize["tier"] == "TIER_2499" else \
-                                   f"NOW() + INTERVAL '{prize['duration_days']} days'"
-                        await conn.execute(
-                            f"INSERT INTO subscriptions (user_id, package_id, status, start_date, end_date) "
-                            f"VALUES ($1, $2, 'ACTIVE', NOW(), {end_expr})",
-                            int(pull["user_id"]), int(pkg_id)
-                        )
+                        if prize["tier"] == "TIER_2499":
+                            await conn.execute(
+                                "INSERT INTO subscriptions (user_id, package_id, status, start_date, end_date) "
+                                "VALUES ($1, $2, 'ACTIVE', NOW(), '2099-12-31'::timestamp)",
+                                int(pull["user_id"]), int(pkg_id)
+                            )
+                        else:  # AUDIT FIX M3: parameterize duration_days (เดิม f-string เข้า SQL)
+                            await conn.execute(
+                                "INSERT INTO subscriptions (user_id, package_id, status, start_date, end_date) "
+                                "VALUES ($1, $2, 'ACTIVE', NOW(), NOW() + ($3 * INTERVAL '1 day'))",
+                                int(pull["user_id"]), int(pkg_id), int(prize["duration_days"])
+                            )
                         applied.append({"action": "subscription_created", "tier": prize["tier"]})
                 elif prize["type"] == "discount":
                     amount = float(prize.get("value_thb") or 0)
