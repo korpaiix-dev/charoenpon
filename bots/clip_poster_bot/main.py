@@ -29,7 +29,12 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+import time as _time
+from io import BytesIO
+from telegram import (
+    InlineKeyboardButton, InlineKeyboardMarkup, Update,
+    InputMediaPhoto, InputMediaVideo, InputMediaAnimation,
+)
 from telegram.ext import (
     Application, CallbackQueryHandler, CommandHandler, ContextTypes,
     MessageHandler, filters,
@@ -163,6 +168,63 @@ async def get_credit_group_url() -> Optional[str]:
     except Exception as exc:
         logger.warning("get_credit_group_url failed: %s", exc)
     return None
+
+
+# ─── Watermark photo via PIL ─────────────────────────────────────────────────
+_FONT_PATHS = [
+    "/usr/share/fonts/truetype/tlwg/Sawasdee-Bold.ttf",
+    "/usr/share/fonts/truetype/tlwg/Sawasdee.ttf",
+    "/usr/share/fonts/truetype/tlwg/Waree-Bold.ttf",
+    "/usr/share/fonts/truetype/tlwg/Waree.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+]
+
+
+def _resolve_font(font_size: int):
+    """Find first available font on disk + size."""
+    from PIL import ImageFont
+    for fp in _FONT_PATHS:
+        if Path(fp).exists():
+            try:
+                return ImageFont.truetype(fp, font_size)
+            except Exception:
+                continue
+    return ImageFont.load_default()
+
+
+def watermark_photo_bytes(input_bytes: bytes) -> bytes:
+    """Overlay text watermark 'เจริญพร' bottom-right semi-transparent.
+    Returns JPEG bytes ready to send_photo().
+    """
+    from PIL import Image, ImageDraw
+    try:
+        im = Image.open(BytesIO(input_bytes)).convert("RGBA")
+        W, H = im.size
+        # Text size scales with image width (≈4.5% of width, min 28)
+        fs = max(28, int(W * 0.045))
+        font = _resolve_font(fs)
+        text = "เจริญพร"
+        # Overlay transparent layer
+        overlay = Image.new("RGBA", im.size, (255, 255, 255, 0))
+        draw = ImageDraw.Draw(overlay)
+        # Measure text
+        try:
+            bbox = draw.textbbox((0, 0), text, font=font)
+            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        except Exception:
+            tw, th = fs * len(text) // 2, fs
+        x = W - tw - int(W * 0.03)
+        y = H - th - int(H * 0.03)
+        # Shadow + text (semi-transparent white)
+        draw.text((x + 2, y + 2), text, font=font, fill=(0, 0, 0, 160))
+        draw.text((x, y), text, font=font, fill=(255, 255, 255, 220))
+        out = Image.alpha_composite(im, overlay).convert("RGB")
+        buf = BytesIO()
+        out.save(buf, format="JPEG", quality=88, optimize=True)
+        return buf.getvalue()
+    except Exception as exc:
+        logger.warning("watermark_photo_bytes failed: %s — using raw", exc)
+        return input_bytes
 
 
 # ─── Watermark via ffmpeg ────────────────────────────────────────────────────
@@ -378,8 +440,74 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode="HTML")
 
 
-async def on_video(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Receive video → store + show tier picker keyboard."""
+# Bot API getFile limit (Telegram). > limit → ส่ง file_id ตรง (relay, no WM)
+BOT_API_DOWNLOAD_LIMIT = 20 * 1024 * 1024  # 20 MB
+MEDIA_GROUP_DEBOUNCE_SEC = 2.0  # รอ Telegram ส่ง album items ครบ
+
+
+def _classify(msg) -> Optional[dict]:
+    """Extract media kind + file_id + size from a Telegram message.
+    Returns dict or None if not media.
+    """
+    if msg.photo:
+        # photo is a list of sizes — pick largest (last)
+        ph = msg.photo[-1]
+        return {"kind": "photo", "file_id": ph.file_id, "size": ph.file_size or 0}
+    if msg.video:
+        return {"kind": "video", "file_id": msg.video.file_id, "size": msg.video.file_size or 0}
+    if msg.animation:
+        return {"kind": "animation", "file_id": msg.animation.file_id, "size": msg.animation.file_size or 0}
+    if msg.document and msg.document.mime_type and msg.document.mime_type.startswith("video/"):
+        return {"kind": "video", "file_id": msg.document.file_id, "size": msg.document.file_size or 0}
+    return None
+
+
+async def _show_tier_picker(ctx, chat_id: int, items: list[dict]):
+    """Reply to user with tier picker — called once per upload batch."""
+    counts = {}
+    for it in items:
+        counts[it["kind"]] = counts.get(it["kind"], 0) + 1
+    parts = []
+    if counts.get("photo"): parts.append(f"🖼 {counts['photo']} รูป")
+    if counts.get("video"): parts.append(f"🎬 {counts['video']} วิดีโอ")
+    if counts.get("animation"): parts.append(f"✨ {counts['animation']} GIF")
+    summary = " + ".join(parts) or "ไฟล์"
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("💎 ฿300", callback_data="tier:300"),
+            InlineKeyboardButton("💎 ฿500", callback_data="tier:500"),
+            InlineKeyboardButton("💎 ฿2499", callback_data="tier:2499"),
+        ],
+        [InlineKeyboardButton("🌟 ทั่วไป (ไม่ระบุ tier)", callback_data="tier:generic")],
+        [InlineKeyboardButton("❌ ยกเลิก", callback_data="tier:cancel")],
+    ])
+    return await ctx.bot.send_message(
+        chat_id=chat_id,
+        text=f"📥 <b>รับ {summary}</b>\n\nเลือก tier ที่ชุดนี้เป็นของ:",
+        parse_mode="HTML",
+        reply_markup=kb,
+    )
+
+
+async def _flush_pending(ctx, user_id: int):
+    """หลัง debounce: ถ้าไม่มี media ใหม่มาแล้ว → reply tier picker."""
+    pending = pending_uploads.get(user_id)
+    if not pending:
+        return
+    # ถ้ามีการรับเข้ามาใหม่หลัง schedule → updated_at จะใหม่ → skip flush นี้
+    if _time.time() - pending["updated_at"] < MEDIA_GROUP_DEBOUNCE_SEC - 0.1:
+        return
+    if pending.get("picker_sent"):
+        return
+    try:
+        await _show_tier_picker(ctx, user_id, pending["items"])
+        pending["picker_sent"] = True
+    except Exception as exc:
+        logger.warning("show_tier_picker failed: %s", exc)
+
+
+async def on_media(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Receive photo/video/animation (single or media group) → buffer + tier picker."""
     msg = update.message
     if not msg or not msg.from_user:
         return
@@ -388,47 +516,155 @@ async def on_video(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text("🚫 แอดมินเท่านั้นค่ะ")
         return
 
-    video = msg.video or msg.animation
-    doc = msg.document
-    if doc and doc.mime_type and not doc.mime_type.startswith("video/"):
-        await msg.reply_text("⚠️ ส่งไฟล์วิดีโอเท่านั้นค่ะ")
+    info = _classify(msg)
+    if not info:
+        await msg.reply_text("⚠️ ส่งรูปหรือวิดีโอเท่านั้นค่ะ")
         return
 
-    file_obj = video or doc
-    if not file_obj:
+    mgid = msg.media_group_id  # None for single message
+    now = _time.time()
+    existing = pending_uploads.get(user.id)
+
+    # ถ้ามี pending เดิมและเป็น media_group เดียวกัน → append
+    if existing and mgid and existing.get("media_group_id") == mgid:
+        existing["items"].append(info)
+        existing["updated_at"] = now
+    else:
+        # ใหม่ — ลบของเดิม (ลูกค้าเปลี่ยนใจส่งใหม่ก่อนกด tier)
+        pending_uploads[user.id] = {
+            "items": [info],
+            "media_group_id": mgid,
+            "updated_at": now,
+            "first_msg_id": msg.message_id,
+            "picker_sent": False,
+        }
+
+    # Debounce: schedule flush หลัง 2 วินาที
+    # ถ้า media_group_id = None (ไฟล์เดี่ยว) → flush ทันที (no debounce)
+    if mgid is None:
+        await _show_tier_picker(ctx, user.id, pending_uploads[user.id]["items"])
+        pending_uploads[user.id]["picker_sent"] = True
+    else:
+        async def _delayed_flush():
+            await asyncio.sleep(MEDIA_GROUP_DEBOUNCE_SEC)
+            await _flush_pending(ctx, user.id)
+        asyncio.create_task(_delayed_flush())
+
+
+async def _process_item_for_send(ctx, item: dict, td: str) -> Optional[dict]:
+    """Process 1 item → return dict for send (file_id ตรง หรือ path watermark).
+    Returns: {"kind": "photo|video|animation", "send_via": "file_id|bytes|path", "data": ...}
+    """
+    kind = item["kind"]
+    fid = item["file_id"]
+    size = item.get("size", 0) or 0
+
+    if kind == "photo":
+        # Photo: download via Bot API (Telegram photos always small) → PIL watermark
+        try:
+            tg_file = await ctx.bot.get_file(fid)
+            in_path = os.path.join(td, f"in_{fid[:10]}.jpg")
+            await tg_file.download_to_drive(in_path)
+            with open(in_path, "rb") as f:
+                raw = f.read()
+            wm = await asyncio.to_thread(watermark_photo_bytes, raw)
+            return {"kind": "photo", "send_via": "bytes", "data": wm}
+        except Exception as exc:
+            logger.warning("photo download/wm failed (%s) — relay file_id", exc)
+            return {"kind": "photo", "send_via": "file_id", "data": fid}
+
+    if kind in ("video", "animation"):
+        # Video/anim: ถ้าใหญ่กว่า Bot API limit → relay file_id (no WM)
+        if size and size > BOT_API_DOWNLOAD_LIMIT:
+            logger.info("video %s too large (%s bytes) — relay file_id, no WM", fid[:10], size)
+            return {"kind": kind, "send_via": "file_id", "data": fid}
+        try:
+            tg_file = await ctx.bot.get_file(fid)
+            in_path = os.path.join(td, f"in_{fid[:10]}.mp4")
+            out_path = os.path.join(td, f"out_{fid[:10]}.mp4")
+            await tg_file.download_to_drive(in_path)
+            ok = await asyncio.to_thread(watermark_video, in_path, out_path, LOGO_PATH)
+            if not ok:
+                out_path = in_path
+            return {"kind": kind, "send_via": "path", "data": out_path}
+        except Exception as exc:
+            # download failed (likely too big despite missing size) → relay file_id
+            logger.warning("video download failed (%s) — relay file_id", exc)
+            return {"kind": kind, "send_via": "file_id", "data": fid}
+
+    return None
+
+
+async def _send_to_group(ctx, chat_id: int, prepared: list[dict], caption: str, kb) -> None:
+    """Send prepared items to one group. Single = solo with caption+kb. Multi = album + follow-up text with kb."""
+    if len(prepared) == 1:
+        p = prepared[0]
+        kw = {"chat_id": chat_id, "caption": caption, "parse_mode": "HTML", "reply_markup": kb}
+        if p["kind"] == "photo":
+            if p["send_via"] == "bytes":
+                await ctx.bot.send_photo(photo=BytesIO(p["data"]), **kw)
+            else:  # file_id
+                await ctx.bot.send_photo(photo=p["data"], **kw)
+        elif p["kind"] == "video":
+            kw["supports_streaming"] = True
+            if p["send_via"] == "path":
+                with open(p["data"], "rb") as f:
+                    await ctx.bot.send_video(video=f, **kw)
+            else:
+                await ctx.bot.send_video(video=p["data"], **kw)
+        elif p["kind"] == "animation":
+            if p["send_via"] == "path":
+                with open(p["data"], "rb") as f:
+                    await ctx.bot.send_animation(animation=f, **kw)
+            else:
+                await ctx.bot.send_animation(animation=p["data"], **kw)
         return
 
-    # Store pending (overwrite if admin sends another video before picking)
-    pending_uploads[user.id] = {
-        "file_id": file_obj.file_id,
-        "size": getattr(file_obj, "file_size", None),
-    }
-
-    kb = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("💎 ฿300", callback_data="tier:300"),
-            InlineKeyboardButton("💎 ฿500", callback_data="tier:500"),
-            InlineKeyboardButton("💎 ฿2499", callback_data="tier:2499"),
-        ],
-        [
-            InlineKeyboardButton("🌟 ทั่วไป (ไม่ระบุ tier)", callback_data="tier:generic"),
-        ],
-        [
-            InlineKeyboardButton("❌ ยกเลิก", callback_data="tier:cancel"),
-        ],
-    ])
-
-    size_kb = (file_obj.file_size // 1024) if getattr(file_obj, "file_size", None) else "?"
-    await msg.reply_text(
-        f"📹 <b>รับวิดีโอแล้ว</b> ({size_kb} KB)\n\n"
-        f"เลือก tier ที่ตัวอย่างนี้เป็นของ:",
-        parse_mode="HTML",
-        reply_markup=kb,
-    )
+    # Multi-item: send_media_group (no buttons supported)
+    # → caption ใส่ในไฟล์แรก, แล้วส่ง follow-up message พร้อมปุ่ม VIP
+    media = []
+    open_files = []
+    try:
+        for idx, p in enumerate(prepared[:10]):  # max 10
+            cap = caption if idx == 0 else None
+            if p["kind"] == "photo":
+                if p["send_via"] == "bytes":
+                    media.append(InputMediaPhoto(media=BytesIO(p["data"]), caption=cap, parse_mode="HTML"))
+                else:
+                    media.append(InputMediaPhoto(media=p["data"], caption=cap, parse_mode="HTML"))
+            elif p["kind"] == "video":
+                if p["send_via"] == "path":
+                    fh = open(p["data"], "rb")
+                    open_files.append(fh)
+                    media.append(InputMediaVideo(media=fh, caption=cap, parse_mode="HTML", supports_streaming=True))
+                else:
+                    media.append(InputMediaVideo(media=p["data"], caption=cap, parse_mode="HTML", supports_streaming=True))
+            elif p["kind"] == "animation":
+                # animation ไม่อยู่ใน media_group spec ของ Telegram → cast เป็น video
+                if p["send_via"] == "path":
+                    fh = open(p["data"], "rb")
+                    open_files.append(fh)
+                    media.append(InputMediaVideo(media=fh, caption=cap, parse_mode="HTML"))
+                else:
+                    media.append(InputMediaVideo(media=p["data"], caption=cap, parse_mode="HTML"))
+        sent_msgs = await ctx.bot.send_media_group(chat_id=chat_id, media=media)
+        # Follow-up button message (reply to first of album)
+        reply_to = sent_msgs[0].message_id if sent_msgs else None
+        await ctx.bot.send_message(
+            chat_id=chat_id,
+            text="👇 <b>สมัคร VIP ดูเต็มเลย</b>",
+            parse_mode="HTML",
+            reply_markup=kb,
+            reply_to_message_id=reply_to,
+        )
+    finally:
+        for fh in open_files:
+            try: fh.close()
+            except Exception: pass
 
 
 async def on_tier_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Handle tier button click → start watermark + broadcast."""
+    """Handle tier button click → process all pending items + broadcast."""
     q = update.callback_query
     if not q or not q.from_user:
         return
@@ -443,10 +679,10 @@ async def on_tier_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     choice = data.split(":", 1)[1]
 
     pending = pending_uploads.pop(user.id, None)
-    if not pending:
-        await q.answer("⚠️ ไม่มีวิดีโอค้าง — ส่งใหม่ก่อนค่ะ", show_alert=True)
+    if not pending or not pending.get("items"):
+        await q.answer("⚠️ ไม่มีไฟล์ค้าง — ส่งใหม่ก่อนค่ะ", show_alert=True)
         try:
-            await q.edit_message_text("⚠️ Session หมดอายุ — ส่งวิดีโอใหม่อีกครั้ง")
+            await q.edit_message_text("⚠️ Session หมดอายุ — ส่งใหม่อีกครั้ง")
         except Exception:
             pass
         return
@@ -459,89 +695,55 @@ async def on_tier_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             pass
         return
 
-    await q.answer(f"กำลังส่ง tier ฿{choice if choice != 'generic' else 'ทั่วไป'}...")
+    items = pending["items"]
+    await q.answer(f"กำลังส่ง {len(items)} ไฟล์...")
 
     tier_hint = None if choice == "generic" else choice
     caption_text = await pick_caption(tier_hint)
-
-    # Update status message
     status_msg = q.message
+
     try:
         await status_msg.edit_text(
-            f"⏳ <b>กำลังประมวลผล</b>\n"
-            f"• Tier: <code>{tier_hint or '(ทั่วไป)'}</code>\n"
-            f"• กำลังดาวน์โหลดวิดีโอ...",
+            f"⏳ <b>กำลังประมวลผล</b> ({len(items)} ไฟล์)\n"
+            f"• Tier: <code>{tier_hint or '(ทั่วไป)'}</code>",
             parse_mode="HTML",
         )
     except Exception:
         pass
 
-    # Get groups
     groups = await get_free_groups()
     if not groups:
-        await status_msg.edit_text("❌ ไม่พบกลุ่มตัวอย่าง (slug=SAMPLE) ใน DB")
+        await status_msg.edit_text("❌ ไม่พบกลุ่มปลายทาง — เลือกใน Dashboard ก่อน")
         return
 
-    # Download via stored file_id
-    try:
-        tg_file = await ctx.bot.get_file(pending["file_id"])
-    except Exception as exc:
-        await status_msg.edit_text(f"❌ download fail: {exc}")
-        return
+    credit_url = await get_credit_group_url()
+    clip_kb = build_clip_keyboard(tier_hint, credit_url)
 
     with tempfile.TemporaryDirectory() as td:
-        in_path = os.path.join(td, "in.mp4")
-        out_path = os.path.join(td, "out.mp4")
-        try:
-            await tg_file.download_to_drive(in_path)
-        except Exception as exc:
-            await status_msg.edit_text(f"❌ download fail: {exc}")
+        # Pre-process every item once (watermark / download)
+        prepared = []
+        for it in items:
+            p = await _process_item_for_send(ctx, it, td)
+            if p:
+                prepared.append(p)
+        if not prepared:
+            await status_msg.edit_text("❌ ประมวลผลไฟล์ไม่สำเร็จ")
             return
 
         try:
             await status_msg.edit_text(
-                f"⏳ <b>กำลังประมวลผล</b>\n"
-                f"• Tier: <code>{tier_hint or '(ทั่วไป)'}</code>\n"
-                f"• กำลังแปะ logo + encode...",
-                parse_mode="HTML",
-            )
-        except Exception:
-            pass
-
-        ok = await asyncio.to_thread(watermark_video, in_path, out_path, LOGO_PATH)
-        if not ok:
-            try:
-                await status_msg.edit_text("⚠️ ffmpeg ล้มเหลว — ส่งไฟล์ดิบแทน")
-            except Exception:
-                pass
-            out_path = in_path
-
-        try:
-            await status_msg.edit_text(
-                f"📤 <b>กำลังส่งไป {len(groups)} กลุ่ม...</b>\n"
+                f"📤 <b>กำลังส่งไป {len(groups)} กลุ่ม</b> ({len(prepared)} ไฟล์/กลุ่ม)\n"
                 f"• Tier: <code>{tier_hint or '(ทั่วไป)'}</code>",
                 parse_mode="HTML",
             )
         except Exception:
             pass
 
-        # Build inline keyboard once (URL buttons — no callback needed)
-        credit_url = await get_credit_group_url()
-        clip_kb = build_clip_keyboard(tier_hint, credit_url)
-
         sent: list[str] = []
         failed: list[dict] = []
         for g in groups:
             try:
-                with open(out_path, "rb") as f:
-                    await ctx.bot.send_video(
-                        chat_id=g["chat_id"],
-                        video=f,
-                        caption=caption_text,
-                        parse_mode="HTML",
-                        supports_streaming=True,
-                        reply_markup=clip_kb,
-                    )
+                await _send_to_group(ctx, g["chat_id"], prepared, caption_text, clip_kb)
                 sent.append(g["slug"])
                 await asyncio.sleep(1.5)
             except Exception as exc:
@@ -550,6 +752,7 @@ async def on_tier_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     summary = (
         f"{'✅' if not failed else '⚠️'} <b>เสร็จแล้ว</b>\n\n"
+        f"• ไฟล์: <b>{len(prepared)}</b>\n"
         f"• ส่งสำเร็จ: <b>{len(sent)}/{len(groups)}</b>\n"
         f"• Tier: <code>{tier_hint or '(ทั่วไป)'}</code>\n"
         f"• Caption: <i>{caption_text[:120]}...</i>\n"
@@ -565,7 +768,7 @@ async def on_tier_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     await log_job(
         admin_id=user.id,
-        video_file_id=pending["file_id"],
+        video_file_id=items[0]["file_id"] if items else "",
         tier_hint=tier_hint,
         caption=caption_text,
         sent=sent,
@@ -599,10 +802,10 @@ def main():
     app.add_handler(CallbackQueryHandler(on_tier_callback, pattern=r"^tier:"))
     app.add_handler(MessageHandler(
         filters.ChatType.PRIVATE & (
-            filters.VIDEO | filters.ANIMATION |
+            filters.PHOTO | filters.VIDEO | filters.ANIMATION |
             (filters.Document.ALL & filters.Document.VIDEO)
         ),
-        on_video,
+        on_media,
     ))
     app.add_handler(MessageHandler(
         filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND,
