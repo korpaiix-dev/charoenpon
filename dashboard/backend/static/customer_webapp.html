@@ -41,7 +41,7 @@ const tg = window.Telegram.WebApp;
 // เปิดหน้าแพ็คเกจ Mini App โดยตรง (window.location ใน Telegram WebView)
 function openPackagesMiniApp() {
   try { tg.HapticFeedback && tg.HapticFeedback.impactOccurred("light"); } catch(e) {}
-  window.location.href = "/webapp/customer/packages?v=" + Date.now();
+  window.location.href = "/webapp/customer/packages?v=" + Date.now() + (window.location.hash || "");  // AUDIT: ส่ง Telegram initData fragment ไปด้วย (กัน 401)
 }
 function openPackages() {
   try { tg.HapticFeedback && tg.HapticFeedback.impactOccurred("light"); } catch(e) {}
