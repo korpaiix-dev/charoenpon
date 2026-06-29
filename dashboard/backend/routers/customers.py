@@ -751,13 +751,27 @@ class _GiftSubReq(_BM2):
 
 @router.post('/{user_id}/gift-sub')
 async def gift_subscription(user_id: int, req: _GiftSubReq, admin=Depends(get_current_admin)):
-    """Grant a free subscription (no payment_id) — used for compensation / gift."""
+    """Grant a free subscription (no payment_id) — used for compensation / gift.
+
+    FIX 2026-06-29 (#445): trigger downstream — เติม credits / invite links / DM
+    เดิม: แค่ INSERT subscription + admin_log → ลูกค้าไม่ได้รับอะไรเลย
+    """
+    import os, json as _j, logging as _logging
+    _logger = _logging.getLogger(__name__)
+
     if req.days < 1 or req.days > 365:
         raise HTTPException(400, 'days must be 1-365')
-    # Verify package exists
-    pk = await pool.fetchrow('SELECT id, name FROM packages WHERE id = $1', req.package_id)
+    # Verify package exists + get tier
+    pk = await pool.fetchrow('SELECT id, name, tier::text AS tier FROM packages WHERE id = $1', req.package_id)
     if not pk:
         raise HTTPException(404, 'package not found')
+    tier_enum = (pk['tier'] or '').replace('TIER_', '')  # e.g. "GACHA_10" or "300"
+
+    # Get user telegram_id
+    user = await pool.fetchrow('SELECT id, telegram_id, first_name FROM users WHERE id = $1', user_id)
+    if not user:
+        raise HTTPException(404, 'user not found')
+
     # Create sub starting now
     row = await pool.fetchrow(
         """INSERT INTO subscriptions (user_id, package_id, status, start_date, end_date, auto_renew)
@@ -774,7 +788,99 @@ async def gift_subscription(user_id: int, req: _GiftSubReq, admin=Depends(get_cu
         )
     except Exception:
         pass
-    return {'ok': True, 'subscription_id': row['id'], 'end_date': row['end_date'].isoformat()}
+
+    # ─── Downstream actions (NEW) ───
+    gacha_added = 0
+    invite_links = {}
+    dm_sent = False
+
+    # 1. GACHA package → add credits
+    _GACHA_SPINS = {"GACHA_1": 1, "GACHA_3": 3, "GACHA_10": 10}
+    if tier_enum in _GACHA_SPINS and user['telegram_id']:
+        try:
+            spins = _GACHA_SPINS[tier_enum]
+            await pool.execute(
+                """INSERT INTO gachapon_credits (user_id, telegram_id, credits, total_purchased)
+                   VALUES ($1, $2, $3, $3)
+                   ON CONFLICT (user_id) DO UPDATE SET
+                     credits = gachapon_credits.credits + $3,
+                     total_purchased = gachapon_credits.total_purchased + $3,
+                     updated_at = NOW()""",
+                user_id, user['telegram_id'], spins,
+            )
+            gacha_added = spins
+            _logger.info(f"gift_sub: added {spins} gacha credits to user {user_id}")
+        except Exception as e:
+            _logger.warning(f"gift_sub: failed to add gacha credits: {e}")
+
+    # 2. VIP package → generate invite links
+    if tier_enum not in _GACHA_SPINS and user['telegram_id']:
+        try:
+            from .payments import _generate_invite_links
+            invite_links = await _generate_invite_links(
+                req.package_id, user['telegram_id'], return_titles=True
+            )
+            _logger.info(f"gift_sub: generated {len(invite_links)} invite links for user {user_id}")
+        except Exception as e:
+            _logger.warning(f"gift_sub: failed to generate invite links: {e}")
+
+    # 3. DM customer notification (via sales bot)
+    if user['telegram_id']:
+        try:
+            sales_token = os.environ.get('SALES_BOT_TOKEN') or os.environ.get('BOT_TOKEN')
+            if sales_token:
+                import httpx
+                first_name = user['first_name'] or 'ลูกค้า'
+                lines = [
+                    f"🎁 <b>คุณได้รับของขวัญจากทีมงาน!</b>",
+                    "",
+                    f"📦 แพ็คเกจ: <b>{pk['name']}</b>",
+                    f"⏰ ระยะเวลา: <b>{req.days} วัน</b>",
+                ]
+                if gacha_added > 0:
+                    lines.append(f"🎰 สิทธิ์หมุนกาชา: <b>+{gacha_added} ครั้ง</b>")
+                if req.reason:
+                    lines.append(f"📝 หมายเหตุ: <i>{req.reason[:200]}</i>")
+                if invite_links:
+                    lines.append("")
+                    lines.append("🔗 <b>ลิงก์เข้าห้อง VIP:</b>")
+                    for slug, info in invite_links.items():
+                        if isinstance(info, dict):
+                            url = info.get('url', '')
+                            title = info.get('title', slug)
+                        else:
+                            url = info
+                            title = slug
+                        if url:
+                            lines.append(f'• <a href="{url}">{title}</a>')
+                lines.append("")
+                lines.append("ขอบคุณที่ใช้บริการเจริญพรนะคะ 🙏")
+                msg = "\n".join(lines)
+                async with httpx.AsyncClient(timeout=20) as cli:
+                    r = await cli.post(
+                        f"https://api.telegram.org/bot{sales_token}/sendMessage",
+                        json={
+                            "chat_id": user['telegram_id'],
+                            "text": msg,
+                            "parse_mode": "HTML",
+                            "disable_web_page_preview": True,
+                        }
+                    )
+                    if r.status_code == 200:
+                        dm_sent = True
+                    else:
+                        _logger.warning(f"gift_sub: DM failed status={r.status_code} body={r.text[:200]}")
+        except Exception as e:
+            _logger.warning(f"gift_sub: DM exception: {e}")
+
+    return {
+        'ok': True,
+        'subscription_id': row['id'],
+        'end_date': row['end_date'].isoformat(),
+        'gacha_credits_added': gacha_added,
+        'invite_links_count': len(invite_links),
+        'dm_sent': dm_sent,
+    }
 
 
 # ====== Customer 360 Sprint 2026-06-26: regen links + group memberships ======
