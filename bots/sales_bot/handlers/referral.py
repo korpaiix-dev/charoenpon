@@ -240,6 +240,7 @@ async def analyze_referral_performance() -> dict:
 # ─── Referral Reminder DM ───────────────────────────────────────────────────
 
 async def send_referral_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
+    return  # AUDIT: referral ปิด
     """Scheduled job: ส่ง DM เตือน VIP ที่ยังไม่เคยชวนเพื่อน.
 
     - ทุก 3 วัน
@@ -351,6 +352,7 @@ async def send_referral_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
 # ─── /invite Command ─────────────────────────────────────────────────────────
 
 async def invite_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    return  # AUDIT: referral ปิดใช้งาน
     """/invite - สร้างลิงก์ชวนเพื่อน."""
     if not update.effective_user or not update.message:
         return
@@ -500,6 +502,7 @@ async def _myreferrals_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def _get_invite_link_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    return  # AUDIT: referral ปิด
     """Callback wrapper to invoke /invite."""
     query = update.callback_query
     if not query:
@@ -599,6 +602,7 @@ async def _get_invite_link_callback(update: Update, context: ContextTypes.DEFAUL
 # ─── Deep Link Handler ────────────────────────────────────────────────────────
 
 async def handle_referral_start(update: Update, context: ContextTypes.DEFAULT_TYPE, ref_code: str) -> bool:
+    return False  # AUDIT: referral ปิด
     """Handle /start ref_{CODE} deep link. Returns True if handled."""
     if not update.effective_user or not update.message:
         return False
@@ -685,6 +689,7 @@ async def handle_referral_start(update: Update, context: ContextTypes.DEFAULT_TY
 # ─── Reward Processing (called after payment CONFIRMED) ─────────────────────
 
 async def process_referral_reward(referred_telegram_id: int, bot) -> None:
+    return  # AUDIT: referral ปิด — ไม่จ่าย reward
     """Process referral reward when a referred user's payment is confirmed.
 
     Called from payment.py and approval.py after payment status = CONFIRMED.
@@ -802,6 +807,7 @@ async def process_referral_reward(referred_telegram_id: int, bot) -> None:
 # ─── Handlers ─────────────────────────────────────────────────────────────────
 
 def get_referral_handlers() -> list:
+    return []  # AUDIT: referral ปิด — ไม่ลงทะเบียน handler
     """Return all handlers for the referral module."""
     return [
         CommandHandler("invite", invite_command),

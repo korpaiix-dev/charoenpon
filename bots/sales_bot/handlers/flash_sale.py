@@ -26,6 +26,7 @@ from shared.admin_alert import _admin_group_id
 
 
 async def _get_active_flash_sale() -> FlashSale | None:
+    return None  # AUDIT: flash sale ปิดใช้งาน
     """Get the currently active flash sale, if any."""
     async with get_session() as session:
         result = await session.execute(
@@ -265,6 +266,7 @@ def _build_flash_sale_text(flash: FlashSale, remaining: int) -> str:
 
 
 def get_flash_sale_handlers() -> list:
+    return []  # AUDIT: flash sale ปิด — ไม่ลงทะเบียน handler
     """Return all handlers for the flash sale module."""
     return [
         CommandHandler("flashsale", flashsale_command),

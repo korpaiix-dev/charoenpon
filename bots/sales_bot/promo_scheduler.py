@@ -287,6 +287,7 @@ async def broadcast_trial_promo(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def broadcast_referral_promo(context: ContextTypes.DEFAULT_TYPE) -> None:
+    return  # AUDIT: referral promo ปิด
     """Scheduled job: Broadcast Referral promo to free groups."""
     logger.info("Broadcasting Referral promo to free groups...")
 

@@ -179,6 +179,7 @@ async def _get_referral_count(user_id: int) -> int:
 
 
 async def send_referral_reminder_v2(context: ContextTypes.DEFAULT_TYPE) -> None:
+    return  # AUDIT: referral ปิด
     """Weekly DM to active VIP users about referral program."""
     bot = context.bot
     now_th = datetime.now(TH_TZ)
