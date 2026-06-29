@@ -429,6 +429,27 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
             except Exception as exc:
                 logger.warning("[approval] blacklist check failed (allow): %s", exc)
 
+            # STEP 2.6 (NEW 2026-06-29 P1): User-level ban guard
+            # users.is_banned set by /ban command (Unified Ban System task #102).
+            # Block ALL approval sources — admin override needs to /unban first.
+            try:
+                _br = await session.execute(
+                    sql_text("SELECT is_banned FROM users WHERE id = :uid"),
+                    {"uid": db_user_id},
+                )
+                if _br.scalar() is True:
+                    logger.warning(
+                        "[approval] USER_BANNED block uid=%s tg=%s src=%s",
+                        db_user_id, inp.telegram_id, src_str,
+                    )
+                    return ApprovalResult(
+                        success=False,
+                        error="user_banned",
+                        error_details=f"user {db_user_id} (tg={inp.telegram_id}) is banned",
+                    )
+            except Exception as exc:
+                logger.error("[approval] is_banned check crashed: %s", exc)
+
             # STEP 3: Dup check
             if not inp.skip_dup_check:
                 dup_err = await _check_dup(session, inp)

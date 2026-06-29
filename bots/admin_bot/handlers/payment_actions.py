@@ -322,201 +322,103 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
                 await query.answer("❌ ไม่พบแพ็กเกจ", show_alert=True)
                 return
 
-            # # >>> DOUBLE_APPROVE_GUARD_BOT <<<
-            # Guard: if user has a CONFIRMED payment in last 15 min already
-            # (e.g. just approved via Dashboard), refuse to avoid double-charge.
-            from datetime import datetime as _dt, timedelta as _td
-            _u_for_check = await session.execute(
+            # Resolve target user (for db_user.username + db_user.id used in admin caption later)
+            _u_lookup = await session.execute(
                 select(User).where(User.telegram_id == target_user_id)
             )
-            _u_row_chk = _u_for_check.scalar_one_or_none()
-            if _u_row_chk is not None:
-                # >>> BUG5_GUARD_PKG_MATCH <<< (UPDATED 2026-06-16)
-                # Block any CONFIRMED payment in 15min EXCEPT when buying ADD500 add-on
-                # legitimate add-on: lifetime + ADD500 within 5 minutes
-                _is_addon_purchase = (tier == "ADD500")
-                _guard_query = select(Payment).where(
-                    Payment.user_id == _u_row_chk.id,
-                    Payment.status == PaymentStatus.CONFIRMED,
-                    Payment.created_at >= _dt.utcnow() - _td(minutes=15),
-                )
-                if _is_addon_purchase:
-                    # When admin clicks ADD500: only block if there\u0027s already an ADD500 in 15min
-                    _guard_query = _guard_query.where(Payment.package_id == package.id)
-                _recent = await session.execute(_guard_query.order_by(Payment.created_at.desc()).limit(1))
-                _recent_pay = _recent.scalar_one_or_none()
-                if _recent_pay is not None:
-                    await query.answer(
-                        f"\u26d4 \u0e25\u0e39\u0e01\u0e04\u0e49\u0e32\u0e19\u0e35\u0e49\u0e40\u0e1e\u0e34\u0e48\u0e07\u0e16\u0e39\u0e01\u0e2d\u0e19\u0e38\u0e21\u0e31\u0e15\u0e34\u0e41\u0e25\u0e49\u0e27 (payment #{_recent_pay.id}, \u0e3f{_recent_pay.amount}, pkg={_recent_pay.package_id}). \u0e2d\u0e22\u0e48\u0e32\u0e01\u0e14\u0e0b\u0e49\u0e33",
-                        show_alert=True,
-                    )
-                    return
-
-            # Find or create user
-            user_result = await session.execute(
-                select(User).where(User.telegram_id == target_user_id)
-            )
-            db_user = user_result.scalar_one_or_none()
-            if not db_user:
-                db_user = User(telegram_id=target_user_id, first_name="ลูกค้า")
-                session.add(db_user)
-                await session.flush()
-
-            # Check for existing active subscription (prevent duplicates)
-            # BUT skip lifetime subs when buying add-on packages
-            from decimal import Decimal
-            is_addon = tier == 'ADD500'
-            if is_addon:
-                # Add-on: only expire subs for the SAME add-on package
-                from sqlalchemy import update as sa_update_sub
-                await session.execute(
-                    sa_update_sub(Subscription)
-                    .where(
-                        Subscription.user_id == db_user.id,
-                        Subscription.status == SubscriptionStatus.ACTIVE,
-                        Subscription.package_id == package.id,
-                    )
-                    .values(status=SubscriptionStatus.EXPIRED)
-                )
+            db_user = _u_lookup.scalar_one_or_none()
+            if db_user is None:
+                # let unified service create the row
+                db_user_id_for_call = None
             else:
-                # >>> BUG7_LIFETIME_GUARD <<<
-                # Protect lifetime (TIER_2499) — never expire it when buying
-                # add-on or another tier. Same logic as Sales Bot Phase 2b.
-                from sqlalchemy import update as sa_update_sub
-                from shared.models import Package as _Pkg
-                _lifetime_pkgs_subq = select(_Pkg.id).where(_Pkg.tier == PackageTier.TIER_2499)
-                await session.execute(
-                    sa_update_sub(Subscription)
-                    .where(
-                        Subscription.user_id == db_user.id,
-                        Subscription.status == SubscriptionStatus.ACTIVE,
-                        Subscription.package_id.notin_(_lifetime_pkgs_subq),
-                    )
-                    .values(status=SubscriptionStatus.EXPIRED)
-                )
+                db_user_id_for_call = db_user.id
 
-            # ⚠️ WARNING 2026-06-28: This path creates Subscription WITHOUT a Payment row!
-            # → Causes ORPHAN subs (revenue missing from reports).
-            # → MIGRATE to shared.payment_approval.apply_payment_approval() ASAP.
-            # → For now, payment_id will be NULL — backfill via daily watchdog.
-            # Create subscription
-            now = datetime.utcnow()
-            # Trial 24 ชม.: ใช้ hours=24 แทน days=1
-            if package.tier == PackageTier.TIER_99:
-                end_date = now + timedelta(hours=24)
-            else:
-                end_date = now + timedelta(days=package.duration_days)
-            subscription = Subscription(
-                user_id=db_user.id,
-                package_id=package.id,
-                status=SubscriptionStatus.ACTIVE,
-                start_date=now,
-                end_date=end_date,
-            )
-            session.add(subscription)
-            # >>> BUG4_AMOUNT_FROM_PAY <<<
-            # Source of truth for amount_paid: actual slip amount (verify_payment.amount)
-            # if available. Falls back to button-derived promo price.
-            # Prevents revenue understatement when customer pays FULL price during promo.
-            _slip_amt = getattr(verify_payment, "amount", None) if "verify_payment" in locals() else None
-            if price == "200" and tier == "300" and is_endmonth_vip_promo_active():
-                amount_paid = _slip_amt if _slip_amt and _slip_amt >= PROMO_PRICE else PROMO_PRICE
-            elif price == "2000" and tier == "2499" and is_endmonth_vip_promo_active():
-                amount_paid = _slip_amt if _slip_amt and _slip_amt >= PROMO_2499_PRICE else PROMO_2499_PRICE
-            elif price == "349" and tier == "500" and is_may_combo_promo_active():
-                amount_paid = _slip_amt if _slip_amt and _slip_amt >= PROMO_500_PRICE else PROMO_500_PRICE
-            elif price == "999" and tier == "1299" and is_may_combo_promo_active():
-                amount_paid = _slip_amt if _slip_amt and _slip_amt >= PROMO_1299_PRICE else PROMO_1299_PRICE
-            else:
-                amount_paid = Decimal(str(price if price != "ADD500" else "500"))
-            # FIX2_TRUST_TRIGGER total_spent maintained by DB trigger
-
-            # Mark teaser clicks as converted for this user
-            from sqlalchemy import update as sa_update
-            from shared.models import TeaserClick
-            await session.execute(
-                sa_update(TeaserClick)
-                .where(TeaserClick.user_id == target_user_id, TeaserClick.converted == False)
-                .values(converted=True)
-            )
-
-            await session.flush()
             pkg_name = package.name
-            duration = package.duration_days
             pkg_id = package.id
+            duration = package.duration_days
 
-        # Flash Sale: increment sold_slots if active
-        try:
-            from bots.sales_bot.handlers.flash_sale import increment_sold_slot
-            if tier == "300":
-                success, sold, total = await increment_sold_slot(pkg_id)
-                if success:
-                    logger.info("Flash sale slot incremented: %d/%d", sold, total)
-        except Exception as exc_fs:
-            logger.warning("Flash sale slot increment failed (non-critical): %s", exc_fs)
+        # Compute amount_paid (preserve promo-pricing rules from old impl)
+        from decimal import Decimal as _Dec
+        _slip_amt = getattr(verify_payment, "amount", None) if "verify_payment" in locals() else None
+        if price == "200" and tier == "300" and is_endmonth_vip_promo_active():
+            amount_paid = _slip_amt if _slip_amt and _slip_amt >= PROMO_PRICE else PROMO_PRICE
+        elif price == "2000" and tier == "2499" and is_endmonth_vip_promo_active():
+            amount_paid = _slip_amt if _slip_amt and _slip_amt >= PROMO_2499_PRICE else PROMO_2499_PRICE
+        elif price == "349" and tier == "500" and is_may_combo_promo_active():
+            amount_paid = _slip_amt if _slip_amt and _slip_amt >= PROMO_500_PRICE else PROMO_500_PRICE
+        elif price == "999" and tier == "1299" and is_may_combo_promo_active():
+            amount_paid = _slip_amt if _slip_amt and _slip_amt >= PROMO_1299_PRICE else PROMO_1299_PRICE
+        else:
+            amount_paid = _Dec(str(price if price != "ADD500" else "500"))
 
-        # Generate invite links using Guardian Bot (must be admin in all VIP groups)
-        guardian_bot = tg.Bot(token=os.environ.get("GUARDIAN_BOT_TOKEN", ""))
-        await guardian_bot.initialize()
-        sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
-        await sales_bot.initialize()
-        invite_links = await generate_invite_links_for_user(guardian_bot, target_user_id, pkg_id)
-
-        links_list = []
-        async with get_session() as session:
-            from shared.models import GroupRegistry
-            for slug, link in invite_links.items():
-                if is_songkran_bonus_slug(slug):
-                    title = get_group_display_title(slug)
-                else:
-                    grp_result = await session.execute(
-                        select(GroupRegistry).where(GroupRegistry.slug == slug)
-                    )
-                    group = grp_result.scalar_one_or_none()
-                    title = group.title if group else get_group_display_title(slug)
-                links_list.append({"text": f"🚀 {title}", "url": link})
-
-        # Send invite links to customer (2 buttons per row)
-        link_buttons = [links_list[i:i+2] for i in range(0, len(links_list), 2)]
-
-        from shared.tz import now_th as _now_th_; expire_date = (_now_th_() + timedelta(days=duration)).strftime("%d/%m/%Y")
-        msg = (
-            f"✅ <b>อนุมัติยอด {price} บาท เรียบร้อยค่ะ</b>\n"
-            f"📦 แพ็กเกจ: {pkg_name}\n"
-            f"📅 หมดอายุ: {expire_date}\n\n"
-            f"👇 <b>กดเข้ากลุ่มที่ปุ่มด้านล่างได้เลย</b>\n\n"
-            f"🆓 <b>ห้องฟรี:</b> https://t.me/addlist/w0YSyuHC_aE2ZGVl"
-        )
-        keyboard = tg.InlineKeyboardMarkup(
-            [[tg.InlineKeyboardButton(b["text"], url=b["url"]) for b in row]
-             for row in link_buttons]
+        # ── REFACTOR 2026-06-29 (P1 audit #447): route through unified service ──
+        # ก่อนหน้านี้ branch นี้ self-contained ~400 บรรทัด — สร้าง Subscription แบบ orphan
+        # (payment_id=NULL บางครั้ง), gen invite links เอง, DM ลูกค้าผ่าน sales_bot โดยตรง,
+        # ข้าม side-effects (sender_ring, blacklist, dup-slip, birthday bonus, onboarding rewards,
+        # shaker, lifetime guard, receiver record, gachapon credits, comeback mark, discount apply).
+        #
+        # ตอนนี้: apply_payment_approval(ADMIN_BY_PRICE) → side-effect ครบ → return result
+        # → ใช้ result.invite_links / expires_at format admin caption เดิม.
+        from shared.payment_approval import (
+            apply_payment_approval as _apply, ApprovalInput as _ApIn,
+            ApprovalSource as _ApSrc,
         )
         try:
-            await sales_bot.send_message(chat_id=target_user_id, text=msg, parse_mode="HTML", reply_markup=keyboard)
-        except Exception as exc_send:
-            logger.error("Failed to send invite links to %s: %s", target_user_id, exc_send)
-            admin_group_id = _admin_group_id()
-            flat_links = "\n".join([f"• {b['text']}: {b['url']}" for b in links_list]) or "(ไม่มีลิงก์)"
-            await context.bot.send_message(
-                chat_id=admin_group_id,
-                text=(
-                    f"🚨 <b>ส่งลิงก์ลูกค้าไม่สำเร็จ</b>\n"
-                    f"🆔 TG ID: <code>{target_user_id}</code>\n"
-                    f"📦 แพ็กเกจ: {pkg_name}\n"
-                    f"💰 ยอด: {price} บาท\n"
-                    f"❗ Error: {type(exc_send).__name__}: {exc_send}\n\n"
-                    f"🔗 ลิงก์ที่สร้างไว้แล้ว:\n{flat_links}"
-                ),
-                parse_mode="HTML",
-                reply_markup=_build_manual_invite_alert_keyboard(target_user_id),
+            _result = await _apply(_ApIn(
+                user_id=db_user_id_for_call,
+                telegram_id=target_user_id,
+                source=_ApSrc.ADMIN_BY_PRICE,
+                amount_paid=_Dec(str(amount_paid)),
+                explicit_tier=_tier_enum,
+                admin_id=query.from_user.id if query.from_user else None,
+                # payment_id: หา PENDING ตัวล่าสุดให้ service update แทน insert ใหม่
+                payment_id=(getattr(verify_payment, "id", None) if "verify_payment" in locals() and verify_payment is not None else None),
+                method="SLIP",
+                force_amount=force_override,
+                skip_sender_ring=True,   # admin button = admin already eyeballed
+            ))
+        except Exception as _exc_unified:
+            logger.exception("approve_by_price: unified service crashed: %s", _exc_unified)
+            await query.answer(f"❌ ระบบอนุมัติพัง: {str(_exc_unified)[:80]}", show_alert=True)
+            return
+
+        if not _result.success:
+            _err = _result.error or "unknown"
+            logger.warning(
+                "approve_by_price: unified service refused tg=%s price=%s err=%s detail=%s",
+                target_user_id, price, _err, _result.error_details,
             )
+            _msg_map = {
+                "user_banned": "⛔ ลูกค้านี้ถูกแบน — /unban ก่อน",
+                "blacklisted_sender": "⛔ ผู้ส่งอยู่ใน blacklist",
+                "blacklisted_slip": "⛔ สลิปอยู่ใน blacklist",
+            }
+            _prefix = "dup_transref" if _err.startswith("dup_transref") else ("dup_hash" if _err.startswith("dup_hash") else _err)
+            _user_msg = _msg_map.get(_prefix, f"❌ {_err}")
+            await query.answer(_user_msg, show_alert=True)
+            return
 
-        # Update admin message — keep chat button only when username is available
+        # ── post-success: format admin caption (preserve original UX) ──
+        new_payment_id = _result.payment_id or 0
+
+        # Mark teaser clicks converted (preserve from old impl — was inside the TX)
+        try:
+            async with get_session() as _ts:
+                from sqlalchemy import update as _sa_up
+                from shared.models import TeaserClick as _TC
+                await _ts.execute(
+                    _sa_up(_TC).where(_TC.user_id == target_user_id, _TC.converted == False).values(converted=True)
+                )
+                await _ts.commit()
+        except Exception:
+            pass
+
+        # Update admin message caption — preserve UX (button to customer chat if username known)
         safe_admin = query.from_user.first_name or "Admin"
-        old_caption = query.message.caption or ""
+        old_caption = query.message.caption or query.message.text or ""
         new_caption = f"{old_caption}\n\n✅ <b>สถานะ: อนุมัติ ({price}บ.) โดย {safe_admin}</b>"
         post_keyboard = None
-        if db_user and db_user.username:
+        if db_user and getattr(db_user, "username", None):
             post_keyboard = tg.InlineKeyboardMarkup([[
                 tg.InlineKeyboardButton(
                     f"💬 @{db_user.username}",
@@ -525,148 +427,32 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
                 )
             ]])
         try:
-            await query.edit_message_caption(
-                caption=new_caption[:1024],
-                parse_mode="HTML",
-                reply_markup=post_keyboard,
-            )
+            if query.message and query.message.caption:
+                await query.edit_message_caption(
+                    caption=new_caption[:1024],
+                    parse_mode="HTML",
+                    reply_markup=post_keyboard,
+                )
+            elif query.message and query.message.text:
+                await query.edit_message_text(
+                    text=new_caption[:4096],
+                    parse_mode="HTML",
+                    reply_markup=post_keyboard,
+                )
         except Exception as e:
             logger.error("Failed to edit approval caption: %s", e)
 
-        # Notify Discord
-        await _notify_discord_alert(
-            f"✅ อนุมัติ {price} บาท",
-            f"👤 ลูกค้า: TG ID {target_user_id}\n📦 แพ็กเกจ: {pkg_name}\n👮 โดย: {safe_admin}",
-            color=0x2ECC71,
-        )
-
-        # ── Confirm existing PENDING payment (ไม่สร้างใหม่ — แก้ duplicate bug) ──
+        # Discord notify (preserve from old impl)
         try:
-            async with get_session() as session:
-                from shared.models import PaymentMethod
-                # หา PENDING payment ล่าสุดของ user นี้ (ตัวที่ Sales Bot สร้างตอนรับสลิป)
-                pending_result = await session.execute(
-                    select(Payment).where(
-                        Payment.user_id == db_user.id,
-                        Payment.status == PaymentStatus.PENDING,
-                    ).order_by(Payment.created_at.desc()).limit(1)
-                )
-                pending_payment = pending_result.scalar_one_or_none()
-                if pending_payment:
-                    # Update ตัว PENDING เดิมเป็น CONFIRMED
-                    pending_payment.status = PaymentStatus.CONFIRMED
-                    pending_payment.verified_by = query.from_user.id
-                    pending_payment.verified_at = datetime.utcnow()
-                    pending_payment.amount = amount_paid
-                    pending_payment.package_id = pkg_id
-                    await session.flush()
-                    new_payment_id = pending_payment.id
-                    logger.info("Existing PENDING payment #%d confirmed for user %d", new_payment_id, target_user_id)
-                else:
-                    # ไม่มี PENDING (edge case) — เช็ค CONFIRMED ซ้ำก่อนสร้างใหม่
-                    dedup_cutoff = datetime.utcnow() - timedelta(minutes=10)
-                    dup_check = await session.execute(
-                        select(Payment).where(
-                            Payment.user_id == db_user.id,
-                            Payment.amount == amount_paid,
-                            Payment.status == PaymentStatus.CONFIRMED,
-                            Payment.created_at >= dedup_cutoff,
-                        )
-                    )
-                    if dup_check.scalar_one_or_none():
-                        logger.warning("Duplicate approval payment skipped: user_id=%s", db_user.id)
-                        new_payment_id = 0
-                    else:
-                        new_payment = Payment(
-                            user_id=db_user.id,
-                            package_id=pkg_id,
-                            amount=amount_paid,
-                            method=PaymentMethod.SLIP,
-                            status=PaymentStatus.CONFIRMED,
-                            verified_by=query.from_user.id,
-                            verified_at=datetime.utcnow(),
-                        )
-                        session.add(new_payment)
-                        await session.flush()
-                        new_payment_id = new_payment.id
-        except Exception as exc_p:
-            logger.warning("Failed to confirm/create payment record: %s", exc_p)
-            new_payment_id = 0
-
-        # ── Sync Google Sheets ──
-        try:
-            from sheets.daily_revenue import DailyRevenueSheet
-            from sheets.members import MembersSheet
-            from sheets.income_log import IncomeLogSheet
-            await DailyRevenueSheet.update()
-            from sheets.daily_summary import DailySummarySheet
-            await DailySummarySheet.update()
-            await IncomeLogSheet.log_payment(new_payment_id, approved_by=safe_admin)
-            await MembersSheet.update_member(db_user.id)
-            logger.info("Sheets synced for approve_by_price user %d", target_user_id)
-            try:
-                from shared.notify import notify as _notify
-                await _notify("payment_approved",
-                             title=f"✅ Payment Approved (admin button)",
-                             body=f"User {target_user_id} approved")
-            except Exception:
-                pass
-        except Exception as exc_s:
-            logger.warning("Sheets sync failed: %s", exc_s)
-
-        # ── Mark comeback promo as purchased (if this user had one) ──
-        try:
-            from bots.sales_bot.comeback_dm import mark_promo_purchased
-            from shared.models import ComebackDmLog
-            async with get_session() as session:
-                cb_result = await session.execute(
-                    select(ComebackDmLog).where(
-                        ComebackDmLog.user_id == db_user.id,
-                        ComebackDmLog.purchased == False,  # noqa: E712
-                    ).order_by(ComebackDmLog.sent_at.desc()).limit(1)
-                )
-                cb_log = cb_result.scalar_one_or_none()
-                if cb_log:
-                    cb_log.purchased = True
-                    cb_log.responded = True
-                    logger.info("Comeback promo %s marked purchased via admin approval", cb_log.promo_code)
-        except Exception as exc_cb:
-            logger.warning("Comeback promo mark failed (non-critical): %s", exc_cb)
-
-        # ── Process referral reward ──
-        try:
-            from bots.sales_bot.handlers.referral import process_referral_reward
-            await process_referral_reward(target_user_id, sales_bot)
-        except Exception as exc_ref:
-            logger.warning("Referral reward failed for user %d: %s", target_user_id, exc_ref)
-
-        # ── Welcome referral DM หลัง 3 วินาที ──
-        try:
-            import asyncio
-            await asyncio.sleep(3)
-            await sales_bot.send_message(
-                chat_id=target_user_id,
-                text=(
-                    '🎉 ยินดีต้อนรับสู่ VIP เจริญพร! 💕\n'
-                    '\n'
-                    '💡 รู้มั้ย? ชวนเพื่อนมาสมัคร = ได้ VIP ฟรีเพิ่ม!\n'
-                    '\n'
-                    '🎯 ชวน 1 คน = +7 วัน VIP ฟรี\n'
-                    '🎯 ชวน 5 คน = +30 วัน VIP ฟรี!\n'
-                    '\n'
-                    '━━━━━━━━━━━━━━━━━━\n'
-                    '📩 <b>รับลิงก์ชวนเพื่อนเลย 👇</b>\n'
-                    '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=invite">🎁 กดรับลิงก์ชวนเพื่อน</a>\n'
-                    '━━━━━━━━━━━━━━━━━━'
-                ),
-                parse_mode="HTML",
-                disable_web_page_preview=True,
+            await _notify_discord_alert(
+                f"✅ อนุมัติ {price} บาท",
+                f"👤 ลูกค้า: TG ID {target_user_id}\n📦 แพ็กเกจ: {pkg_name}\n👮 โดย: {safe_admin}",
+                color=0x2ECC71,
             )
-            logger.info("Welcome referral DM sent to %d (approve_by_price)", target_user_id)
-        except Exception as exc_w:
-            logger.warning("Welcome referral DM failed for user %d: %s", target_user_id, exc_w)
+        except Exception:
+            pass
 
-        # FIX 2025-05-21 (Phase 2f): audit log every approval with payment_id + button_amount
+        # Audit log (preserve)
         try:
             await log_admin_action(
                 admin_id=query.from_user.id,
@@ -675,8 +461,8 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
                 target_id=target_user_id,
                 details=(
                     f"button={price} amount_paid={amount_paid} "
-                    f"payment_id={new_payment_id} pkg={pkg_name} "
-                    f"force={force_override}"
+                    f"payment_id={new_payment_id} sub_id={_result.subscription_id} "
+                    f"pkg={pkg_name} force={force_override} via=apply_payment_approval"
                 ),
             )
         except Exception as exc_log:
