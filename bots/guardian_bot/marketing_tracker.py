@@ -21,6 +21,11 @@ logger = logging.getLogger(__name__)
 # Slugs of groups that use marketing attribution
 _MARKETING_GROUP_SLUGS = {"PROMO_HUB", "PROMO_NEWS"}
 
+# Dedup window for rejoins. Must match sales_bot deep-link tracker (24h).
+# Telegram may fire chat_member multiple times during status transitions,
+# and a user could legitimately leave+rejoin within a day — count as same join.
+_REJOIN_DEDUP_SECONDS = 86400  # 24 hours
+
 
 async def track_marketing_join(
     *,
@@ -33,7 +38,7 @@ async def track_marketing_join(
 ) -> None:
     """Record a join from a tracked marketing link.
 
-    Idempotent: if same (link_id, telegram_id, joined within last 60s) already
+    Idempotent: if same (link_id, telegram_id, joined within last 24h) already
     exists, skip. (Telegram may fire chat_member twice during status transitions.)
     """
     if group_slug not in _MARKETING_GROUP_SLUGS:
@@ -71,14 +76,14 @@ async def track_marketing_join(
                 """
                 SELECT 1 FROM marketing_invite_joins
                 WHERE link_id = :lid AND telegram_id = :tg
-                  AND joined_at > now() - interval '60 seconds'
+                  AND joined_at > now() - make_interval(secs => :win)
                 LIMIT 1
                 """
-            ), {"lid": link_id, "tg": telegram_id})).first()
+            ), {"lid": link_id, "tg": telegram_id, "win": _REJOIN_DEDUP_SECONDS})).first()
             if dup:
                 logger.info(
-                    "marketing: dedupe join link_id=%s tg=%s (within 60s)",
-                    link_id, telegram_id,
+                    "marketing: dedupe join link_id=%s tg=%s (within %ss)",
+                    link_id, telegram_id, _REJOIN_DEDUP_SECONDS,
                 )
                 return
 
@@ -95,7 +100,7 @@ async def track_marketing_join(
             await session.commit()
 
             logger.info(
-                "✅ marketing join tracked: link_id=%s marketer=%s platform=%s tg=%s",
+                "marketing join tracked: link_id=%s marketer=%s platform=%s tg=%s",
                 link_id, marketer, platform, telegram_id,
             )
 
@@ -110,7 +115,7 @@ async def track_marketing_join(
                     """
                 ), {"lid": link_id})).first()
                 if meta:
-                    # Fire-and-forget Discord notification (don't await — must not block)
+                    # Fire-and-forget Discord notification (do not await — must not block)
                     import asyncio as _asyncio
                     _asyncio.create_task(_discord_notify_join(
                         marketer=marketer, platform=platform,
@@ -123,3 +128,48 @@ async def track_marketing_join(
                 logger.warning("discord notify failed (non-fatal): %s", _nx)
     except Exception as exc:
         logger.exception("marketing_tracker error: %s", exc)
+
+
+async def track_marketing_leave(
+    *,
+    group_slug: str,
+    telegram_id: int,
+) -> None:
+    """Record a leave for an active marketing-tracked join row.
+
+    Called when chat_member event reports new_status in (left, kicked).
+    Silent on error: a user may leave from a group they did not join via a
+    tracked link, or there may be no matching row (e.g. legacy joins, races,
+    user already counted as left).
+
+    Updates the most-recent un-left row for this (link, telegram_id) pair —
+    a user who left + rejoined multiple times will only have their currently
+    active row marked left.
+    """
+    if group_slug not in _MARKETING_GROUP_SLUGS:
+        return
+
+    try:
+        async with get_session() as session:
+            await session.execute(text(
+                """
+                UPDATE marketing_invite_joins
+                   SET left_at = now()
+                 WHERE id = (
+                     SELECT j.id FROM marketing_invite_joins j
+                     JOIN marketing_invite_links l ON l.id = j.link_id
+                     WHERE j.telegram_id = :tg
+                       AND j.left_at IS NULL
+                       AND l.group_slug = :slug
+                     ORDER BY j.joined_at DESC
+                     LIMIT 1
+                 )
+                """
+            ), {"tg": telegram_id, "slug": group_slug})
+            await session.commit()
+            logger.info(
+                "marketing leave tracked: tg=%s group=%s",
+                telegram_id, group_slug,
+            )
+    except Exception as exc:
+        logger.warning("track_marketing_leave non-fatal error: %s", exc)

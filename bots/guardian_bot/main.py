@@ -107,6 +107,33 @@ async def handle_chat_member_update(
     member_update = update.chat_member
     new_member = member_update.new_chat_member
 
+    # Marketing leave tracking: handle LEFT / KICKED status transitions.
+    # Must run before the early-return guard below — joins are handled later.
+    if new_member.status in ("left", "kicked"):
+        try:
+            _leave_user = new_member.user
+            if _leave_user is None or _leave_user.is_bot:
+                return
+            _leave_chat_id = member_update.chat.id
+            from sqlalchemy import select as _select
+            async with get_session() as _sess:
+                from shared.models import GroupRegistry as _GR
+                _grp_res = await _sess.execute(
+                    _select(_GR).where(_GR.chat_id == _leave_chat_id)
+                )
+                _grp = _grp_res.scalar_one_or_none()
+            if _grp is None:
+                return
+            _slug_for_leave = _grp.slug.value if hasattr(_grp.slug, "value") else str(_grp.slug)
+            from bots.guardian_bot.marketing_tracker import track_marketing_leave
+            await track_marketing_leave(
+                group_slug=_slug_for_leave,
+                telegram_id=_leave_user.id,
+            )
+        except Exception as _le_exc:
+            logger.warning("marketing leave handler non-fatal: %s", _le_exc)
+        return
+
     # Only care about users joining (status becoming "member")
     if new_member.status not in ("member", "restricted"):
         return
