@@ -134,12 +134,17 @@ async def _ai_read_slip(b64_image: str) -> str | None:
         "- เลขอ้างอิง/Transaction ID\n"
         "- ชื่อผู้ส่ง (จาก)\n"
         "- ชื่อผู้รับ (ไปยัง)\n\n"
-        "แล้ววิเคราะห์ว่าสลิปนี้มีสัญญาณปลอมไหม เช่น:\n"
-        "- font ไม่ตรงกับธนาคาร\n"
-        "- วันที่อนาคต (หมายเหตุ: ปี พ.ศ. = ค.ศ. + 543 เช่น 2569 พ.ศ. = 2026 ค.ศ. = ปัจจุบัน ไม่ใช่อนาคต — slip ไทยส่วนใหญ่ใช้ปี พ.ศ.)\n"
-        "- layout ผิดปกติ\n"
-        "- ภาพเบลอเฉพาะจุดตัวเลข\n"
-        "ถ้าสงสัยปลอม ให้เขียน SUSPICIOUS: ตามด้วยเหตุผล\n"
+        "แล้ววิเคราะห์ว่าสลิปนี้มีสัญญาณปลอมไหม โดยดูจาก:\n"
+        "- font ไม่ตรงกับธนาคารจริง\n"
+        "- layout ผิดรูปแบบของธนาคาร\n"
+        "- ภาพเบลอเฉพาะจุดตัวเลข (น่าจะถูกแก้ไข)\n"
+        "- โลโก้ธนาคารผิดเพี้ยน\n"
+        "\n"
+        "ข้อสำคัญ: ห้ามใช้ \"ปี\" เป็นเหตุผลในการบอกว่าปลอม.\n"
+        "  ปี พ.ศ. (เช่น 2569) = ค.ศ. (2026) = ปัจจุบัน — เป็นปกติของสลิปไทย\n"
+        "  ห้าม flag \"วันที่อนาคต\" เด็ดขาด\n"
+        "\n"
+        "ถ้ามีสัญญาณปลอมตามรายการข้างบน ให้เขียน SUSPICIOUS: ตามด้วยเหตุผล\n"
         "ถ้าปกติ ให้เขียน VERIFIED: ตามด้วยข้อมูล"
     )
 
@@ -166,6 +171,29 @@ async def _ai_read_slip(b64_image: str) -> str | None:
         )
         content = data["choices"][0]["message"]["content"]
         logger.info("AI slip reader result: %s", content[:200])
+
+        # FIX 2026-06-29: filter false-positive SUSPICIOUS — Buddhist Era confusion
+        # AI vision บางทียัง flag "วันที่อนาคต" แม้บอกใน prompt แล้ว
+        # (Thai slips ใช้ พ.ศ. = ค.ศ. + 543 ปกติ)
+        # → strip SUSPICIOUS line ถ้าเหตุผลเกี่ยวกับ "อนาคต/ปี/year/future/พ.ศ./BE"
+        try:
+            filtered_lines = []
+            stripped_count = 0
+            for line in content.split("\n"):
+                ls = line.strip()
+                if "SUSPICIOUS" in ls.upper():
+                    reason = ls.split("SUSPICIOUS", 1)[-1].strip(": ").lower()
+                    false_kw = ["อนาคต", "future", "ปี ", "ปีพ", "พ.ศ.", " be ", "2569", "2570", "2571", "year"]
+                    if any(kw in reason for kw in false_kw):
+                        stripped_count += 1
+                        logger.info("Stripped false-positive SUSPICIOUS (year-related): %s", ls[:120])
+                        continue
+                filtered_lines.append(line)
+            if stripped_count > 0:
+                content = "\n".join(filtered_lines)
+        except Exception as _e:
+            logger.warning("SUSPICIOUS filter skipped: %s", _e)
+
         return content
     except Exception as exc:
         # FIX 2025-05-21 (Phase 2d caller): re-raise circuit-open so caller can defer slip
