@@ -188,37 +188,21 @@ async def record_payment_received(account_id: int, amount: Decimal, payment_id: 
     # Ensure Decimal type (prevent float drift)
     amt = amount if isinstance(amount, _D) else _D(str(amount))
 
-    # Idempotency check: if payment_id given, mark in admin_logs first
-    # If marker already exists → skip (already credited)
-    if payment_id is not None:
-        try:
-            async with get_session() as _sg:
-                _existing = await _sg.execute(text(
-                    "SELECT 1 FROM admin_logs WHERE action = :a AND target_id = :tid LIMIT 1"
-                ), {"a": "receiver_credit", "tid": payment_id})
-                if _existing.scalar():
-                    import logging
-                    logging.getLogger(__name__).info(
-                        "record_payment_received: payment_id=%s already credited to receiver_id=%s — skip",
-                        payment_id, account_id
-                    )
-                    return {"alert": False, "skipped": True, "reason": "already_credited"}
-                # Mark BEFORE update (prevents race)
-                await _sg.execute(text(
-                    "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details, created_at) "
-                    "VALUES (0, :a, :tt, :tid, :d, NOW())"
-                ), {
-                    "a": "receiver_credit", "tt": "payment", "tid": payment_id,
-                    "d": f"account_id={account_id} amount={amt}",
-                })
-                await _sg.commit()
-        except Exception as _idx_exc:
-            import logging
-            logging.getLogger(__name__).warning("record_payment_received idempotency check failed: %s", _idx_exc)
-            # Continue anyway (don't block legitimate credits if logs fail)
-
+    import logging as _lg
+    # FIX (audit): marker + increment ใน transaction เดียว + unique index uq_admin_logs_receiver_credit
+    # -> นับครั้งเดียวจริง แม้ call ซ้ำ/ชนกัน (ON CONFLICT)
     async with get_session() as session:
-        # 1) Atomic increment cumulative
+        if payment_id is not None:
+            _m = await session.execute(text(
+                "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details, created_at) "
+                "VALUES (0, 'receiver_credit', 'payment', :tid, :d, NOW()) "
+                "ON CONFLICT (target_id) WHERE action = 'receiver_credit' DO NOTHING RETURNING id"
+            ), {"tid": payment_id, "d": f"account_id={account_id} amount={amt}"})
+            if _m.fetchone() is None:
+                await session.rollback()
+                _lg.getLogger(__name__).info("record_payment_received: payment_id=%s already credited — skip", payment_id)
+                return {"alert": False, "skipped": True, "reason": "already_credited"}
+        # increment cumulative (transaction เดียวกับ marker -> exactly-once)
         r = await session.execute(text("""
             UPDATE receiver_accounts
             SET cumulative_received = cumulative_received + :amt,
