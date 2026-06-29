@@ -197,6 +197,17 @@ class CharoenponCommands(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
+    async def cog_check(self, ctx: commands.Context) -> bool:
+        # AUDIT FIX H6: บล็อกคำสั่งที่มาจาก DM (เดิมใครก็ DM บอทสั่ง !approve/!revenue/!members ได้)
+        # เฉพาะใน guild เท่านั้น; ถ้าตั้ง DISCORD_GUILD_ID จะบังคับให้ตรง guild ด้วย
+        import os as _os
+        if ctx.guild is None:
+            return False
+        _gid = _os.environ.get("DISCORD_GUILD_ID")
+        if _gid and str(_gid).isdigit() and str(ctx.guild.id) != str(_gid):
+            return False
+        return True
+
     @commands.command(name="approve")
     async def approve_cmd(self, ctx: commands.Context, target: str = "", *, reason: str = "") -> None:
         """!approve ad — อนุมัติแอดโฆษณา / !approve broadcast — อนุมัติ broadcast"""
