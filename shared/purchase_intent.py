@@ -79,7 +79,7 @@ async def find_latest_pending(tg_id: int) -> Optional[dict]:
             row = await conn.fetchrow(
                 """
                 SELECT id, tier, original_price, final_price, promo_id, source,
-                       created_at, expires_at
+                       created_at, expires_at, receiver_account_id
                 FROM purchase_intents
                 WHERE user_telegram_id = $1
                   AND consumed_at IS NULL
@@ -120,4 +120,20 @@ async def consume_intent(intent_id: int, payment_id: Optional[int] = None) -> bo
         return ok
     except Exception as exc:
         logger.warning("INTENT_CONSUME_FAIL: id=%s err=%s", intent_id, exc)
+        return False
+
+async def set_intent_receiver(intent_id: int, account_id: int) -> bool:
+    """บันทึกบัญชีที่ระบบสุ่มให้ลูกค้าตอนซื้อ — ใช้ตอนนับยอดแม้ Slip2Go อ่านไม่ออก."""
+    try:
+        conn = await _connect()
+        try:
+            await conn.execute(
+                "UPDATE purchase_intents SET receiver_account_id = $2 WHERE id = $1",
+                int(intent_id), int(account_id),
+            )
+        finally:
+            await conn.close()
+        return True
+    except Exception as exc:
+        logger.warning("INTENT_SET_RECEIVER_FAIL: id=%s err=%s", intent_id, exc)
         return False

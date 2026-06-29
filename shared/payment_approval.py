@@ -761,6 +761,16 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
         # ตอนนี้: ถ้า method=SLIP/PROMPTPAY และไม่มี matched → default active receiver เดียว
         #         (ถ้ามี > 1 active → skip — ต้องระบุชัดเจน)
         if inp.method.upper() in ("SLIP", "PROMPTPAY") and not inp.matched_receiver_account_id:
+            # ใช้บัญชีที่ระบบสุ่มให้ลูกค้าตอนซื้อ (เก็บใน purchase_intent) — รู้ตั้งแต่ pick
+            try:
+                from shared.purchase_intent import find_latest_pending as _flp
+                _pi_rcv = await _flp(inp.telegram_id)
+                if _pi_rcv and _pi_rcv.get("receiver_account_id"):
+                    inp.matched_receiver_account_id = _pi_rcv["receiver_account_id"]
+                    logger.info("[approval] STEP16 receiver from intent=%s", inp.matched_receiver_account_id)
+            except Exception as _pe:
+                logger.warning("[approval] intent receiver lookup: %s", _pe)
+        if inp.method.upper() in ("SLIP", "PROMPTPAY") and not inp.matched_receiver_account_id:
             try:
                 async with get_session() as _rs0:
                     _rs = await _rs0.execute(sql_text(

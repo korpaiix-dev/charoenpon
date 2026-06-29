@@ -13,7 +13,7 @@ import os, hmac, hashlib, urllib.parse
 from fastapi.responses import HTMLResponse
 
 from ..database import pool
-from shared.purchase_intent import create_intent as _create_intent
+from shared.purchase_intent import create_intent as _create_intent, set_intent_receiver as _set_intent_receiver
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["customer-miniapp"])
@@ -260,6 +260,12 @@ async def customer_buy(request: Request):
     if not acct:
         await _send_bot_message(bot_token, tg_id, "⚠️ ระบบรับเงินไม่พร้อม กรุณาทักแอดมินค่ะ")
         return {"ok": False, "error": "no_receiver"}
+    # เก็บบัญชีที่สุ่มได้ลง intent -> ใช้ตอนนับยอด (รู้ตั้งแต่ pick)
+    if _intent_id:
+        try:
+            await _set_intent_receiver(_intent_id, acct["id"])
+        except Exception:
+            pass
 
     body = (
         f"💳 <b>คำสั่งซื้อ: {pkg_name}</b>\n"
