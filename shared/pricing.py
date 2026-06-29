@@ -263,7 +263,12 @@ _PROMO_CACHE = {"items": None, "expires": 0.0}
 
 
 def _load_active_db_promotions_sync() -> list[dict]:
-    """Load active promotions from DB (psycopg2 sync). Cached 60s."""
+    """Load active promotions from DB. Cached 60s.
+
+    Implementation: tries psycopg2 first (sync path used by dashboard).
+    Falls back to asyncpg via thread + new event loop (sales-bot container
+    doesn't ship psycopg2 — only asyncpg).
+    """
     import time as _t
     now = _t.time()
     if _PROMO_CACHE["items"] is not None and _PROMO_CACHE["expires"] > now:
@@ -273,24 +278,61 @@ def _load_active_db_promotions_sync() -> list[dict]:
         import os as _os
         db_url = _os.environ.get("DATABASE_URL", "")
         if not db_url:
+            _PROMO_CACHE["items"] = items
+            _PROMO_CACHE["expires"] = now + 60
             return items
-        db_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
-        import psycopg2  # type: ignore
-        from psycopg2.extras import RealDictCursor  # type: ignore
-        conn = psycopg2.connect(db_url)
+        sync_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
+
+        # ── Path A: psycopg2 (dashboard, etc.) ──
         try:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
-                    SELECT id, code, name, package_codes, discount_type, discount_value
-                      FROM promotions
-                     WHERE is_active = TRUE
-                       AND (starts_at IS NULL OR starts_at <= NOW())
-                       AND (ends_at   IS NULL OR ends_at   >= NOW())
-                """)
-                for r in cur.fetchall():
-                    items.append(dict(r))
-        finally:
-            conn.close()
+            import psycopg2  # type: ignore
+            from psycopg2.extras import RealDictCursor  # type: ignore
+            conn = psycopg2.connect(sync_url)
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        SELECT id, code, name, package_codes, discount_type, discount_value
+                          FROM promotions
+                         WHERE is_active = TRUE
+                           AND (starts_at IS NULL OR starts_at <= NOW())
+                           AND (ends_at   IS NULL OR ends_at   >= NOW())
+                    """)
+                    for r in cur.fetchall():
+                        items.append(dict(r))
+            finally:
+                conn.close()
+        except ImportError:
+            # ── Path B: asyncpg via thread+loop ──
+            import asyncio as _aio
+            import threading as _th
+            async def _fetch():
+                import asyncpg
+                conn = await asyncpg.connect(sync_url)
+                try:
+                    rows = await conn.fetch("""
+                        SELECT id, code, name, package_codes, discount_type, discount_value
+                          FROM promotions
+                         WHERE is_active = TRUE
+                           AND (starts_at IS NULL OR starts_at <= NOW())
+                           AND (ends_at   IS NULL OR ends_at   >= NOW())
+                    """)
+                    return [dict(r) for r in rows]
+                finally:
+                    await conn.close()
+            result_box = {"v": []}
+            def _runner():
+                try:
+                    loop = _aio.new_event_loop()
+                    try:
+                        result_box["v"] = loop.run_until_complete(_fetch())
+                    finally:
+                        loop.close()
+                except Exception:
+                    pass
+            t = _th.Thread(target=_runner, daemon=True)
+            t.start()
+            t.join(timeout=3.0)
+            items = result_box["v"]
     except Exception:
         # fail-open: no DB promos → fallback to base_map
         pass
