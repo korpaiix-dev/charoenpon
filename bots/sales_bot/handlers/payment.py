@@ -1597,7 +1597,34 @@ async def handle_photo_slip(
                 slip_hash=slip_hash,
             )
             session.add(payment)
-            await session.flush()
+            # FIX 2026-06-29 (Jade case): catch uq_payment_slip_hash_active gracefully
+            # เดิม: ลูกค้าส่งสลิปซ้ำ → flush() throw IntegrityError → bot crash → UNHANDLED ห้องแอดมิน
+            # ใหม่: ตรวจ unique violation แล้ว silent DM ลูกค้า "สลิปนี้ใช้แล้ว"
+            try:
+                from sqlalchemy.exc import IntegrityError as _IE2
+                await session.flush()
+            except _IE2 as _ie:
+                _msg = str(_ie).lower()
+                if "uq_payment_slip_hash_active" in _msg or "slip_hash" in _msg:
+                    logger.warning(
+                        "Duplicate slip_hash submission silently rejected: user_tg=%s slip_hash=%s",
+                        user.id, slip_hash,
+                    )
+                    await session.rollback()
+                    try:
+                        await update.message.reply_text(
+                            "⚠️ <b>สลิปนี้ถูกส่งมาแล้ว</b>\n\n"
+                            "ระบบเคยรับสลิปยอดนี้ไปแล้ว — ไม่ต้องส่งซ้ำนะคะ 🙏\n"
+                            "กรุณารอแอดมินตรวจสอบยอดเดิม\n\n"
+                            "หากต้องการความช่วยเหลือ พิมพ์ /support",
+                            parse_mode="HTML",
+                        )
+                    except Exception as _re:
+                        logger.warning("Reply dup-slip notice failed: %s", _re)
+                    return
+                # Other IntegrityError (FK, NOT NULL) — re-raise to global handler
+                logger.error("Non-dup IntegrityError on payment insert: %s", _ie)
+                raise
             payment_id = payment.id
             logger.info("Payment created: id=%s user=%s amount=%s", payment_id, user.id, expected_price)
         else:
