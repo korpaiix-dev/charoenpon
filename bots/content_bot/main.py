@@ -1205,10 +1205,10 @@ async def get_caption_performance(days: int = 7) -> list[dict]:
                     ON pl.round_time = tc.round_time
                     AND pl.group_index = tc.group_index
                     AND tc.created_at::date = pl.posted_at::date
-                WHERE pl.posted_at >= NOW() - INTERVAL '%s days'
+                WHERE pl.posted_at >= NOW() - (:days * INTERVAL '1 day')
                 GROUP BY pl.caption_style
                 ORDER BY clicks DESC
-            """ % days))
+            """), {"days": int(days)})
             rows = result.fetchall()
             return [
                 {
@@ -1242,10 +1242,10 @@ async def analyze_best_rounds(days: int = 7) -> list[dict]:
                         ELSE 0
                     END as conversion_rate
                 FROM teaser_clicks
-                WHERE created_at >= NOW() - INTERVAL '%s days'
+                WHERE created_at >= NOW() - (:days * INTERVAL '1 day')
                 GROUP BY round_time
                 ORDER BY clicks DESC
-            """ % days))
+            """), {"days": int(days)})
             rows = result.fetchall()
             rounds = [
                 {
