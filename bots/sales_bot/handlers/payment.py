@@ -1443,7 +1443,7 @@ async def handle_photo_slip(
                     try:
                         if _matched_account is not None:
                             from shared.receiver_pool import record_payment_received
-                            _rec = await record_payment_received(_matched_account['id'], s2g_amount)
+                            _rec = await record_payment_received(_matched_account['id'], s2g_amount, payment_id=_new_pay_id)  # AUDIT: idempotent — STEP16 ใน apply_payment_approval นับไปแล้ว กันนับซ้ำ 2 เท่า
                             if _rec.get('alert'):
                                 _alert_bot = tg.Bot(token=os.environ.get('ADMIN_BOT_TOKEN', ''))
                                 try:
