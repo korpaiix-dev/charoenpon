@@ -12,13 +12,13 @@ from ..database import pool
 from shared.rate_limit_simple import rate_limit_check
 
 router = APIRouter(tags=["panda-errors"])
-_TOKEN = os.environ.get("PANDA_MONITOR_TOKEN", "panda2026")
+_TOKEN = os.environ.get("PANDA_MONITOR_TOKEN")
 
 
 @router.get("/panda-errors/data")
 async def panda_errors_data(request: Request, token: str = Query(None), since_hours: int = 24):
     await rate_limit_check(request, key="panda_errors", limit=60, window=60)
-    if token != _TOKEN:
+    if not _TOKEN or token != _TOKEN:
         raise HTTPException(status_code=403, detail="invalid token")
 
     summary = await pool.fetchrow("""
@@ -63,7 +63,7 @@ async def panda_errors_data(request: Request, token: str = Query(None), since_ho
 
 @router.post("/panda-errors/resolve")
 async def panda_errors_resolve(token: str = Query(None), fingerprint: str = Query(None)):
-    if token != _TOKEN:
+    if not _TOKEN or token != _TOKEN:
         raise HTTPException(status_code=403, detail="invalid token")
     if not fingerprint:
         raise HTTPException(status_code=400, detail="fingerprint required")
@@ -77,7 +77,7 @@ async def panda_errors_resolve(token: str = Query(None), fingerprint: str = Quer
 
 @router.get("/panda-errors", response_class=HTMLResponse)
 async def panda_errors_html(token: str = Query(None)):
-    if token != _TOKEN:
+    if not _TOKEN or token != _TOKEN:
         return HTMLResponse("<h1>Forbidden</h1>", status_code=403)
     return HTMLResponse(_HTML.replace("__TOKEN__", token))
 

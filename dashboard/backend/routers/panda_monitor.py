@@ -8,13 +8,13 @@ from ..database import pool
 from shared.rate_limit_simple import rate_limit_check
 
 router = APIRouter(tags=["panda-monitor"])
-_PANDA_TOKEN = os.environ.get("PANDA_MONITOR_TOKEN", "panda2026")
+_PANDA_TOKEN = os.environ.get("PANDA_MONITOR_TOKEN")
 
 
 @router.get("/panda-monitor/data")
 async def panda_monitor_data(request: Request, token: str = Query(None)):
     await rate_limit_check(request, key="panda_monitor", limit=60, window=60)
-    if token != _PANDA_TOKEN:
+    if not _PANDA_TOKEN or token != _PANDA_TOKEN:
         raise HTTPException(status_code=403, detail="invalid token")
 
     # FIX 2026-06-21: ใช้ BKK timezone (DB เก็บ UTC) + exclude test users
@@ -106,7 +106,7 @@ async def panda_monitor_data(request: Request, token: str = Query(None)):
 
 @router.get("/panda-monitor", response_class=HTMLResponse)
 async def panda_monitor_html(token: str = Query(None)):
-    if token != _PANDA_TOKEN:
+    if not _PANDA_TOKEN or token != _PANDA_TOKEN:
         return HTMLResponse("<h1>Forbidden</h1>", status_code=403)
     html_body = _build_html(token)
     return HTMLResponse(html_body)

@@ -118,8 +118,8 @@ async def ws_container_logs(websocket: WebSocket, container: str, token: Optiona
             await websocket.close(code=1008, reason="invalid token")
             return
         # Admin-only
-        roles = payload.get("roles") or []
-        if "admin" not in roles and "owner" not in roles:
+        role = payload.get("role") or ""
+        if role not in ("admin", "super_admin", "owner"):
             await websocket.close(code=1008, reason="admin only")
             return
     except Exception:

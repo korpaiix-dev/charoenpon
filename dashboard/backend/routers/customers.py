@@ -452,7 +452,7 @@ async def unban_user(user_id: int, request: Request, admin=Depends(require_role(
     return {"ok": True}
 
 @router.post("/{user_id}/dm")
-async def dm_customer(user_id: int, req: DMRequest, request: Request, admin=Depends(get_current_admin)):
+async def dm_customer(user_id: int, req: DMRequest, request: Request, admin=Depends(require_role("admin"))):
     user = await pool.fetchrow("SELECT telegram_id FROM users WHERE id = $1", user_id)
     if not user:
         raise HTTPException(404, "User not found")
@@ -695,7 +695,7 @@ class _SubCancelReq(_BM2):
     refund_kept_days: bool = False
 
 @router.post('/{user_id}/cancel-sub')
-async def cancel_subscription(user_id: int, req: _SubCancelReq, admin=Depends(get_current_admin)):
+async def cancel_subscription(user_id: int, req: _SubCancelReq, admin=Depends(require_role("admin"))):
     """Cancel active subscription. Optionally keep used days (no refund) or full revoke."""
     row = await pool.fetchrow(
         "UPDATE subscriptions SET status='EXPIRED', end_date=NOW(), updated_at=NOW() "
@@ -717,7 +717,7 @@ async def cancel_subscription(user_id: int, req: _SubCancelReq, admin=Depends(ge
 
 
 @router.post('/{user_id}/reactivate-sub')
-async def reactivate_subscription(user_id: int, admin=Depends(get_current_admin)):
+async def reactivate_subscription(user_id: int, admin=Depends(require_role("admin"))):
     """Reactivate latest EXPIRED sub if end_date >= NOW() (revert cancel)."""
     row = await pool.fetchrow(
         """UPDATE subscriptions SET status='ACTIVE', updated_at=NOW()
@@ -750,7 +750,7 @@ class _GiftSubReq(_BM2):
     reason: str = ''
 
 @router.post('/{user_id}/gift-sub')
-async def gift_subscription(user_id: int, req: _GiftSubReq, admin=Depends(get_current_admin)):
+async def gift_subscription(user_id: int, req: _GiftSubReq, admin=Depends(require_role("admin"))):
     """Grant a free subscription (no payment_id) — used for compensation / gift.
 
     FIX 2026-06-29 (#445): trigger downstream — เติม credits / invite links / DM
@@ -892,7 +892,7 @@ class _RegenLinkReq(BaseModel):
 
 @router.post("/{user_id}/regen-links")
 async def regen_invite_links(user_id: int, request: Request, req: _RegenLinkReq | None = None,
-                              admin=Depends(get_current_admin)):
+                              admin=Depends(require_role("admin"))):
     """Regenerate invite links for customer's active subscription + DM the customer.
 
     Use case: customer's old link expired / didn't click in time. Send fresh links.

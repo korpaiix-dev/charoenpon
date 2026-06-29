@@ -204,7 +204,7 @@ async def create_receiver(req: ReceiverCreate, admin=Depends(require_role("admin
             """
             INSERT INTO receiver_accounts
                 (owner_name, bank_code, bank_name_th, account_no, name_keyword,
-                 bank_last5, promptpay_number, proxy_last4, qr_url, qr_url,
+                 bank_last5, promptpay_number, proxy_last4, qr_url,
                  weight, alert_threshold, notes, enabled,
                  cumulative_received, last_alert_at_amount)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, TRUE, 0, 0)
