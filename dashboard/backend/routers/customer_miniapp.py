@@ -303,13 +303,20 @@ async def _send_bot_message(token: str, chat_id: int, text: str, reply_markup: d
 
 
 async def _send_bot_photo(token: str, chat_id: int, photo_url: str, caption: str = ""):
-    import httpx
-    async with httpx.AsyncClient(timeout=15) as c:
+    import httpx, os as _os
+    url = f"https://api.telegram.org/bot{token}/sendPhoto"
+    async with httpx.AsyncClient(timeout=20) as c:
         try:
-            r = await c.post(
-                f"https://api.telegram.org/bot{token}/sendPhoto",
-                json={"chat_id": chat_id, "photo": photo_url, "caption": caption, "parse_mode": "HTML"},
-            )
+            if photo_url.startswith("http"):
+                r = await c.post(url, json={"chat_id": chat_id, "photo": photo_url, "caption": caption, "parse_mode": "HTML"})
+            else:
+                # AUDIT FIX: relative /assets path -> upload bytes (Telegram fetch relative URL ไม่ได้)
+                local = "/app/dashboard/frontend" + photo_url
+                if not _os.path.exists(local):
+                    logger.warning("QR file not found: %s", local)
+                    return
+                with open(local, "rb") as _fp:
+                    r = await c.post(url, data={"chat_id": str(chat_id), "caption": caption, "parse_mode": "HTML"}, files={"photo": _fp})
             r.raise_for_status()
         except Exception as exc:
             logger.warning("sendPhoto failed tg=%s: %s", chat_id, exc)
