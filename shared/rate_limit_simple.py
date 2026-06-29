@@ -28,10 +28,13 @@ async def rate_limit_check(
         if r is None:
             return  # fail-open
         
-        client_ip = request.client.host if request.client else "unknown"
-        forwarded = request.headers.get("x-forwarded-for", "")
-        if forwarded:
-            client_ip = forwarded.split(",")[0].strip()
+        # AUDIT FIX M6: CF-Connecting-IP/X-Real-IP ตั้งโดย proxy (client ปลอมไม่ได้); XFF ดิบใช้เป็น last resort
+        client_ip = (
+            request.headers.get("cf-connecting-ip")
+            or request.headers.get("x-real-ip")
+            or (request.client.host if request.client else None)
+            or (request.headers.get("x-forwarded-for", "").split(",")[0].strip() or "unknown")
+        )
         
         bucket_key = f"ratelimit:{key}:{client_ip}:{int(time.time() // window)}"
         count = await r.incr(bucket_key)

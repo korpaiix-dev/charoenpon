@@ -45,6 +45,9 @@ GUARDIAN_BOT_ID = 0  # System admin ID
 # --- CSV whitelist (ชั้นที่ 2) ---
 _csv_whitelist: set[int] = set()
 _csv_loaded = False
+_csv_mtime = 0.0
+_csv_loaded_at = 0.0
+_CSV_TTL = 600.0  # AUDIT FIX M4: reload ทุก 10 นาที / เมื่อไฟล์เปลี่ยน
 
 CSV_PATH = Path(os.environ.get("CSV_WHITELIST_PATH", "/app/data/members2_latest.csv"))
 
@@ -56,9 +59,17 @@ def load_csv_whitelist() -> set[int]:
     Active + Expiry Date ยังไม่ถึง → whitelist
     Expired หรือ Expiry Date ผ่านแล้ว → ไม่ whitelist
     """
-    global _csv_whitelist, _csv_loaded
-    if _csv_loaded:
+    global _csv_whitelist, _csv_loaded, _csv_mtime, _csv_loaded_at
+    import time as _t
+    try:
+        _m = CSV_PATH.stat().st_mtime
+    except OSError:
+        _m = 0.0
+    _now = _t.time()
+    if _csv_loaded and _m == _csv_mtime and (_now - _csv_loaded_at) < _CSV_TTL:
         return _csv_whitelist
+    _csv_mtime = _m
+    _csv_loaded_at = _now
 
     whitelist: set[int] = set()
     now = datetime.utcnow()

@@ -187,7 +187,8 @@ async def _ai_read_slip(b64_image: str) -> str | None:
                 if "SUSPICIOUS" in ls.upper():
                     reason = ls.split("SUSPICIOUS", 1)[-1].strip(": ").lower()
                     false_kw = ["อนาคต", "future", "ปี ", "ปีพ", "พ.ศ.", " be ", "2569", "2570", "2571", "year"]
-                    if any(kw in reason for kw in false_kw):
+                    hard_kw = ["จำนวน", "ยอด", "amount", "ปลอม", "fake", "ตัดต่อ", "edited", "แก้ไข", "mismatch", "ไม่ตรง", "ซ้ำ", "duplicate", "บัญชี", "ชื่อ"]
+                    if any(kw in reason for kw in false_kw) and not any(hk in reason for hk in hard_kw):
                         stripped_count += 1
                         logger.info("Stripped false-positive SUSPICIOUS (year-related): %s", ls[:120])
                         continue
