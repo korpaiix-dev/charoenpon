@@ -64,51 +64,93 @@ async def funnel(days: int = 30, admin=Depends(require_role("admin"))):
 
 @router.get("/roi")
 async def marketing_roi(days: int = 30, admin=Depends(require_role("admin"))):
-    """Per-marketer ROI summary for last N days."""
-    # Per marketer + platform breakdown
-    rows = await pool.fetch("""
-        WITH joins AS (
-            SELECT l.marketer, l.platform, l.id AS link_id, l.cost,
-                   j.telegram_id, j.joined_at
-            FROM marketing_invite_links l
-            LEFT JOIN marketing_invite_joins j ON j.link_id = l.id
-                 AND j.joined_at >= now() - ($1::int * INTERVAL '1 day')
-            WHERE l.is_revoked = false OR j.id IS NOT NULL
-        ),
-        paid AS (
-            SELECT j.marketer, j.platform, j.link_id, j.cost,
-                   j.telegram_id,
-                   (SELECT COALESCE(SUM(p.amount), 0) FROM payments p
-                    JOIN users u ON u.id = p.user_id
-                    WHERE u.telegram_id = j.telegram_id
+    """Per-marketer ROI summary for last N days.
+
+    Uses the same logic as ``shared.marketing_stats.get_marketer_stats``
+    so Discord notify, Dashboard ROI, and Weekly MVP all show the same
+    numbers. Key invariants enforced:
+      - JOIN payments via user_id (not telegram_id) to avoid cross-link dup
+      - DISTINCT p.id in COUNT/SUM (kill double-count for users with
+        multiple joins across links)
+      - Exclude test users (telegram_id >= 9_000_000_000)
+    """
+    # Per-link aggregates first — avoids row multiplication that happens
+    # when LEFT JOIN payments are summed up at the marketer level.
+    link_rows = await pool.fetch("""
+        SELECT
+            l.id AS link_id,
+            l.marketer,
+            l.platform,
+            l.cost::float AS cost,
+            (
+                SELECT COUNT(DISTINCT j.user_id)
+                FROM marketing_invite_joins j
+                JOIN users u ON u.id = j.user_id
+                WHERE j.link_id = l.id
+                  AND j.user_id IS NOT NULL
+                  AND u.telegram_id < 9000000000
+                  AND j.joined_at >= now() - ($1::int * INTERVAL '1 day')
+            )::int AS joins,
+            (
+                SELECT COUNT(*) FROM (
+                    SELECT DISTINCT p.id
+                    FROM marketing_invite_joins j2
+                    JOIN users u2 ON u2.id = j2.user_id
+                    JOIN payments p ON p.user_id = j2.user_id
+                    WHERE j2.link_id = l.id
+                      AND j2.user_id IS NOT NULL
+                      AND u2.telegram_id < 9000000000
+                      AND j2.joined_at >= now() - ($1::int * INTERVAL '1 day')
                       AND p.status = 'CONFIRMED'
                       AND p.amount > 0
-                      AND p.created_at >= j.joined_at
-                      AND (p.created_at - j.joined_at) <= interval '30 days') AS rev
-            FROM joins j
-            WHERE j.telegram_id IS NOT NULL
-        ),
-        link_revenue AS (
-            SELECT link_id, marketer, platform, MAX(cost) AS cost,
-                   COUNT(DISTINCT telegram_id) AS joins,
-                   COUNT(DISTINCT telegram_id) FILTER (WHERE rev > 0) AS paid_count,
-                   SUM(rev) AS revenue
-            FROM paid
-            GROUP BY link_id, marketer, platform
-        )
-        SELECT
-            marketer,
-            platform,
-            SUM(cost)::float AS cost,
-            SUM(joins)::int AS joins,
-            SUM(paid_count)::int AS paid,
-            SUM(revenue)::float AS revenue,
-            (SUM(revenue) - SUM(cost))::float AS profit,
-            CASE WHEN SUM(cost) > 0 THEN ROUND(((SUM(revenue) - SUM(cost)) / SUM(cost) * 100)::numeric, 1)::float ELSE NULL END AS roi_pct
-        FROM link_revenue
-        GROUP BY marketer, platform
-        ORDER BY revenue DESC NULLS LAST
+                      AND p.created_at >= j2.joined_at
+                      AND (p.created_at - j2.joined_at) <= INTERVAL '30 days'
+                ) sub
+            )::int AS paid,
+            (
+                SELECT COALESCE(SUM(amount), 0)::float FROM (
+                    SELECT DISTINCT p.id, p.amount
+                    FROM marketing_invite_joins j2
+                    JOIN users u2 ON u2.id = j2.user_id
+                    JOIN payments p ON p.user_id = j2.user_id
+                    WHERE j2.link_id = l.id
+                      AND j2.user_id IS NOT NULL
+                      AND u2.telegram_id < 9000000000
+                      AND j2.joined_at >= now() - ($1::int * INTERVAL '1 day')
+                      AND p.status = 'CONFIRMED'
+                      AND p.amount > 0
+                      AND p.created_at >= j2.joined_at
+                      AND (p.created_at - j2.joined_at) <= INTERVAL '30 days'
+                ) sub
+            ) AS revenue
+        FROM marketing_invite_links l
+        WHERE l.is_revoked = false
+           OR EXISTS (SELECT 1 FROM marketing_invite_joins jj WHERE jj.link_id = l.id)
     """, days)
+
+    # Aggregate per (marketer, platform). Drop empty rows (no cost / no joins / no revenue).
+    from collections import defaultdict
+    agg: dict = defaultdict(lambda: {"cost": 0.0, "joins": 0, "paid": 0, "revenue": 0.0})
+    for r in link_rows:
+        if (r["cost"] or 0) == 0 and (r["joins"] or 0) == 0 and (r["revenue"] or 0) == 0:
+            continue
+        key = (r["marketer"], r["platform"])
+        agg[key]["cost"] += float(r["cost"] or 0)
+        agg[key]["joins"] += int(r["joins"] or 0)
+        agg[key]["paid"] += int(r["paid"] or 0)
+        agg[key]["revenue"] += float(r["revenue"] or 0)
+
+    rows = [
+        {
+            "marketer": k[0], "platform": k[1],
+            "cost": v["cost"], "joins": v["joins"],
+            "paid": v["paid"], "revenue": v["revenue"],
+            "profit": v["revenue"] - v["cost"],
+            "roi_pct": round((v["revenue"] - v["cost"]) / v["cost"] * 100, 1) if v["cost"] > 0 else None,
+        }
+        for k, v in agg.items()
+    ]
+    rows.sort(key=lambda r: r["revenue"], reverse=True)
     
     # Also: include links with cost but zero joins (for completeness)
     rows_no_joins = await pool.fetch("""
