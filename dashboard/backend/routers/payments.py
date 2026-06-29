@@ -287,146 +287,108 @@ async def _generate_invite_links(package_id: int, user_telegram_id: int | None =
 
 @router.post("/{payment_id}/approve")
 async def approve_payment(payment_id: int, request: Request, admin=Depends(get_current_admin)):
-    # FIX 2025-05-21 (Phase D-1-business): wrap status update + subscription creation + total_spent
-    # in a single DB transaction with UPDATE ... WHERE status='PENDING' RETURNING * as the gate.
-    # ก่อนหน้านี้ admin 2 คนกดพร้อมกัน → INSERT subscription 2 รอบ, total_spent ซ้ำ, sheets log 2 บรรทัด,
-    # referral reward 2 ครั้ง. การ gate ด้วย WHERE status='PENDING' ทำให้แค่ transaction เดียวเท่านั้น
-    # ที่ผ่านไปสร้าง subscription ได้.
-    telegram_errors = []
-    pkg = None
-    pay = None
+    """Dashboard approve payment.
 
+    REFACTOR 2026-06-29 (P1 audit #447):
+      ก่อนหน้านี้ endpoint นี้ re-implement subscription create + invite links + DM
+      ทับ apply_payment_approval (ของ shared) → ข้าม 16/22 step (sender_ring, blacklist,
+      birthday bonus, onboarding rewards, gachapon credits, shaker, lifetime guard,
+      record_payment_received, discount apply, comeback mark, log_admin_action,
+      marketing attribution).
+      
+      ตอนนี้ route ผ่าน apply_payment_approval(source=ADMIN_BY_PID) → side-effect ครบ.
+      เก็บ dashboard-specific extras: double-approve guard, admin-group notify,
+      teaser_clicks mark, dashboard activity log.
+    """
+    telegram_errors: list[str] = []
+
+    # ── 1. Pre-check (guard before unified service does the heavy lift) ──
     async with pool.acquire() as conn:
-        async with conn.transaction():
-            pay = await conn.fetchrow("""
-                UPDATE payments
-                   SET status = 'CONFIRMED',
-                       verified_by = $1, verified_at = NOW()
-                 WHERE id = $2 AND status = 'PENDING'
-                 RETURNING *,
-                           (SELECT telegram_id FROM users WHERE id = user_id) AS customer_telegram_id,
-                           (SELECT first_name  FROM users WHERE id = user_id) AS customer_name
-            """, admin["telegram_id"], payment_id)
-            if pay is None:
-                existing = await conn.fetchrow("SELECT status FROM payments WHERE id=$1", payment_id)
-                if not existing:
-                    raise HTTPException(404, "Payment not found")
-                # already approved/rejected by someone else — 409 Conflict
-                raise HTTPException(409, f"Payment already {existing['status']}")
+        pay = await conn.fetchrow("""
+            SELECT p.*, u.telegram_id AS customer_telegram_id, u.first_name AS customer_name,
+                   u.is_banned AS user_is_banned
+            FROM payments p
+            JOIN users u ON u.id = p.user_id
+            WHERE p.id = $1
+        """, payment_id)
+        if not pay:
+            raise HTTPException(404, "Payment not found")
+        if pay["status"] != "PENDING":
+            raise HTTPException(409, f"Payment already {pay['status']}")
+        if pay["user_is_banned"]:
+            raise HTTPException(403, f"ลูกค้า (TG: {pay['customer_telegram_id']}) ถูกแบน — /unban ก่อน")
 
-            # # >>> DOUBLE_APPROVE_GUARD <<<
-            # Guard: if user has another CONFIRMED payment within last 15 min,
-            # this is likely a Telegram-bot vs Dashboard double approve. Refuse.
-            # >>> BUG5_DASH_PKG_MATCH <<<
-            # Only block duplicate approval for SAME package_id (legitimate add-on/re-buy passes through)
-            recent = await conn.fetchrow("""
-                SELECT id, amount, created_at FROM payments
-                WHERE user_id = $1 AND status = 'CONFIRMED' AND id <> $2
-                  AND package_id = $3
-                  AND created_at >= NOW() - INTERVAL '15 minutes'
-                ORDER BY created_at DESC LIMIT 1
-            """, pay["user_id"], payment_id, pay["package_id"])
-            if recent:
-                raise HTTPException(
-                    409,
-                    f"ลูกค้านี้เพิ่งถูกอนุมัติไปแล้ว (payment #{recent['id']}, ฿{recent['amount']}, {recent['created_at'].strftime('%H:%M:%S')}). กดอนุมัติซ้ำไม่ได้"
-                )
-            # ── Load package + create subscription atomically within transaction ──
-            pkg = await conn.fetchrow("SELECT * FROM packages WHERE id = $1", pay["package_id"])
-            if not pkg:
-                # Roll back by raising — payment update will revert
-                raise HTTPException(404, "Package not found")
-
-            # # >>> BUG7_DASH_LIFETIME <<<
-            # Protect lifetime (TIER_2499) — never expire it when buying
-            # other tier / add-on. Same as Sales Bot Phase 2b protection.
-            await conn.execute("""
-                UPDATE subscriptions SET status = 'EXPIRED'
-                WHERE user_id = $1 AND status = 'ACTIVE'
-                  AND package_id NOT IN (
-                    SELECT id FROM packages WHERE tier = 'TIER_2499'
-                  )
-            """, pay["user_id"])
-
-            # Trial (tier 99) = 24 hours, others use duration_days
-            if pkg["tier"] == "99":
-                duration_expr = "NOW() + interval '24 hours'"
-            else:
-                duration_expr = f"NOW() + interval '{pkg['duration_days']} days'"
-
-            await conn.execute(f"""
-                INSERT INTO subscriptions (user_id, package_id, status, start_date, end_date, auto_renew, payment_id)
-                VALUES ($1, $2, 'ACTIVE', NOW(), {duration_expr}, FALSE, $3)
-            """, pay["user_id"], pay["package_id"], payment_id)
-
-            # Update user total_spent (still inside transaction)
-            # FIX2_TRUST_TRIGGER total_spent maintained by DB trigger
-            pass  # no-op: trigger handles it
-    # ── transaction committed ──
-
-    # ── 3. Generate invite links via Guardian Bot (best-effort, outside TX) ──
-    invite_links = {}
-    links_list = []
-    try:
-        if GUARDIAN_BOT_TOKEN and pkg:
-            # FIX 2025-05-21 (Phase D-9-business): get title alongside link to avoid N+1 SELECT
-            invite_links_full = await _generate_invite_links(
-                pay["package_id"], pay["customer_telegram_id"], return_titles=True
-            )
-            for slug, info in invite_links_full.items():
-                invite_links[slug] = info["url"]
-                links_list.append({"text": f"🚀 {info['title']}", "url": info["url"]})
-    except Exception as exc:
-        logger.error("Failed to generate invite links: %s", exc)
-        telegram_errors.append(f"สร้าง invite link ไม่ได้: {exc}")
-
-    # ── 4. Send DM to customer via Sales Bot ──
-    try:
-        if SALES_BOT_TOKEN and pay["customer_telegram_id"] and pkg:
-            duration_days = pkg["duration_days"]
-            expire_date = (datetime.utcnow() + timedelta(
-                hours=24 if pkg["tier"] == "99" else duration_days * 24
-            )).strftime("%d/%m/%Y")
-
-            msg = (
-                f"✅ <b>อนุมัติยอด {int(pay['amount'])} บาท เรียบร้อยค่ะ</b>\n"
-                f"📦 แพ็กเกจ: {pkg['name']}\n"
-                f"📅 หมดอายุ: {expire_date}\n\n"
-                f"👇 <b>กดเข้ากลุ่มที่ปุ่มด้านล่างได้เลย</b>\n\n"
-                f"🆓 <b>ห้องฟรี:</b> https://t.me/addlist/w0YSyuHC_aE2ZGVl"
+        # Double-approve guard: same package within 15 min (preserve from old logic)
+        recent = await conn.fetchrow("""
+            SELECT id, amount, created_at FROM payments
+            WHERE user_id = $1 AND status = 'CONFIRMED' AND id <> $2
+              AND package_id = $3
+              AND created_at >= NOW() - INTERVAL '15 minutes'
+            ORDER BY created_at DESC LIMIT 1
+        """, pay["user_id"], payment_id, pay["package_id"])
+        if recent:
+            raise HTTPException(
+                409,
+                f"ลูกค้านี้เพิ่งถูกอนุมัติไปแล้ว (payment #{recent['id']}, ฿{recent['amount']}, {recent['created_at'].strftime('%H:%M:%S')}). กดอนุมัติซ้ำไม่ได้"
             )
 
-            # Build inline keyboard (2 buttons per row)
-            keyboard_rows = []
-            for i in range(0, len(links_list), 2):
-                row = [{"text": b["text"], "url": b["url"]} for b in links_list[i:i+2]]
-                keyboard_rows.append(row)
+        pkg = await conn.fetchrow("SELECT * FROM packages WHERE id = $1", pay["package_id"])
+        if not pkg:
+            raise HTTPException(404, "Package not found")
 
-            payload = {
-                "chat_id": pay["customer_telegram_id"],
-                "text": msg,
-                "parse_mode": "HTML",
-            }
-            if keyboard_rows:
-                payload["reply_markup"] = {"inline_keyboard": keyboard_rows}
-
-            result = await _telegram_api(SALES_BOT_TOKEN, "sendMessage", payload)
-            if not result.get("ok"):
-                telegram_errors.append(f"ส่ง DM ลูกค้าไม่ได้: {result.get('description', 'unknown')}")
+    # ── 2. Route through unified service ──
+    try:
+        from shared.payment_approval import (
+            apply_payment_approval, ApprovalInput, ApprovalSource,
+        )
+        from decimal import Decimal as _Dec
+        result = await apply_payment_approval(ApprovalInput(
+            user_id=pay["user_id"],
+            telegram_id=pay["customer_telegram_id"],
+            source=ApprovalSource.ADMIN_BY_PID,
+            amount_paid=_Dec(str(pay["amount"])),
+            explicit_package_id=pay["package_id"],
+            admin_id=admin.get("telegram_id"),
+            payment_id=payment_id,
+            slip_trans_ref=pay.get("slip_trans_ref"),
+            slip_hash=pay.get("slip_hash"),
+            sender_name=pay.get("sender_name"),
+            sender_bank_name=pay.get("sender_bank_name"),
+            sender_bank_account=pay.get("sender_bank_account"),
+            slip_file_id=pay.get("slip_file_id"),
+            method=str(pay.get("method") or "SLIP"),
+            matched_receiver_account_id=pay.get("matched_receiver_account_id"),
+            skip_sender_ring=True,   # admin override — they vetted it
+        ))
     except Exception as exc:
-        logger.error("Failed to send DM to customer: %s", exc)
-        telegram_errors.append(f"ส่ง DM ลูกค้าไม่ได้: {exc}")
+        logger.exception("[dashboard approve] apply_payment_approval crashed pid=%s: %s", payment_id, exc)
+        raise HTTPException(500, f"Approval service crashed: {exc}")
 
-    # ── 5. Edit admin group message ──
-    # Note: Payment model doesn't store admin_message_id, so we send a new
-    # confirmation message to admin group instead of editing the original
+    if not result.success:
+        # Service refused (banned, dup, sender_ring (shouldn't with override), etc.)
+        err_map = {
+            "user_banned": 403,
+            "dup_transref": 409,
+            "dup_hash": 409,
+            "blacklisted_sender": 403,
+            "blacklisted_slip": 403,
+            "sender_ring": 403,
+            "payment_not_found": 404,
+            "package_not_found": 404,
+        }
+        # dup_transref / dup_hash come like "dup_transref:123"
+        err_key = (result.error or "").split(":")[0]
+        status = err_map.get(err_key, 400)
+        raise HTTPException(status, result.error_details or result.error or "approval failed")
+
+    # ── 3. Admin-group notify (dashboard-specific) ──
     try:
         if ADMIN_BOT_TOKEN and ADMIN_GROUP_CHAT_ID:
             admin_name = admin.get("display_name") or admin.get("username") or "Dashboard Admin"
             notify_msg = (
                 f"✅ <b>อนุมัติจาก Dashboard</b>\n"
                 f"💰 ยอด: {int(pay['amount'])} บาท\n"
-                f"📦 แพ็กเกจ: {pkg['name'] if pkg else 'N/A'}\n"
+                f"📦 แพ็กเกจ: {pkg['name']}\n"
                 f"👤 ลูกค้า: {pay['customer_name'] or 'N/A'} (TG: {pay['customer_telegram_id']})\n"
                 f"👮 อนุมัติโดย: {admin_name}"
             )
@@ -439,117 +401,7 @@ async def approve_payment(payment_id: int, request: Request, admin=Depends(get_c
         logger.error("Failed to notify admin group: %s", exc)
         telegram_errors.append(f"แจ้ง admin group ไม่ได้: {exc}")
 
-    # ── 6. Sync Google Sheets ──
-    try:
-        import sys
-        if "/root/charoenpon" not in sys.path:
-            sys.path.insert(0, "/root/charoenpon")
-        from sheets.income_log import IncomeLogSheet
-        from sheets.daily_revenue import DailyRevenueSheet
-        from sheets.daily_summary import DailySummarySheet
-        from sheets.members import MembersSheet
-        await DailyRevenueSheet.update()
-        await DailySummarySheet.update()
-        await IncomeLogSheet.log_payment(payment_id, approved_by=admin.get("display_name", "Dashboard"))
-        await MembersSheet.update_member(pay["user_id"])
-        logger.info("Sheets synced for dashboard approval payment %d", payment_id)
-    except Exception as exc:
-        logger.warning("Sheets sync failed (non-critical): %s", exc)
-        telegram_errors.append(f"Sync Sheets ไม่ได้: {exc}")
-
-    # ── 7. Check referral reward ──
-    try:
-        import sys
-        if "/root/charoenpon" not in sys.path:
-            sys.path.insert(0, "/root/charoenpon")
-        from bots.sales_bot.handlers.referral import process_referral_reward
-        import telegram as tg
-        sales_bot = tg.Bot(token=SALES_BOT_TOKEN)
-        await process_referral_reward(pay["customer_telegram_id"], sales_bot)
-    except Exception as exc:
-        logger.warning("Referral reward failed (non-critical): %s", exc)
-
-    # ── 8. Flash sale slot increment ──
-    try:
-        if pkg and pkg["tier"] == "300":
-            import sys
-            if "/root/charoenpon" not in sys.path:
-                sys.path.insert(0, "/root/charoenpon")
-            from bots.sales_bot.handlers.flash_sale import increment_sold_slot
-            success, sold, total = await increment_sold_slot(pay["package_id"])
-            if success:
-                logger.info("Flash sale slot incremented: %d/%d", sold, total)
-    except Exception as exc:
-        logger.warning("Flash sale slot increment failed (non-critical): %s", exc)
-
-    # ── 9. Loyalty rank trigger (added 2026-06-25 from audit) ──
-    # Was missing: dashboard approve bypassed apply_payment_approval() → loyalty never re-checked
-    try:
-        from shared.loyalty_rank import compute_rank_for_user, promote_user_to_rank, rank_higher
-        from shared.database import get_session
-        from sqlalchemy import text as _ltxt
-        async with get_session() as _ls:
-            r = await _ls.execute(_ltxt("SELECT loyalty_rank FROM users WHERE id=:i"), {"i": pay["user_id"]})
-            current_rank = (r.scalar() or "NONE")
-        target_rank = await compute_rank_for_user(pay["user_id"])
-        if target_rank and target_rank != "NONE" and rank_higher(target_rank, current_rank):
-            logger.info("[dashboard approve] loyalty trigger from dashboard: user=%s %s -> %s", pay["user_id"], current_rank, target_rank)
-            await promote_user_to_rank(pay["user_id"], target_rank, silent=False)
-    except Exception as exc:
-        logger.warning("[dashboard approve] loyalty trigger failed: %s", exc)
-
-    # ── 10. Marketing conversion attribution (added 2026-06-25 from audit) ──
-    try:
-        from shared.discord_notify import notify_marketer_conversion as _mk_notify
-        from shared.database import get_session
-        from sqlalchemy import text as _mtxt
-        async with get_session() as _ms:
-            row = (await _ms.execute(_mtxt("""
-                SELECT l.id AS link_id, l.marketer, l.platform,
-                       EXTRACT(DAY FROM (now() - j.joined_at))::int AS days_since_join
-                FROM marketing_invite_joins j
-                JOIN marketing_invite_links l ON l.id = j.link_id
-                WHERE j.user_id = :uid OR j.telegram_id = :tg
-                ORDER BY j.joined_at DESC LIMIT 1
-            """), {"uid": pay["user_id"], "tg": pay["customer_telegram_id"]})).first()
-            if row:
-                marker = f"marketing_conv_notified:{payment_id}"
-                existing = (await _ms.execute(_mtxt(
-                    "SELECT 1 FROM admin_logs WHERE action = :a LIMIT 1"
-                ), {"a": marker})).first()
-                if not existing:
-                    await _ms.execute(_mtxt(
-                        "INSERT INTO admin_logs (admin_id, action, details, created_at) "
-                        "VALUES (0, :a, :d, now())"
-                    ), {"a": marker, "d": f"link={row.link_id} marketer={row.marketer}"})
-                    await _ms.commit()
-                    month_row = (await _ms.execute(_mtxt("""
-                        SELECT COUNT(DISTINCT p.id) AS cnt, COALESCE(SUM(p.amount), 0) AS rev
-                        FROM marketing_invite_joins j2
-                        JOIN marketing_invite_links l2 ON l2.id = j2.link_id
-                        JOIN users u2 ON u2.telegram_id = j2.telegram_id
-                        JOIN payments p ON p.user_id = u2.id
-                        WHERE l2.marketer = :m AND p.status = 'CONFIRMED' AND p.amount > 0
-                          AND (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok') >= date_trunc('month', now() AT TIME ZONE 'Asia/Bangkok')
-                          AND u2.telegram_id < 9000000000
-                    """), {"m": row.marketer})).first()
-                    m_cnt = int(month_row.cnt or 0) if month_row else 0
-                    m_rev = float(month_row.rev or 0) if month_row else 0
-                    # FIX 2026-06-26 (boss): await instead of create_task to prevent lost-task warnings
-                    # If notify fails, outer try/except catches it without crashing event loop
-                    await _mk_notify(
-                        marketer=row.marketer, platform=row.platform,
-                        telegram_id=pay["customer_telegram_id"],
-                        tg_username=None, tg_first_name=pay["customer_name"],
-                        amount=float(pay["amount"]),
-                        tier=str(pkg["tier"]) if pkg else "",
-                        days_since_join=int(row.days_since_join or 0),
-                        link_id=int(row.link_id), marketer_month_count=m_cnt, marketer_month_revenue=m_rev,
-                    )
-    except Exception as exc:
-        logger.warning("[dashboard approve] marketing conversion notify failed: %s", exc)
-
-    # ── Mark teaser clicks as converted ──
+    # ── 4. Mark teaser clicks converted ──
     try:
         await pool.execute("""
             UPDATE teaser_clicks SET converted = TRUE
@@ -558,20 +410,19 @@ async def approve_payment(payment_id: int, request: Request, admin=Depends(get_c
     except Exception:
         pass
 
-    # ── Activity log ──
+    # ── 5. Activity log ──
     ip = request.client.host if request.client else None
     await _log(admin["id"], "approve_payment", "payment", payment_id,
                {"amount": float(pay["amount"]), "user_id": pay["user_id"],
-                "telegram_sent": len(telegram_errors) == 0}, ip)
+                "subscription_id": result.subscription_id,
+                "via": "apply_payment_approval"}, ip)
 
-    # Return result — DB is always approved, report telegram errors separately
+    if not result.customer_dm_sent and not result.is_lifetime:
+        telegram_errors.append("ส่ง DM ลูกค้าไม่สำเร็จ (ระบบจะ alert ห้องแอดมินแล้ว)")
     if telegram_errors:
-        return {
-            "ok": True,
-            "warning": "อนุมัติแล้วแต่มีข้อผิดพลาดบางส่วน",
-            "errors": telegram_errors,
-        }
-    return {"ok": True}
+        return {"ok": True, "warning": "อนุมัติแล้วแต่มีข้อผิดพลาดบางส่วน", "errors": telegram_errors}
+    return {"ok": True, "subscription_id": result.subscription_id}
+
 
 @router.post("/{payment_id}/reject")
 async def reject_payment(payment_id: int, req: PaymentReject, request: Request, admin=Depends(get_current_admin)):
@@ -878,26 +729,37 @@ class _BulkRejectReq(_BM_bulk):
 
 @router.post('/bulk-reject')
 async def bulk_reject(req: _BulkRejectReq, admin=Depends(get_current_admin)):
-    """Reject multiple payments."""
+    """Reject multiple payments. Logs per-payment audit row for full trail."""
     results = {'rejected': [], 'failed': []}
+    reason_clipped = (req.reason or 'bulk reject')[:200]
     for pid in req.payment_ids[:50]:
         try:
             row = await pool.fetchrow(
                 "UPDATE payments SET status='REJECTED', reject_reason=$2, verified_at=NOW() "
                 "WHERE id=$1 AND status::text NOT IN ('CONFIRMED','REJECTED') RETURNING id",
-                pid, (req.reason or 'bulk reject')[:200]
+                pid, reason_clipped
             )
             if row:
                 results['rejected'].append(pid)
+                # Per-payment audit row (full trail vs target_id=0 aggregate)
+                try:
+                    await pool.execute(
+                        "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details) "
+                        "VALUES ($1, 'payment_rejected_bulk', 'payment', $2, $3)",
+                        admin['telegram_id'], pid, f"reason={reason_clipped[:150]}"
+                    )
+                except Exception:
+                    pass
             else:
                 results['failed'].append({'id': pid, 'reason': 'not in pending state'})
         except Exception as exc:
             results['failed'].append({'id': pid, 'reason': str(exc)[:100]})
+    # Aggregate summary row (kept for backwards-compat dashboards/reports)
     try:
         await pool.execute(
             "INSERT INTO admin_logs (admin_id, action, target_type, target_id, details) "
             "VALUES ($1, 'bulk_reject', 'payment', 0, $2)",
-            admin['telegram_id'], f"rejected={len(results['rejected'])} reason={req.reason[:100]}"
+            admin['telegram_id'], f"rejected={len(results['rejected'])} failed={len(results['failed'])} reason={reason_clipped[:100]}"
         )
     except Exception:
         pass
