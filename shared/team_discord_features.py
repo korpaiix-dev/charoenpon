@@ -98,26 +98,26 @@ async def morning_briefing() -> str:
 # 2. Weekly MVP — runs Friday 18:00 BKK
 # =========================================================
 async def weekly_mvp() -> str:
-    """Compute weekly MVP from marketing performance."""
-    async with get_session() as s:
-        rows = (await s.execute(sql_text("""
-            SELECT l.marketer,
-                   COUNT(DISTINCT j.id)::int AS joins,
-                   COUNT(DISTINCT p.id) FILTER (WHERE p.status='CONFIRMED' AND p.amount > 0)::int AS paid,
-                   COALESCE(SUM(p.amount) FILTER (WHERE p.status='CONFIRMED' AND p.amount > 0), 0)::int AS rev
-            FROM marketing_invite_links l
-            LEFT JOIN marketing_invite_joins j ON j.link_id = l.id
-              AND j.joined_at >= now() - interval '7 days'
-            LEFT JOIN users u ON u.telegram_id = j.telegram_id
-            LEFT JOIN payments p ON p.user_id = u.id
-              AND p.created_at >= j.joined_at
-              AND (p.created_at - j.joined_at) <= interval '30 days'
-              AND p.created_at >= now() - interval '14 days'
-            GROUP BY l.marketer
-            ORDER BY rev DESC, paid DESC, joins DESC
-        """))).fetchall()
+    """Compute weekly MVP from marketing performance.
 
-    if not rows or all(r.rev == 0 and r.joins == 0 for r in rows):
+    Uses ``shared.marketing_stats.stats_weekly_mvp`` so the leaderboard
+    numbers stay consistent with Discord notify and Dashboard ROI.
+    """
+    from shared.marketing_stats import stats_weekly_mvp, list_active_marketers
+
+    marketers = await list_active_marketers()
+    rows = []
+    for m in marketers:
+        try:
+            s = await stats_weekly_mvp(m)
+        except Exception:
+            continue
+        rows.append(s)
+
+    # Sort: revenue DESC, conversions DESC, joins DESC
+    rows.sort(key=lambda s: (s.revenue_thb, s.conversions, s.joins), reverse=True)
+
+    if not rows or all(s.revenue_thb == 0 and s.joins == 0 for s in rows):
         return ("🎉 **WEEKLY WRAP-UP** 🎉\n\nสัปดาห์นี้ทีมยังไม่มีการ track เลย — สู้ๆ สัปดาห์หน้านะคะ! 💕")
 
     winner = rows[0]
@@ -127,12 +127,15 @@ async def weekly_mvp() -> str:
         "─" * 25,
         "",
     ]
-    for i, r in enumerate(rows):
+    for i, s in enumerate(rows):
         medal = medals[i] if i < 3 else f"{i+1}."
-        lines.append(f"{medal} **{r.marketer}** — ฿{r.rev:,} ({r.paid}/{r.joins} → "
-                     f"{(r.paid/r.joins*100 if r.joins else 0):.0f}%)")
+        rate = (s.conversions / s.joins * 100) if s.joins else 0
+        lines.append(
+            f"{medal} **{s.marketer}** — ฿{s.revenue_thb:,.0f} "
+            f"({s.conversions}/{s.joins} → {rate:.0f}%)"
+        )
     lines.append("")
-    if winner.rev > 0 or winner.joins > 0:
+    if winner.revenue_thb > 0 or winner.joins > 0:
         lines.append(f"🏆 MVP สัปดาห์: **{winner.marketer}** เก่งมาก! ทีมปรบมือเลย 👏✨")
     lines.append("")
     lines.append("สู้สัปดาห์หน้านะทุกคน 💪💕")

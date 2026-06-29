@@ -997,21 +997,15 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
                     ), {"a": marker_key, "d": f"link={row.link_id} marketer={row.marketer}"})
                     await _ms.commit()
 
-                    # Compute marketer's month totals
-                    month_row = (await _ms.execute(sql_text("""
-                        SELECT COUNT(DISTINCT p.id) AS cnt,
-                               COALESCE(SUM(p.amount), 0) AS rev
-                        FROM marketing_invite_joins j2
-                        JOIN marketing_invite_links l2 ON l2.id = j2.link_id
-                        JOIN users u2 ON u2.telegram_id = j2.telegram_id
-                        JOIN payments p ON p.user_id = u2.id
-                        WHERE l2.marketer = :m
-                          AND p.status = 'CONFIRMED' AND p.amount > 0
-                          AND (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok') >= date_trunc('month', now() AT TIME ZONE 'Asia/Bangkok')
-                          AND u2.telegram_id < 9000000000
-                    """), {"m": row.marketer})).first()
-                    m_cnt = int(month_row.cnt or 0) if month_row else 0
-                    m_rev = float(month_row.rev or 0) if month_row else 0
+                    # Compute marketer's calendar-month totals via the shared
+                    # single-source helper. This guarantees Discord shows the
+                    # same number as Dashboard ROI + Weekly MVP.
+                    try:
+                        from shared.marketing_stats import stats_this_calendar_month_bkk
+                        _stats = await stats_this_calendar_month_bkk(row.marketer)
+                    except Exception as _stx:
+                        logger.warning("[approval] marketing stats failed: %s", _stx)
+                        _stats = None
 
                     # Fire Discord notification (don't block)
                     import asyncio as _aio
@@ -1022,8 +1016,7 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
                         tier=str(target_tier_str or "?"),
                         days_since_join=int(row.days_since_join or 0),
                         link_id=int(row.link_id),
-                        marketer_month_count=m_cnt,
-                        marketer_month_revenue=m_rev,
+                        stats=_stats,
                     ))
                     logger.info("[approval] marketing conversion: user=%s marketer=%s ฿%s",
                                 db_user_id, row.marketer, inp.amount_paid)
