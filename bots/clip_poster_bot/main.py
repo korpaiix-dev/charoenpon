@@ -227,6 +227,30 @@ def watermark_photo_bytes(input_bytes: bytes) -> bytes:
         return input_bytes
 
 
+# ─── HTML safety helpers ─────────────────────────────────────────────────────
+def _strip_html(text: str) -> str:
+    """Remove HTML tags + entities, keep plain text only.
+    Use for preview text where formatting doesn't matter (summary, log)."""
+    import re as _re_h
+    import html as _html_h
+    if not text:
+        return ""
+    # Decode entities first (&amp; → &), then strip tags
+    no_ent = _html_h.unescape(str(text))
+    no_tags = _re_h.sub(r"<[^>]*>", "", no_ent)
+    return no_tags.strip()
+
+
+def _safe_html(text, max_len: int = None) -> str:
+    """Escape for HTML parse_mode + optional truncate.
+    SAFE truncation: cuts at char boundary, then escapes (no broken entities)."""
+    import html as _html_h
+    s = str(text or "")
+    if max_len is not None and len(s) > max_len:
+        s = s[:max_len]
+    return _html_h.escape(s, quote=False)
+
+
 # ─── Watermark via ffmpeg ────────────────────────────────────────────────────
 def watermark_video(input_path: str, output_path: str, logo_path: str) -> bool:
     """Overlay logo bottom-right at 15% video width.
@@ -703,9 +727,10 @@ async def on_tier_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     status_msg = q.message
 
     try:
+        _tier_safe_st = _safe_html(tier_hint or "(ทั่วไป)")
         await status_msg.edit_text(
             f"⏳ <b>กำลังประมวลผล</b> ({len(items)} ไฟล์)\n"
-            f"• Tier: <code>{tier_hint or '(ทั่วไป)'}</code>",
+            f"• Tier: <code>{_tier_safe_st}</code>",
             parse_mode="HTML",
         )
     except Exception:
@@ -731,9 +756,10 @@ async def on_tier_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return
 
         try:
+            _tier_safe_sd = _safe_html(tier_hint or "(ทั่วไป)")
             await status_msg.edit_text(
                 f"📤 <b>กำลังส่งไป {len(groups)} กลุ่ม</b> ({len(prepared)} ไฟล์/กลุ่ม)\n"
-                f"• Tier: <code>{tier_hint or '(ทั่วไป)'}</code>",
+                f"• Tier: <code>{_tier_safe_sd}</code>",
                 parse_mode="HTML",
             )
         except Exception:
@@ -750,21 +776,37 @@ async def on_tier_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 logger.warning("send to %s failed: %s", g["slug"], exc)
                 failed.append({"slug": g["slug"], "error": str(exc)[:100]})
 
+    # FIX 2026-06-29 (#474): strip HTML from caption preview + escape all user vars
+    # ก่อนหน้านี้ caption_text[:120] ตัดกลาง <b> tag → "unclosed start tag" error
+    _tier_safe = _safe_html(tier_hint or "(ทั่วไป)")
+    _caption_preview = _strip_html(caption_text)
+    _caption_safe = _safe_html(_caption_preview, max_len=120)
     summary = (
         f"{'✅' if not failed else '⚠️'} <b>เสร็จแล้ว</b>\n\n"
         f"• ไฟล์: <b>{len(prepared)}</b>\n"
         f"• ส่งสำเร็จ: <b>{len(sent)}/{len(groups)}</b>\n"
-        f"• Tier: <code>{tier_hint or '(ทั่วไป)'}</code>\n"
-        f"• Caption: <i>{caption_text[:120]}...</i>\n"
+        f"• Tier: <code>{_tier_safe}</code>\n"
+        f"• Caption: <i>{_caption_safe}...</i>\n"
     )
     if failed:
         summary += "\n❌ <b>กลุ่มที่ส่งไม่ผ่าน:</b>\n"
         for f in failed[:10]:
-            summary += f"  • {f['slug']}: {f['error'][:60]}\n"
+            _slug_safe = _safe_html(f.get('slug', ''))
+            _err_safe = _safe_html(f.get('error', ''), max_len=60)
+            summary += f"  • {_slug_safe}: {_err_safe}\n"
+    # FIX 2026-06-29 (#474): fallback to plain text if HTML still breaks
     try:
         await status_msg.edit_text(summary, parse_mode="HTML")
-    except Exception:
-        await ctx.bot.send_message(user.id, summary, parse_mode="HTML")
+    except Exception as _e_edit:
+        try:
+            await ctx.bot.send_message(user.id, summary, parse_mode="HTML")
+        except Exception as _e_html:
+            # last resort: strip ALL HTML and send plain
+            _plain = _strip_html(summary)
+            try:
+                await ctx.bot.send_message(user.id, _plain)
+            except Exception as _e_plain:
+                logger.warning("summary message failed (edit + send + plain): %s", _e_plain)
 
     await log_job(
         admin_id=user.id,
