@@ -281,7 +281,7 @@ async def marketing_stats(
                             AND p.created_at >= j.joined_at) AS total_paid
                 FROM marketing_invite_links l
                 JOIN marketing_invite_joins j ON j.link_id = l.id
-                WHERE {where_sql}
+                WHERE {where_sql} AND j.telegram_id < 9000000000
             )
             SELECT marketer, platform,
                    COUNT(*) AS joins,
@@ -549,6 +549,7 @@ async def get_marketing_goal(
                        COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'CONFIRMED' AND p.amount > 0), 0) AS revenue
                 FROM marketing_invite_links l
                 LEFT JOIN marketing_invite_joins j ON j.link_id = l.id
+                  AND j.telegram_id < 9000000000
                   AND date_trunc('month', j.joined_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')
                     = date_trunc('month', to_timestamp(:ym, 'YYYY-MM'))
                 LEFT JOIN users u ON u.telegram_id = j.telegram_id
@@ -799,7 +800,7 @@ async def set_marketing_link_cost(
                 LEFT JOIN payments p ON p.user_id = u.id
                   AND p.created_at >= j.joined_at
                   AND (p.created_at - j.joined_at) <= interval '30 days'
-                WHERE j.link_id = :lid
+                WHERE j.link_id = :lid AND j.telegram_id < 9000000000
             """), {"lid": int(link_id)})).first()
             
             joins = int(rev_row.joins or 0)
