@@ -261,6 +261,15 @@ async def handle_guardian_callback(
     if not query or not query.data:
         return
 
+    # AUDIT FIX: เช็ค admin ก่อน (เดิม callback ไม่เช็คตัวตน — กด ✅/❌ เตะ/ปล่อยได้โดยไม่ใช่ admin)
+    from shared.admin_perms import is_admin_for_bot_async
+    if not query.from_user or not await is_admin_for_bot_async(query.from_user.id, "admin_bot"):
+        try:
+            await query.answer("⛔ ไม่มีสิทธิ์", show_alert=True)
+        except Exception:
+            pass
+        return
+
     await query.answer()
 
     data = query.data  # guardian_keep_{user_id}_{chat_id} or guardian_kick_{user_id}_{chat_id}

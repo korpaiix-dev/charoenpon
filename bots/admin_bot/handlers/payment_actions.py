@@ -928,6 +928,7 @@ async def approve_payment_callback(update: Update, context: ContextTypes.DEFAULT
 
     # Send invite links to customer
     invite_text = ""
+    package_name = package.name if package else "N/A"  # AUDIT FIX: define ก่อน try (เดิม NameError ใน error path)
     if user:
         try:
             from bots.guardian_bot.group_monitor import generate_invite_links_for_user
