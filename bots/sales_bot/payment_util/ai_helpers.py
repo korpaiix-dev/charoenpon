@@ -83,9 +83,12 @@ async def _check_layer2_daily_cap() -> bool:
         from shared.database import get_session
         from sqlalchemy import text as _t
         async with get_session() as s:
+            # FIX 2026-06-29 (Bug 3): นับทั้ง Layer 1 OCR (ai_read_slip) และ Layer 2 vision (slip_layer2)
+            # ก่อนหน้านี้ LIKE '%ai_read_slip%' จับเฉพาะ caller=ai_read_slip → Layer 2 calls (slip_layer2)
+            # หลุด cap → burn cost ทะลุ
             r = await s.execute(_t("""
                 SELECT COUNT(*) FROM api_cost_log
-                WHERE endpoint LIKE '%ai_read_slip%'
+                WHERE endpoint IN ('sales_bot/ai_read_slip', 'sales_bot/slip_layer2')
                   AND created_at > NOW() - INTERVAL '24 hours'
             """))
             count = int(r.scalar() or 0)

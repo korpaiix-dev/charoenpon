@@ -53,7 +53,7 @@ from shared.models import (
     User,
 )
 from shared.contact_admin import contact_admin_kb
-from shared.slip2go import verify_slip_image, Slip2GoError, receiver_is_boss, receiver_match_pool, amount_to_tier
+from shared.slip2go import verify_slip_image, Slip2GoError, receiver_is_boss, receiver_match_pool, amount_to_tier, _check_slip_age
 from shared.purchase_intent import find_latest_pending as _intent_find_pending, consume_intent as _intent_consume
 from shared.endmonth_vip_promo import (
     PROMO_2499_PRICE,
@@ -464,6 +464,15 @@ async def handle_photo_slip(
     else:
         try:
             slip2go_data = await verify_slip_image(photo_bytes)
+            # FIX 2026-06-29 (Bug 4): Wire slip age check after Slip2Go verify OK.
+            # Rejects slips older than 2 days (Slip2GoError TRANS_TOO_OLD) → same path as other Slip2GoError.
+            # Before this, _check_slip_age was defined but never called → old slips bypassed.
+            try:
+                _check_slip_age(slip2go_data, max_days=2)
+            except Slip2GoError as _age_err:
+                slip2go_err = _age_err
+                slip2go_data = None  # block downstream auto-approve
+                logger.warning("Slip too old for user %s: %s", user.id, _age_err)
         except Slip2GoError as _sg_err:
             slip2go_err = _sg_err
             logger.warning("Slip2Go verify failed for user %s: %s", user.id, _sg_err)

@@ -410,9 +410,11 @@ def amount_to_tier(amount) -> Optional[tuple[str, str, bool]]:
         199:  ("300",  "Flash Sale", False),       # legacy 199 = flash
         300:  ("300",  "VIP 30 วัน", False),
         500:  ("500",  "OnlyFans+VIP 30 วัน", False),
-        899:  ("BIRTHDAY_1299", "Birthday GOD 3M", True),
+        # FIX 2026-06-29 (Bug 2): ลบ 899 + 1999 ออกจาก base_map
+        # BIRTHDAY_* เป็น always-on tier collision — ทำให้ Day-0 promo 20% off (TIER_2499 → 1999)
+        # ถูกตี tag เป็น BIRTHDAY_2499 ก่อน revenue report tier ผิด
+        # ปล่อยให้ _check_db_promotion_match() เป็นคนจัดการ (active promo) หรือคืน None (โปรปิด)
         1299: ("1299", "GOD MODE 90 วัน", False),
-        1999: ("BIRTHDAY_2499", "Birthday GOD ถาวร", True),
         2499: ("2499", "GOD MODE ถาวร", False),
     }
     if amt in base_map:

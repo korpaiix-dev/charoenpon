@@ -44,6 +44,12 @@ from bots.sales_bot.payment_util.promo_helpers import TRUEMONEY_PATTERN
 from bots.sales_bot.payment_util.ai_helpers import _ai_screen_image, _ai_read_slip
 from bots.sales_bot.payment_util.promo_helpers import _verify_truemoney_link, _get_active_promo_for_user
 from bots.sales_bot.payment_util.approve import _approve_payment
+# FIX 2026-06-29 (Bug 1): TrueMoney now calls apply_payment_approval directly
+from shared.payment_approval import (
+    apply_payment_approval as _apply_payment_approval,
+    ApprovalInput as _ApInp,
+    ApprovalSource as _ApSrc,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -299,8 +305,47 @@ async def handle_truemoney_link(
             )
 
     if not reasons and tm_result["valid"]:
-        # APPROVED
-        invite_links_raw = await _approve_payment(payment, user.id, context.bot, source="truemoney")
+        # APPROVED — FIX 2026-06-29 (Bug 1): call apply_payment_approval directly
+        # so sender_ring + dup checks RUN (the legacy _approve_payment shim sets
+        # skip_sender_ring=True which let scam rings bypass via TrueMoney path).
+        # Keep skip_dm=True because TrueMoney has its own custom reply template.
+        _tm_ap_result = await _apply_payment_approval(_ApInp(
+            user_id=db_user.id,
+            telegram_id=user.id,
+            source=_ApSrc.TRUEMONEY,
+            amount_paid=Decimal(str(payment.amount)),
+            explicit_package_id=payment.package_id,
+            payment_id=payment.id,
+            slip_trans_ref=tm_result.get("voucher_id") or None,
+            slip_hash=slip_hash or None,
+            slip_file_id=link,
+            method="TRUEWALLET",
+            skip_dm=True,
+        ))
+        if not _tm_ap_result.success:
+            err = _tm_ap_result.error or "unknown"
+            logger.error("TrueMoney apply_payment_approval failed: %s (%s)",
+                         err, _tm_ap_result.error_details)
+            if err == "sender_ring":
+                reject_msg = "ระบบตรวจจับความผิดปกติของบัญชี - รบกวนทักแอดมินตรวจสอบค่ะ @sperm6969"
+            elif err.startswith("dup_"):
+                reject_msg = "ซองนี้เคยถูกใช้แล้วค่ะ"
+            elif err == "maintenance_mode":
+                reject_msg = "ระบบปิดปรับปรุง - แอดมินจะตรวจสอบและแจ้งผลให้ค่ะ"
+            else:
+                reject_msg = f"ระบบขัดข้องชั่วคราว ({err}) - แอดมินจะตรวจสอบให้ค่ะ"
+            await update.message.reply_text(reject_msg)
+            await log_admin_action(
+                admin_id=0,
+                action="payment_block_truemoney",
+                target_type="payment",
+                target_id=payment_id,
+                details=f"user_tg={user.id} reason={err}",
+            )
+            return
+        invite_links_raw = [
+            f"• {il.title}: {il.url}" for il in (_tm_ap_result.invite_links or [])
+        ]
 
         # Flash Sale: increment sold_slots if active
         if context.user_data.get("flash_sale_id") and selected_tier == "300":
