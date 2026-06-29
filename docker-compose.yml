@@ -168,7 +168,7 @@ services:
       context: .
       dockerfile: dashboard/Dockerfile
     ports:
-      - "127.0.0.1:8010:8010"
+      - "8010:8010"
     env_file:
       - .env
     volumes:
@@ -232,7 +232,7 @@ services:
     container_name: charoenpon-dashboard-staging
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8011:80"
+      - "8011:80"
     volumes:
       - ./dashboard-staging/public:/usr/share/nginx/html:ro
       - ./dashboard-staging/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
@@ -249,7 +249,7 @@ services:
       context: .
       dockerfile: dashboard/Dockerfile
     ports:
-      - "127.0.0.1:8012:8010"
+      - "8012:8010"
     env_file:
       - .env
     environment:
