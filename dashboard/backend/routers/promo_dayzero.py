@@ -38,6 +38,90 @@ def _parse_dt(value):
         except (ValueError, TypeError):
             pass
     return None
+async def _validate_promo_payload(payload: dict, *, exclude_promo_id: int | None = None) -> None:
+    """Centralized validation for create/update endpoints.
+
+    Checks (only validates fields present in payload):
+      a. starts_at < ends_at
+      b. ends_at > NOW() (only on create — exclude_promo_id is None)
+      c. package_codes in DISTINCT(packages.tier::text)
+      d. Overlap with another active promo on same package_codes + time window
+      e. discount_value sane (>0 for percent/fixed_off/fixed_price; percent < 100)
+    Raises HTTPException(400 / 409) on failure.
+    """
+    from datetime import datetime, timezone
+
+    starts_at = _parse_dt(payload.get("starts_at")) if "starts_at" in payload else None
+    ends_at = _parse_dt(payload.get("ends_at")) if "ends_at" in payload else None
+    pkg_codes = payload.get("package_codes")
+    discount_type = payload.get("discount_type")
+    discount_value = payload.get("discount_value")
+
+    # (a) starts_at < ends_at
+    if starts_at and ends_at and starts_at >= ends_at:
+        raise HTTPException(400, "starts_at ต้องมาก่อน ends_at")
+
+    # (b) ends_at > NOW() on create only
+    if exclude_promo_id is None and ends_at:
+        # naive compare (both datetimes assumed local server time)
+        now = datetime.now(ends_at.tzinfo) if ends_at.tzinfo else datetime.now()
+        if ends_at <= now:
+            raise HTTPException(400, "ends_at ต้องอยู่ในอนาคต (จะสร้างโปรหมดอายุไม่ได้)")
+
+    # (c) package_codes ∈ packages.tier
+    if pkg_codes:
+        if not isinstance(pkg_codes, list):
+            raise HTTPException(400, "package_codes ต้องเป็น list")
+        rows = await pool.fetch("SELECT DISTINCT tier::text AS tier FROM packages")
+        valid = {r["tier"] for r in rows}
+        bad = [c for c in pkg_codes if c not in valid]
+        if bad:
+            raise HTTPException(400, f"package_codes ไม่ถูกต้อง: {bad} (valid: {sorted(valid)})")
+
+    # (d) Overlap: another ACTIVE promo with overlapping package_codes + time window
+    if pkg_codes and (starts_at or ends_at):
+        # Need both sides; fetch missing side from DB if updating
+        s_at = starts_at
+        e_at = ends_at
+        if exclude_promo_id is not None and (s_at is None or e_at is None):
+            cur = await pool.fetchrow(
+                "SELECT starts_at, ends_at FROM promotions WHERE id = $1",
+                exclude_promo_id,
+            )
+            if cur:
+                s_at = s_at or cur["starts_at"]
+                e_at = e_at or cur["ends_at"]
+        if s_at and e_at:
+            # Find active promos whose time window intersects AND share at least one package_code
+            sql = """
+                SELECT id, code, name, starts_at, ends_at, package_codes
+                  FROM promotions
+                 WHERE is_active = TRUE
+                   AND ($3::bigint IS NULL OR id <> $3)
+                   AND (starts_at IS NULL OR starts_at < $2)
+                   AND (ends_at   IS NULL OR ends_at   > $1)
+                   AND package_codes ?| $4::text[]
+            """
+            conflicts = await pool.fetch(sql, s_at, e_at, exclude_promo_id, list(pkg_codes))
+            if conflicts:
+                c = conflicts[0]
+                raise HTTPException(
+                    409,
+                    f"โปรช้อนทับ: '{c['code']}' ใช้ tier เดียวกัน + ช่วงเวลาทับ (id={c['id']})",
+                )
+
+    # (e) discount_value sanity
+    if discount_type and discount_type != "none":
+        try:
+            v = float(discount_value) if discount_value is not None else 0.0
+        except (TypeError, ValueError):
+            raise HTTPException(400, "discount_value ต้องเป็นตัวเลข")
+        if v <= 0:
+            raise HTTPException(400, "discount_value ต้องมากกว่า 0")
+        if discount_type == "percent" and v >= 100:
+            raise HTTPException(400, "discount_value (percent) ต้องน้อยกว่า 100")
+
+
 
 
 
@@ -126,6 +210,9 @@ async def create_promotion(
     if discount_type not in ("none", "percent", "fixed_off", "fixed_price"):
         raise HTTPException(400, f"invalid discount_type: {discount_type}")
 
+    # Validation gate (overlap, expired, tier code, discount sanity)
+    await _validate_promo_payload(payload, exclude_promo_id=None)
+
     try:
         row = await pool.fetchrow("""
             INSERT INTO promotions (
@@ -210,6 +297,9 @@ async def update_promotion(
 
     if not updates:
         raise HTTPException(400, "no fields to update")
+
+    # Validation gate (overlap, tier code, discount sanity) — skip expired-on-create check
+    await _validate_promo_payload(payload, exclude_promo_id=promo_id)
 
     updates.append("updated_at=NOW()")
     updates.append(f"updated_by=${len(args)+1}")
