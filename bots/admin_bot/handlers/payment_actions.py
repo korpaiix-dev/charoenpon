@@ -792,14 +792,9 @@ async def approve_promo_callback(update: Update, context: ContextTypes.DEFAULT_T
                 text=(
                     '🎉 ยินดีต้อนรับสู่ VIP เจริญพร! 💕\n'
                     '\n'
-                    '💡 รู้มั้ย? ชวนเพื่อนมาสมัคร = ได้ VIP ฟรีเพิ่ม!\n'
                     '\n'
-                    '🎯 ชวน 1 คน = +7 วัน VIP ฟรี\n'
-                    '🎯 ชวน 5 คน = +30 วัน VIP ฟรี!\n'
                     '\n'
                     '━━━━━━━━━━━━━━━━━━\n'
-                    '📩 <b>รับลิงก์ชวนเพื่อนเลย 👇</b>\n'
-                    '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=invite">🎁 กดรับลิงก์ชวนเพื่อน</a>\n'
                     '━━━━━━━━━━━━━━━━━━'
                 ),
                 parse_mode="HTML",
@@ -996,14 +991,9 @@ async def approve_payment_callback(update: Update, context: ContextTypes.DEFAULT
                     text=(
                         '🎉 ยินดีต้อนรับสู่ VIP เจริญพร! 💕\n'
                         '\n'
-                        '💡 รู้มั้ย? ชวนเพื่อนมาสมัคร = ได้ VIP ฟรีเพิ่ม!\n'
                         '\n'
-                        '🎯 ชวน 1 คน = +7 วัน VIP ฟรี\n'
-                        '🎯 ชวน 5 คน = +30 วัน VIP ฟรี!\n'
                         '\n'
                         '━━━━━━━━━━━━━━━━━━\n'
-                        '📩 <b>รับลิงก์ชวนเพื่อนเลย 👇</b>\n'
-                        '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=invite">🎁 กดรับลิงก์ชวนเพื่อน</a>\n'
                         '━━━━━━━━━━━━━━━━━━'
                     ),
                     parse_mode="HTML",
@@ -1026,14 +1016,9 @@ async def approve_payment_callback(update: Update, context: ContextTypes.DEFAULT
                     text=(
                         '🎉 ยินดีต้อนรับสู่ VIP เจริญพร! 💕\n'
                         '\n'
-                        '💡 รู้มั้ย? ชวนเพื่อนมาสมัคร = ได้ VIP ฟรีเพิ่ม!\n'
                         '\n'
-                        '🎯 ชวน 1 คน = +7 วัน VIP ฟรี\n'
-                        '🎯 ชวน 5 คน = +30 วัน VIP ฟรี!\n'
                         '\n'
                         '━━━━━━━━━━━━━━━━━━\n'
-                        '📩 <b>รับลิงก์ชวนเพื่อนเลย 👇</b>\n'
-                        '👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=invite">🎁 กดรับลิงก์ชวนเพื่อน</a>\n'
                         '━━━━━━━━━━━━━━━━━━'
                     ),
                     parse_mode="HTML",
