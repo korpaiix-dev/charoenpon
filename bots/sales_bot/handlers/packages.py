@@ -671,16 +671,27 @@ async def buy_package_callback(
         _picked = await _pick()
     except Exception:
         pass
-    QR_URL = (_picked["qr_url"] if _picked and _picked.get("qr_url") else "https://img2.pic.in.th/-2026-03-15-143743.png")
-    try:
-        await context.bot.send_photo(
-            chat_id=query.message.chat_id,
-            photo=QR_URL,
-            caption=f"📱 สแกน QR PromptPay เพื่อโอน <b>{display_price} บาท</b>\nแล้วส่งสลิปมาที่แชทนี้เลยค่ะ 🙏",
-            parse_mode="HTML",
-        )
-    except Exception as exc:
-        logger.warning("Failed to send QR: %s", exc)
+    QR_URL = _picked.get("qr_url") if (_picked and _picked.get("qr_url")) else None
+    if QR_URL:
+        try:
+            await context.bot.send_photo(
+                chat_id=query.message.chat_id,
+                photo=QR_URL,
+                caption=f"📱 สแกน QR PromptPay เพื่อโอน <b>{display_price} บาท</b>\nแล้วส่งสลิปมาที่แชทนี้เลยค่ะ 🙏",
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.warning("Failed to send QR: %s", exc)
+    else:
+        logger.error("POOL_QR: ไม่มี QR บัญชีรับเงินที่เปิดอยู่ — ส่งข้อความแทน")
+        try:
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text="📱 ขออภัยค่ะ ระบบกำลังอัปเดตบัญชีรับเงิน รบกวนทักแอดมินเพื่อขอ QR ชำระเงินค่ะ 🙏",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
 
 
 async def summer_command(
@@ -720,16 +731,27 @@ async def summer_command(
         _picked = await _pick()
     except Exception:
         pass
-    QR_URL = (_picked["qr_url"] if _picked and _picked.get("qr_url") else "https://img2.pic.in.th/-2026-03-15-143743.png")
-    try:
-        await context.bot.send_photo(
-            chat_id=update.message.chat_id,
-            photo=QR_URL,
-            caption="📱 สแกน QR PromptPay เพื่อโอน <b>500 บาท</b>\nแล้วส่งสลิปมาที่แชทนี้เลยค่ะ 🙏",
-            parse_mode="HTML",
-        )
-    except Exception as exc:
-        logger.warning("Failed to send QR: %s", exc)
+    QR_URL = _picked.get("qr_url") if (_picked and _picked.get("qr_url")) else None
+    if QR_URL:
+        try:
+            await context.bot.send_photo(
+                chat_id=update.message.chat_id,
+                photo=QR_URL,
+                caption="📱 สแกน QR PromptPay เพื่อโอน <b>500 บาท</b>\nแล้วส่งสลิปมาที่แชทนี้เลยค่ะ 🙏",
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.warning("Failed to send QR: %s", exc)
+    else:
+        logger.error("POOL_QR: ไม่มี QR บัญชีรับเงินที่เปิดอยู่ — ส่งข้อความแทน")
+        try:
+            await context.bot.send_message(
+                chat_id=update.message.chat_id,
+                text="📱 ขออภัยค่ะ ระบบกำลังอัปเดตบัญชีรับเงิน รบกวนทักแอดมินเพื่อขอ QR ชำระเงินค่ะ 🙏",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
 
 
 def get_package_handlers() -> list:

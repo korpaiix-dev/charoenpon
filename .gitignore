@@ -44,3 +44,4 @@ backups/
 *.bak
 bots/relay_bot/data/
 dashboard/frontend/assets/receiver_qr/
+_webroot_backups/
