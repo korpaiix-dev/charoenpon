@@ -124,6 +124,7 @@ const NAV_ITEMS = [
     { id: 'dm_broadcast', icon: '📩', label: 'ส่ง DM ลูกค้า', minRole: 'admin' },
     { id: 'content', icon: '📸', label: 'Content', minRole: 'moderator' },
     { id: 'gacha', icon: '🎰', label: 'กาชา', minRole: 'admin' },
+    { id: 'onboarding', icon: '🎉', label: 'ของขวัญต้อนรับ', minRole: 'admin' },
     { id: 'prae_logs', icon: '💭', label: 'บทสนทนา Prae', minRole: 'admin' },
 
     // ─── การเงิน + ภาพรวม ───
@@ -131,7 +132,6 @@ const NAV_ITEMS = [
     { id: 'finance', icon: '💰', label: 'การเงิน + Receivers', minRole: 'moderator' },
     { id: 'receivers', icon: '💳', label: 'บัญชีรับเงิน', minRole: 'admin' },
     { id: 'dailyincome', icon: '📅', label: 'ยอดรายวัน', minRole: 'admin' },
-    { id: 'onboarding', icon: '🎁', label: 'ของขวัญต้อนรับ', minRole: 'admin' },
     { id: 'dashboard', icon: '📊', label: 'ภาพรวม', minRole: 'moderator' },
     { id: 'marketing', icon: '📈', label: 'Marketing ROI', minRole: 'admin' },
 
@@ -281,7 +281,7 @@ function navigate(page) {
     try { localStorage.setItem("dashLastPage", page); } catch {}
     renderSidebar();
     const titles = {
-        dashboard: '📊 ภาพรวม', inbox: '📥 Inbox สลิป', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน', dailyincome: '📅 ยอดรายวันแยกบัญชี', onboarding: '🎁 ของขวัญต้อนรับ (ลูกค้าใหม่)', gacha: '🎰 กาชา',
+        dashboard: '📊 ภาพรวม', inbox: '📥 Inbox สลิป', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน', dailyincome: '📅 ยอดรายวันแยกบัญชี', onboarding: '🎉 ของขวัญต้อนรับ (ลูกค้าใหม่)', gacha: '🎰 กาชา',
         promotions: '🎁 โปรโมชั่น + ตั้งค่าบอท', journey: '📨 DM อัตโนมัติ (Customer Journey)', content: '📸 Content', groups: '📱 กลุ่ม', bot_groups: '🤖 จัดการบอท', group_analytics: '📊 สถิติกลุ่ม', bot_schedules: '⏰ ตารางเวลาบอท', content_editor: '📝 คอนเทนต์บอท', dm_broadcast: '📩 ส่ง DM ลูกค้า',
         team: '👨‍💼 ทีมงาน', settings: '⚙️ ตั้งค่า', marketing: '📊 Marketing',
         activity: '📋 Activity Log', health: '🚦 สถานะระบบ (System Health)', prae_logs: '💬 Prae Logs',
