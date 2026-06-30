@@ -1470,13 +1470,14 @@ async def _load_schedule_from_db() -> dict[str, dict]:
         conn = await _ap.connect(url)
         try:
             rows = await conn.fetch(
-                "SELECT job_name, schedule_hour, schedule_minute, is_enabled, handler_key "
+                "SELECT job_name, schedule_hour, schedule_minute, is_enabled, handler_key, template_key "
                 "FROM bot_schedules WHERE bot_key = 'content_bot'"
             )
             return {
                 r['job_name']: {
                     'hour': int(r['schedule_hour']),
                     'handler_key': r.get('handler_key') or '',
+                    'template_key': r.get('template_key'),
                     'minute': int(r['schedule_minute']),
                     'is_enabled': bool(r['is_enabled']),
                 }
@@ -1822,7 +1823,7 @@ def main() -> None:
         if not _job_name.startswith("template_"):
             logger.warning("generic schedule %s ignored — must start with 'template_'", _job_name)
             continue
-        _tpl_key = _job_name[len("template_"):]
+        _tpl_key = _cfg.get("template_key") or _job_name[len("template_"):]
         _t = dt_time(hour=_cfg["hour"], minute=_cfg["minute"], tzinfo=TH_TZ)
         # Bind template_key into the callback
         async def _generic_cb(_ctx, _k=_tpl_key):

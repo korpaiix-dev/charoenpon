@@ -744,7 +744,7 @@ async def create_bot_schedule(bot_key: str, payload: dict, _admin=Depends(requir
     if not (0 <= hour <= 23 and 0 <= minute <= 59):
         raise HTTPException(400, "hour 0-23, minute 0-59")
     
-    job_name = f"template_{template_key}"
+    job_name = f"template_{template_key}_{hour:02d}{minute:02d}"
     
     # Look up template for default display_name
     tpl_row = await pool.fetchrow(
@@ -759,10 +759,10 @@ async def create_bot_schedule(bot_key: str, payload: dict, _admin=Depends(requir
     try:
         row = await pool.fetchrow(
             "INSERT INTO bot_schedules (bot_key, job_name, display_name, schedule_hour, "
-            "schedule_minute, is_enabled, handler_key, category) "
-            "VALUES ($1, $2, $3, $4, $5, TRUE, 'generic_template', $6) RETURNING id, job_name",
+            "schedule_minute, is_enabled, handler_key, category, template_key) "
+            "VALUES ($1, $2, $3, $4, $5, TRUE, 'generic_template', $6, $7) RETURNING id, job_name",
             bot_key, job_name, display_name, hour, minute,
-            payload.get("category") or "promo",
+            payload.get("category") or "promo", template_key,
         )
     except Exception as exc:
         msg = str(exc)
@@ -887,8 +887,8 @@ async def delete_content_template(tpl_id: int, _admin=Depends(require_role("admi
         raise HTTPException(404, "not found")
     # Also remove any schedule that references this template
     await pool.execute(
-        "DELETE FROM bot_schedules WHERE bot_key='content_bot' AND job_name=$1",
-        f"template_{row['template_key']}",
+        "DELETE FROM bot_schedules WHERE bot_key='content_bot' AND (template_key=$1 OR job_name=$2)",
+        row['template_key'], f"template_{row['template_key']}",
     )
     await pool.execute("DELETE FROM content_templates WHERE id=$1", tpl_id)
     return {"deleted": True, "template_key": row["template_key"]}
