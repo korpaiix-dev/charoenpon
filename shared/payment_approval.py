@@ -680,7 +680,7 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
                         "TIER_300":  {"gacha": 2, "discount": 50,  "days": 0},
                         "TIER_500":  {"gacha": 3, "discount": 100, "days": 3},
                         "TIER_1299": {"gacha": 5, "discount": 200, "days": 0},
-                        "TIER_2499": {"gacha": 10,"discount": 500, "days": 0},
+                        "TIER_2499": {"gacha": 5, "discount": 300, "days": 0},
                     }
                     _bonus = _ONB.get(str(_tv)) or _ONB.get("TIER_" + str(_tv))
                     if _bonus:
