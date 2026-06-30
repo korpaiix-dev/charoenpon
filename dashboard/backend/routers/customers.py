@@ -350,7 +350,7 @@ async def customer_groups(user_id: int, admin=Depends(get_current_admin)):
     
     try:
         group_slugs = json.loads(sub["groups_access"]) if isinstance(sub["groups_access"], str) else sub["groups_access"]
-    except:
+    except Exception:
         group_slugs = []
     
     if not group_slugs:

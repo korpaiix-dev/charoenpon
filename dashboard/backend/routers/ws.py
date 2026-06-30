@@ -48,6 +48,9 @@ async def ws_events(websocket: WebSocket, token: Optional[str] = Query(None)):
         if not payload:
             await websocket.close(code=1008, reason="invalid token")
             return
+        if (payload.get("role") or "") not in ("admin", "super_admin", "owner", "moderator"):
+            await websocket.close(code=1008, reason="forbidden")
+            return
     except Exception:
         await websocket.close(code=1008, reason="auth failed")
         return

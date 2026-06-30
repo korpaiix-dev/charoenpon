@@ -118,7 +118,7 @@ async def _get_active_promo_discounts() -> dict:
             if isinstance(pkg_codes, str):
                 import json as _j
                 try: pkg_codes = _j.loads(pkg_codes)
-                except: pkg_codes = []
+                except Exception: pkg_codes = []
             for tier_str in pkg_codes:
                 base = TIER_PRICE_MAP.get(tier_str)
                 if not base:

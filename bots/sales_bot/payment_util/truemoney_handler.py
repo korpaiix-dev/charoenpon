@@ -69,7 +69,7 @@ async def _get_effective_price(tier: str, context_user_data: dict) -> Decimal:
             if isinstance(_pkg_codes, str):
                 import json as _json_dz
                 try: _pkg_codes = _json_dz.loads(_pkg_codes)
-                except: _pkg_codes = []
+                except Exception: _pkg_codes = []
             if TIER_KEY in _pkg_codes:
                 _calc = _dz_calc(_pm, TIER_KEY, float(base_price))
                 if _calc.get('applied') and _calc['savings'] > 0:

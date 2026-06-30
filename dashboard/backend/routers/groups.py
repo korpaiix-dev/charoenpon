@@ -308,10 +308,10 @@ async def relay_status(admin=Depends(require_role("admin"))):
         if source_id: all_ids.add(int(source_id))
         for d in dest_ids:
             try: all_ids.add(int(d))
-            except: pass
+            except Exception: pass
         for k in disabled.keys():
             try: all_ids.add(int(k))
-            except: pass
+            except Exception: pass
 
         name_map = {}
         if all_ids:

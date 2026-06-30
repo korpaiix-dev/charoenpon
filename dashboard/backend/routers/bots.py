@@ -1039,9 +1039,15 @@ async def serve_asset(path: str, token: str = None, request: Request = None):
         payload = None
     if not payload:
         raise HTTPException(401, "auth required")
-    # Require admin role
-    roles = payload.get("roles") or [payload.get("role")]
-    if not any(r in ("owner", "super_admin", "admin") for r in roles if r):
+    # FIX (audit): re-check session ใน DB — revoked/disabled admin ต้องใช้ไม่ได้ทันที
+    from ..database import pool as _pool_a
+    _srow = await _pool_a.fetchrow(
+        "SELECT s.revoked_at, a.is_active, a.role FROM dashboard_sessions s "
+        "JOIN dashboard_admins a ON a.id = s.admin_id WHERE s.token_jti = $1",
+        payload.get("jti"))
+    if not _srow or _srow["revoked_at"] or not _srow["is_active"]:
+        raise HTTPException(401, "session invalid")
+    if _srow["role"] not in ("owner", "super_admin", "admin"):
         raise HTTPException(403, "admin role required")
 
     if not path.startswith("/app/assets/"):

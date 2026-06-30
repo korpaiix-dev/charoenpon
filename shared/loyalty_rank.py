@@ -217,7 +217,7 @@ async def _dm_customer_rank_up(telegram_id: int, new_rank: str, rewards: dict) -
                         logger.error("Silver invite link gen failed after retry tg=%s err=%s", telegram_id, last_exc)
                 finally:
                     try: await gbot.shutdown()
-                    except: pass
+                    except Exception: pass
         except Exception as _e:
             logger.warning("Silver invite link gen failed tg=%s: %s", telegram_id, _e)
 
@@ -286,7 +286,7 @@ async def _dm_customer_rank_up(telegram_id: int, new_rank: str, rewards: dict) -
         return False
     finally:
         try: await bot.shutdown()
-        except: pass
+        except Exception: pass
 
 
 # ─── Main: promote a user (idempotent) ────────────────────────────────────

@@ -76,7 +76,7 @@ async def get_packages_and_promos(request: Request):
         if isinstance(value, list): return value
         if isinstance(value, str):
             try: return json.loads(value)
-            except: return []
+            except Exception: return []
         return list(value) if hasattr(value, "__iter__") else []
 
     def _apply_discount(promo, pkg_tier, original_price):

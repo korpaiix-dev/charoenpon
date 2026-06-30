@@ -83,7 +83,7 @@ async def _handle_promo_start(update, context, promo_code: str) -> bool:
     if isinstance(pkg_codes, str):
         import json as _json
         try: pkg_codes = _json.loads(pkg_codes)
-        except: pkg_codes = []
+        except Exception: pkg_codes = []
     if not pkg_codes:
         return False
     

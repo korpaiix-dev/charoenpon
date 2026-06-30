@@ -158,7 +158,7 @@ async def _process_one(row: dict, bot: Bot) -> None:
                 if isinstance(codes, str):
                     import json as _j
                     try: codes = _j.loads(codes)
-                    except: codes = []
+                    except Exception: codes = []
                 if tier_key in codes:
                     calc = calculate_price(p, tier_key, base)
                     if calc.get("applied") and calc.get("savings", 0) > best_savings:
