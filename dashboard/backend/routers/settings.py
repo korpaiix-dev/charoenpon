@@ -248,3 +248,38 @@ async def unban_sender(bid: int, admin=Depends(require_role("admin"))):
         pass
     return {"ok": True, "id": bid}
 
+
+
+# ========== ONBOARDING REWARDS (ของขวัญต้อนรับลูกค้าใหม่) ==========
+from pydantic import BaseModel as _OnbBaseModel
+
+class _OnbReward(_OnbBaseModel):
+    tier: str
+    gacha: int = 0
+    discount: float = 0
+    days: int = 0
+    enabled: bool = True
+
+@router.get("/onboarding-rewards")
+async def get_onboarding_rewards(admin=Depends(require_role("admin"))):
+    rows = await pool.fetch(
+        "SELECT tier, gacha, discount, days, enabled FROM onboarding_rewards ORDER BY discount")
+    return {"items": [dict(r) for r in rows]}
+
+@router.put("/onboarding-rewards")
+async def update_onboarding_rewards(req: list[_OnbReward], request: Request,
+                                    admin=Depends(require_role("admin"))):
+    if not req:
+        raise HTTPException(400, "no items")
+    for r in req:
+        g = max(0, min(int(r.gacha), 100))
+        d = max(0.0, min(float(r.discount), 10000.0))
+        dy = max(0, min(int(r.days), 365))
+        await pool.execute(
+            "INSERT INTO onboarding_rewards (tier,gacha,discount,days,enabled,updated_at) "
+            "VALUES ($1,$2,$3,$4,$5,NOW()) "
+            "ON CONFLICT (tier) DO UPDATE SET gacha=$2, discount=$3, days=$4, enabled=$5, updated_at=NOW()",
+            r.tier, g, d, dy, bool(r.enabled))
+    ip = request.client.host if request.client else None
+    await _log(admin["id"], "update_onboarding_rewards", "config", 0, {"count": len(req)}, ip)
+    return {"ok": True, "updated": len(req)}

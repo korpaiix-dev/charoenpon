@@ -131,6 +131,7 @@ const NAV_ITEMS = [
     { id: 'finance', icon: '💰', label: 'การเงิน + Receivers', minRole: 'moderator' },
     { id: 'receivers', icon: '💳', label: 'บัญชีรับเงิน', minRole: 'admin' },
     { id: 'dailyincome', icon: '📅', label: 'ยอดรายวัน', minRole: 'admin' },
+    { id: 'onboarding', icon: '🎁', label: 'ของขวัญต้อนรับ', minRole: 'admin' },
     { id: 'dashboard', icon: '📊', label: 'ภาพรวม', minRole: 'moderator' },
     { id: 'marketing', icon: '📈', label: 'Marketing ROI', minRole: 'admin' },
 
@@ -280,7 +281,7 @@ function navigate(page) {
     try { localStorage.setItem("dashLastPage", page); } catch {}
     renderSidebar();
     const titles = {
-        dashboard: '📊 ภาพรวม', inbox: '📥 Inbox สลิป', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน', dailyincome: '📅 ยอดรายวันแยกบัญชี', gacha: '🎰 กาชา',
+        dashboard: '📊 ภาพรวม', inbox: '📥 Inbox สลิป', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน', dailyincome: '📅 ยอดรายวันแยกบัญชี', onboarding: '🎁 ของขวัญต้อนรับ (ลูกค้าใหม่)', gacha: '🎰 กาชา',
         promotions: '🎁 โปรโมชั่น + ตั้งค่าบอท', journey: '📨 DM อัตโนมัติ (Customer Journey)', content: '📸 Content', groups: '📱 กลุ่ม', bot_groups: '🤖 จัดการบอท', group_analytics: '📊 สถิติกลุ่ม', bot_schedules: '⏰ ตารางเวลาบอท', content_editor: '📝 คอนเทนต์บอท', dm_broadcast: '📩 ส่ง DM ลูกค้า',
         team: '👨‍💼 ทีมงาน', settings: '⚙️ ตั้งค่า', marketing: '📊 Marketing',
         activity: '📋 Activity Log', health: '🚦 สถานะระบบ (System Health)', prae_logs: '💬 Prae Logs',
@@ -301,7 +302,7 @@ function navigate(page) {
     content.innerHTML = '<div class="loading"><div class="spinner"></div> กำลังโหลด...</div>';
     
     const pages = {
-        today: renderToday, dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance, receivers: renderReceivers, dailyincome: renderDailyIncome, gacha: renderGacha,
+        today: renderToday, dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance, receivers: renderReceivers, dailyincome: renderDailyIncome, onboarding: renderOnboardingRewards, gacha: renderGacha,
         promotions: renderPromoManager, journey: renderJourney, dm_broadcast: loadDmBroadcastPage, content: renderContent, groups: renderGroups, bot_groups: renderBotGroups, group_analytics: renderGroupAnalytics, bot_schedules: renderBotSchedules, content_editor: renderContentEditor,
         team: renderTeam, settings: renderSettings, marketing: renderMarketing,
         activity: renderActivityLog, health: renderSystemHealth, prae_logs: renderPraeLogs,
@@ -9327,5 +9328,57 @@ async function renderDailyIncome() {
             </div>`;
     } catch (e) {
         content.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>โหลดไม่สำเร็จ: ${esc(e.message)}</p></div>`;
+    }
+}
+
+
+// ── ของขวัญต้อนรับ (onboarding rewards — ตั้งใน dashboard) ──
+async function renderOnboardingRewards() {
+    const content = document.getElementById('page-content');
+    try {
+        const data = await api('/settings/onboarding-rewards');
+        const items = data.items || [];
+        const tierLabel = {'TIER_100':'฿100','TIER_300':'VIP 30 วัน (฿300)','TIER_500':'OnlyFans+VIP (฿500)','TIER_1299':'GOD 90 วัน (฿1,299)','TIER_2499':'GOD ถาวร (฿2,499)'};
+        const rows = items.map(it => `
+            <div class="onb-row" data-tier="${esc(it.tier)}" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:0.875rem 1.125rem;margin-bottom:0.625rem;display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">
+                <div style="font-weight:600;min-width:170px;">${esc(tierLabel[it.tier]||it.tier)}</div>
+                <label style="font-size:0.8125rem;color:var(--text-muted);">🎲 หมุน <input type="number" min="0" max="100" value="${it.gacha}" data-f="gacha" style="width:64px;"></label>
+                <label style="font-size:0.8125rem;color:var(--text-muted);">💵 บัตรลด ฿ <input type="number" min="0" max="10000" value="${parseFloat(it.discount)}" data-f="discount" style="width:84px;"></label>
+                <label style="font-size:0.8125rem;color:var(--text-muted);">📅 วันฟรี <input type="number" min="0" max="365" value="${it.days}" data-f="days" style="width:64px;"></label>
+                <label style="font-size:0.8125rem;color:var(--text-muted);"><input type="checkbox" data-f="enabled" ${it.enabled?'checked':''} style="width:auto;"> เปิด</label>
+            </div>`).join('');
+        content.innerHTML = `
+            <div style="max-width:880px;">
+                <h2 style="margin:0 0 0.4rem;font-size:1.25rem;font-weight:600;color:var(--text);">🎁 ของขวัญต้อนรับ (ลูกค้าใหม่)</h2>
+                <p style="color:var(--text-muted);font-size:0.875rem;margin:0 0 1.25rem;">ให้เฉพาะลูกค้าที่จ่ายเงิน <b>ครั้งแรกสุด</b> · ตามแพ็กที่ซื้อ · แก้แล้วกดบันทึก มีผลกับลูกค้าใหม่คนถัดไป (คนเก่าไม่กระทบ)</p>
+                ${rows}
+                <button class="btn btn-primary" onclick="saveOnboardingRewards()" style="margin-top:0.75rem;">💾 บันทึก</button>
+                <span id="onb-status" style="margin-left:1rem;color:var(--text-muted);font-size:0.875rem;"></span>
+            </div>`;
+    } catch (e) {
+        content.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>โหลดไม่สำเร็จ: ${esc(e.message)}</p></div>`;
+    }
+}
+
+async function saveOnboardingRewards() {
+    const st = document.getElementById('onb-status');
+    const payload = [];
+    document.querySelectorAll('.onb-row').forEach(r => {
+        payload.push({
+            tier: r.getAttribute('data-tier'),
+            gacha: parseInt(r.querySelector('[data-f="gacha"]').value) || 0,
+            discount: parseFloat(r.querySelector('[data-f="discount"]').value) || 0,
+            days: parseInt(r.querySelector('[data-f="days"]').value) || 0,
+            enabled: r.querySelector('[data-f="enabled"]').checked,
+        });
+    });
+    try {
+        st.textContent = 'กำลังบันทึก...';
+        await api('/settings/onboarding-rewards', { method: 'PUT', body: JSON.stringify(payload) });
+        st.textContent = '✅ บันทึกแล้ว';
+        if (typeof toast === 'function') toast('บันทึกของขวัญต้อนรับแล้ว ✅', 'success');
+    } catch (e) {
+        st.textContent = '❌ ' + e.message;
+        if (typeof toast === 'function') toast(e.message, 'error');
     }
 }

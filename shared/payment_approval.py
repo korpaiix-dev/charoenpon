@@ -675,13 +675,22 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
                 ), {"uid": db_user_id, "pid": payment_id_final})).scalar() or 0
                 if _prior_pays == 0:  # first-ever confirmed payment
                     _tv = _tier_value(target_tier_str) if target_tier_str else ""
-                    _ONB = {
-                        "TIER_100":  {"gacha": 1, "discount": 20,  "days": 0},
-                        "TIER_300":  {"gacha": 2, "discount": 50,  "days": 0},
-                        "TIER_500":  {"gacha": 3, "discount": 100, "days": 3},
-                        "TIER_1299": {"gacha": 5, "discount": 200, "days": 0},
-                        "TIER_2499": {"gacha": 5, "discount": 300, "days": 0},
-                    }
+                    _ONB = {}
+                    try:
+                        _onb_q = await session.execute(sql_text(
+                            "SELECT tier, gacha, discount, days FROM onboarding_rewards WHERE enabled = TRUE"))
+                        for _r in _onb_q.fetchall():
+                            _ONB[_r.tier] = {"gacha": int(_r.gacha), "discount": float(_r.discount), "days": int(_r.days)}
+                    except Exception as _onb_load_exc:
+                        logger.warning("[onboarding] config load from DB failed, ใช้ default: %s", _onb_load_exc)
+                    if not _ONB:
+                        _ONB = {
+                            "TIER_100":  {"gacha": 1, "discount": 20,  "days": 0},
+                            "TIER_300":  {"gacha": 2, "discount": 50,  "days": 0},
+                            "TIER_500":  {"gacha": 3, "discount": 100, "days": 3},
+                            "TIER_1299": {"gacha": 5, "discount": 200, "days": 0},
+                            "TIER_2499": {"gacha": 5, "discount": 300, "days": 0},
+                        }
                     _bonus = _ONB.get(str(_tv)) or _ONB.get("TIER_" + str(_tv))
                     if _bonus:
                         if _bonus["gacha"]:
