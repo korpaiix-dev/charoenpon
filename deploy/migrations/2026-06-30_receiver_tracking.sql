@@ -13,3 +13,8 @@ CREATE TABLE IF NOT EXISTS onboarding_rewards (
 INSERT INTO onboarding_rewards (tier,gacha,discount,days) VALUES
  ('TIER_100',1,20,0),('TIER_300',2,50,0),('TIER_500',3,100,3),
  ('TIER_1299',5,200,0),('TIER_2499',5,300,0) ON CONFLICT (tier) DO NOTHING;
+
+-- Super VIP 4999 (ถาวร, ได้ทุกกลุ่ม GOD + กลุ่ม SUPERVIP) — go-live 1 ก.ค. (สร้าง inactive)
+ALTER TYPE packagetier ADD VALUE IF NOT EXISTS 'TIER_4999';
+ALTER TYPE groupslug   ADD VALUE IF NOT EXISTS 'SUPERVIP';
+-- (group_registry.SUPERVIP chat_id=0 placeholder จนบอสสร้างกลุ่มจริง; package is_active=FALSE จนวันที่ 1)

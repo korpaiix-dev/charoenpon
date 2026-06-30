@@ -38,6 +38,7 @@ TIER_PRICES: dict[str, Decimal] = {
     "500":  Decimal("500"),     # TIER_500  — OF+VIP 30 d
     "1299": Decimal("1299"),    # TIER_1299 — GOD 90 d
     "2499": Decimal("2499"),    # TIER_2499 — GOD lifetime
+    "4999": Decimal("4999"),    # TIER_4999 — Super VIP lifetime
     "100":  Decimal("100"),     # TIER_100  — ห้องมีคนชัก lottery
     "ADD500": Decimal("500"),   # TIER_ADD500 — Summer Fest add-on
     "BIRTHDAY_1299": Decimal("899"),   # Birthday upgrade GOD 3m (only via /upgrade)
@@ -91,6 +92,7 @@ def tier_str_to_enum(tier_str: str):
         "500":  PackageTier.TIER_500,
         "1299": PackageTier.TIER_1299,
         "2499": PackageTier.TIER_2499,
+        "4999": PackageTier.TIER_4999,
         "ADD500": PackageTier.TIER_ADD500,
         "BIRTHDAY_1299": PackageTier.TIER_1299,
         "BIRTHDAY_2499": PackageTier.TIER_2499,
@@ -356,6 +358,7 @@ def _check_db_promotion_match(amt: int) -> Optional[tuple[str, str, bool]]:
         "500":  ("500", "OnlyFans+VIP 30 วัน"),
         "1299": ("1299", "GOD MODE 90 วัน"),
         "2499": ("2499", "GOD MODE ถาวร"),
+        "4999": ("4999", "Super VIP ถาวร"),
     }
     for p in promos:
         codes = p.get("package_codes") or []
@@ -416,6 +419,7 @@ def amount_to_tier(amount) -> Optional[tuple[str, str, bool]]:
         # ปล่อยให้ _check_db_promotion_match() เป็นคนจัดการ (active promo) หรือคืน None (โปรปิด)
         1299: ("1299", "GOD MODE 90 วัน", False),
         2499: ("2499", "GOD MODE ถาวร", False),
+        4999: ("4999", "Super VIP ถาวร", False),
     }
     if amt in base_map:
         return base_map[amt]
