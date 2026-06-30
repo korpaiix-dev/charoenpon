@@ -760,6 +760,27 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
         #          matched_receiver_account_id เข้ามา → admin manual paths bypass → drift
         # ตอนนี้: ถ้า method=SLIP/PROMPTPAY และไม่มี matched → default active receiver เดียว
         #         (ถ้ามี > 1 active → skip — ต้องระบุชัดเจน)
+        # FIX (audit B): ถ้ายังไม่ matched -> re-match จาก receiver ของสลิปที่เก็บไว้
+        # (เผื่อบัญชีถูกเพิ่ม/แก้ proxy ทีหลัง เช่นเคส ณธกฤต) — แม่นสุด ลองก่อน
+        if inp.method.upper() in ("SLIP", "PROMPTPAY") and not inp.matched_receiver_account_id and payment_id_final:
+            try:
+                import json as _json_rm
+                async with get_session() as _rms:
+                    _meta_row = await _rms.execute(sql_text(
+                        "SELECT slip_receiver_meta FROM payments WHERE id = :pid"
+                    ), {"pid": payment_id_final})
+                    _meta = _meta_row.scalar()
+                if _meta:
+                    if isinstance(_meta, str):
+                        _meta = _json_rm.loads(_meta)
+                    from shared.slip2go import receiver_match_pool as _rmp
+                    _mok, _mrs, _macct = await _rmp({"receiver": _meta})
+                    if _mok and _macct:
+                        inp.matched_receiver_account_id = _macct["id"]
+                        logger.info("[approval] STEP16 re-matched from slip_meta -> id=%s (%s)",
+                                    _macct["id"], _macct.get("owner_name"))
+            except Exception as _rme:
+                logger.warning("[approval] slip_meta re-match: %s", _rme)
         if inp.method.upper() in ("SLIP", "PROMPTPAY") and not inp.matched_receiver_account_id:
             # ใช้บัญชีที่ระบบสุ่มให้ลูกค้าตอนซื้อ (เก็บใน purchase_intent) — รู้ตั้งแต่ pick
             try:

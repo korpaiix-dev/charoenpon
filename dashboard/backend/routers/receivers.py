@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from decimal import Decimal
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -55,6 +56,43 @@ async def list_receivers(admin=Depends(require_role("admin"))):
         "items": [dict(r) for r in rows],
         "total": len(rows),
     }
+
+
+@router.get("/daily-income")
+async def daily_income(date: Optional[str] = None, admin=Depends(require_role("admin"))):
+    """ยอดรับเงินรายวันแยกบัญชี — นับจากเที่ยงคืน (เวลาไทย), ไม่ขึ้นกับการ reset ยอดสะสม.
+
+    date = 'YYYY-MM-DD' (เวลาไทย); ไม่ส่ง = วันนี้.
+    """
+    if date:
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(400, "date ต้องเป็น YYYY-MM-DD")
+    _where = ("p.status='CONFIRMED' AND "
+              "(p.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date "
+              "= COALESCE($1::date, (now() AT TIME ZONE 'Asia/Bangkok')::date)")
+    summary = await pool.fetch(
+        "SELECT p.matched_receiver_account_id AS account_id, "
+        "COALESCE(r.owner_name, 'ไม่ระบุบัญชี') AS owner_name, "
+        "count(*) AS n, COALESCE(sum(p.amount),0) AS total "
+        "FROM payments p LEFT JOIN receiver_accounts r ON r.id=p.matched_receiver_account_id "
+        f"WHERE {_where} GROUP BY 1,2 ORDER BY total DESC", date)
+    bills = await pool.fetch(
+        "SELECT p.id, to_char((p.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok'),'HH24:MI') AS time_bkk, "
+        "p.amount, p.matched_receiver_account_id AS account_id, "
+        "COALESCE(r.owner_name, 'ไม่ระบุบัญชี') AS owner_name "
+        "FROM payments p LEFT JOIN receiver_accounts r ON r.id=p.matched_receiver_account_id "
+        f"WHERE {_where} ORDER BY p.created_at", date)
+    resolved = await pool.fetchval(
+        "SELECT COALESCE($1::date, (now() AT TIME ZONE 'Asia/Bangkok')::date)::text", date)
+    accounts = [{"account_id": r["account_id"], "owner_name": r["owner_name"],
+                 "n": int(r["n"]), "total": float(r["total"])} for r in summary]
+    bill_list = [{"id": b["id"], "time_bkk": b["time_bkk"], "amount": float(b["amount"]),
+                  "account_id": b["account_id"], "owner_name": b["owner_name"]} for b in bills]
+    return {"date": resolved, "accounts": accounts, "bills": bill_list,
+            "grand_total": round(sum(a["total"] for a in accounts), 2),
+            "count": sum(a["n"] for a in accounts)}
 
 
 @router.post("/{rid}/reset")

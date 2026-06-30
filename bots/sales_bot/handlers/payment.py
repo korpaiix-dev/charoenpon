@@ -953,6 +953,17 @@ async def handle_photo_slip(
                         sender_bank_account=_snd_account.get("value"),
                     )
 
+                    # FIX (audit B): เก็บ receiver ของสลิปไว้ re-match ตอน approve (กันยอดขาดแบบ ณธกฤต)
+                    try:
+                        import json as _json_rm
+                        async with get_session() as _rm_s:
+                            await _rm_s.execute(_sql_t(
+                                "UPDATE payments SET slip_receiver_meta = CAST(:m AS JSONB) WHERE id = :pid"
+                            ), {"m": _json_rm.dumps(slip2go_data.get("receiver") or {}), "pid": _pay_id})
+                            await _rm_s.commit()
+                    except Exception as _rm_e:
+                        logger.warning("store slip_receiver_meta failed: %s", _rm_e)
+
                     # DM customer: gentle "we are checking"
                     try:
                         await update.message.reply_text(

@@ -130,6 +130,7 @@ const NAV_ITEMS = [
     { type: 'divider', label: 'การเงิน + รายงาน' },
     { id: 'finance', icon: '💰', label: 'การเงิน + Receivers', minRole: 'moderator' },
     { id: 'receivers', icon: '💳', label: 'บัญชีรับเงิน', minRole: 'admin' },
+    { id: 'dailyincome', icon: '📅', label: 'ยอดรายวัน', minRole: 'admin' },
     { id: 'dashboard', icon: '📊', label: 'ภาพรวม', minRole: 'moderator' },
     { id: 'marketing', icon: '📈', label: 'Marketing ROI', minRole: 'admin' },
 
@@ -279,7 +280,7 @@ function navigate(page) {
     try { localStorage.setItem("dashLastPage", page); } catch {}
     renderSidebar();
     const titles = {
-        dashboard: '📊 ภาพรวม', inbox: '📥 Inbox สลิป', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน', gacha: '🎰 กาชา',
+        dashboard: '📊 ภาพรวม', inbox: '📥 Inbox สลิป', customers: '👥 ลูกค้า', finance: '💰 การเงิน', receivers: '💳 บัญชีรับเงิน', dailyincome: '📅 ยอดรายวันแยกบัญชี', gacha: '🎰 กาชา',
         promotions: '🎁 โปรโมชั่น + ตั้งค่าบอท', journey: '📨 DM อัตโนมัติ (Customer Journey)', content: '📸 Content', groups: '📱 กลุ่ม', bot_groups: '🤖 จัดการบอท', group_analytics: '📊 สถิติกลุ่ม', bot_schedules: '⏰ ตารางเวลาบอท', content_editor: '📝 คอนเทนต์บอท', dm_broadcast: '📩 ส่ง DM ลูกค้า',
         team: '👨‍💼 ทีมงาน', settings: '⚙️ ตั้งค่า', marketing: '📊 Marketing',
         activity: '📋 Activity Log', health: '🚦 สถานะระบบ (System Health)', prae_logs: '💬 Prae Logs',
@@ -300,7 +301,7 @@ function navigate(page) {
     content.innerHTML = '<div class="loading"><div class="spinner"></div> กำลังโหลด...</div>';
     
     const pages = {
-        today: renderToday, dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance, receivers: renderReceivers, gacha: renderGacha,
+        today: renderToday, dashboard: renderDashboard, inbox: renderInbox, customers: renderCustomers, finance: renderFinance, receivers: renderReceivers, dailyincome: renderDailyIncome, gacha: renderGacha,
         promotions: renderPromoManager, journey: renderJourney, dm_broadcast: loadDmBroadcastPage, content: renderContent, groups: renderGroups, bot_groups: renderBotGroups, group_analytics: renderGroupAnalytics, bot_schedules: renderBotSchedules, content_editor: renderContentEditor,
         team: renderTeam, settings: renderSettings, marketing: renderMarketing,
         activity: renderActivityLog, health: renderSystemHealth, prae_logs: renderPraeLogs,
@@ -9274,4 +9275,57 @@ async function saveConfig(configKey, isJson) {
         closeModal();
         loadSystemConfig();
     } catch (e) { toast(e.message, 'error'); }
+}
+
+
+// ── ยอดรายวันแยกบัญชี (daily income per receiver; midnight BKK; ไม่ขึ้นกับ reset) ──
+async function renderDailyIncome() {
+    const content = document.getElementById('page-content');
+    try {
+        const qs = window._diDate ? ('?date=' + encodeURIComponent(window._diDate)) : '';
+        const data = await api('/receivers/daily-income' + qs);
+        const accounts = data.accounts || [];
+        const bills = data.bills || [];
+        const acctCards = accounts.length
+            ? accounts.map(a => `
+                <div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--success);border-radius:10px;padding:1rem 1.25rem;flex:1;min-width:200px;">
+                    <div style="font-size:0.8125rem;color:var(--text-muted);">${esc(a.owner_name)}</div>
+                    <div style="font-size:1.5rem;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums;">${fmtBaht(a.total)}</div>
+                    <div style="font-size:0.75rem;color:var(--text-dim);">${a.n} รายการ</div>
+                </div>`).join('')
+            : '<div style="color:var(--text-dim);padding:1rem;">— ยังไม่มีรายการ —</div>';
+        const billRows = bills.length
+            ? bills.map(b => `
+                <tr style="border-bottom:1px solid var(--border);">
+                    <td style="padding:0.5rem;font-family:var(--font-mono);">#${b.id}</td>
+                    <td style="padding:0.5rem;">${esc(b.time_bkk)}</td>
+                    <td style="padding:0.5rem;text-align:right;font-variant-numeric:tabular-nums;">${fmtBaht(b.amount)}</td>
+                    <td style="padding:0.5rem;">${esc(b.owner_name)}</td>
+                </tr>`).join('')
+            : '<tr><td colspan="4" style="padding:1rem;text-align:center;color:var(--text-dim);">—</td></tr>';
+        content.innerHTML = `
+            <div style="max-width:880px;">
+                <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.25rem;flex-wrap:wrap;">
+                    <h2 style="margin:0;font-size:1.25rem;font-weight:600;color:var(--text);letter-spacing:-0.02em;">📅 ยอดรายวันแยกบัญชี</h2>
+                    <input type="date" value="${esc(data.date)}" onchange="window._diDate=this.value;renderDailyIncome();" style="padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-family:inherit;">
+                    <button class="btn btn-outline btn-sm" onclick="window._diDate='';renderDailyIncome();">วันนี้</button>
+                </div>
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.25rem;margin-bottom:1.25rem;">
+                    <div style="font-size:0.6875rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em;">ยอดรวมทั้งวัน · ${esc(data.date)}</div>
+                    <div style="font-size:2rem;font-weight:700;color:var(--success);font-variant-numeric:tabular-nums;">${fmtBaht(data.grand_total)}</div>
+                    <div style="font-size:0.8125rem;color:var(--text-muted);">${data.count} รายการ · นับจากเที่ยงคืน (เวลาไทย) — ไม่ขึ้นกับการ Reset ยอดสะสม</div>
+                </div>
+                <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem;">${acctCards}</div>
+                <h3 style="font-size:1rem;font-weight:600;color:var(--text);margin-bottom:0.5rem;">รายการ (${bills.length})</h3>
+                <table style="width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:0.875rem;">
+                    <thead><tr style="background:var(--surface-2);text-align:left;">
+                        <th style="padding:0.5rem;">เลขที่</th><th style="padding:0.5rem;">เวลา</th>
+                        <th style="padding:0.5rem;text-align:right;">ยอด</th><th style="padding:0.5rem;">บัญชี</th>
+                    </tr></thead>
+                    <tbody>${billRows}</tbody>
+                </table>
+            </div>`;
+    } catch (e) {
+        content.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>โหลดไม่สำเร็จ: ${esc(e.message)}</p></div>`;
+    }
 }
