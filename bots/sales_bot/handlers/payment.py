@@ -693,14 +693,16 @@ async def handle_photo_slip(
                     _admin_chat_g = int(_os_g.environ.get("ADMIN_GROUP_CHAT_ID", ""))
                     _safe_tg_g = _h_g.escape(str(user.first_name or user.username or "ลูกค้า"))
                     _trans_ref = (slip2go_data.get("transRef") or "")[:32]
+                    import datetime as _dtm_g
+                    _t_bkk_g = _dtm_g.datetime.now(_dtm_g.timezone(_dtm_g.timedelta(hours=7))).strftime("%H:%M")
                     _alert = (
-                        "🎰 <b>ซื้อกาชา — อนุมัติอัตโนมัติ</b>\n"
-                        "━━━━━━━━━━━━━━\n"
-                        f"👤 ลูกค้า: {_safe_tg_g} (<code>{user.id}</code>)\n"
-                        f"💰 ยอด: <b>฿{int(_gacha_amt):,}</b>\n"
-                        f"🎲 สิทธิ์หมุน: <b>{_spins}</b> ครั้ง\n"
-                        f"🆔 เลขที่: <code>{_payid}</code>\n"
-                        f"🔖 เลขสลิป: <code>{_trans_ref}</code>"
+                        "🎰 <b>ซื้อกาชา</b> ✅ <b>อนุมัติแล้ว</b>\n"
+                        "━━━━━━━━━━━━━━━━\n"
+                        f"💰 ยอด     <b>฿{int(_gacha_amt):,}</b>\n"
+                        f"🎲 สิทธิ์หมุน  <b>{_spins}</b> ครั้ง\n"
+                        f"👤 ลูกค้า   {_safe_tg_g} · <code>{user.id}</code>\n"
+                        f"\n"
+                        f"🧾 #{_payid} · 🔖 <code>{_trans_ref}</code> · 🕒 {_t_bkk_g}"
                     )
                     try:
                         if update.message and update.message.photo:
@@ -913,9 +915,29 @@ async def handle_photo_slip(
                     from sqlalchemy import text as _sql_t
 
                     _slip_amt = float(slip2go_data.get("amount") or 0)
-                    _tier_info = _amt_to_tier(int(_slip_amt))
-                    _tier_str = (_tier_info[0] if _tier_info else (selected_tier or "300"))
+                    # AUDIT: ใช้แพ็กที่ลูกค้าเลือกจริงก่อน (บอท=selected_tier / mini-app=intent) เดาจากยอดเฉพาะตอนไม่รู้
+                    _chosen_tier = selected_tier
+                    _guessed = False
+                    if not _chosen_tier:
+                        try:
+                            from shared.purchase_intent import find_latest_pending as _flp_rv
+                            _pi_rv = await _flp_rv(user.id)
+                            if _pi_rv and _pi_rv.get("tier"):
+                                _chosen_tier = str(_pi_rv["tier"]).replace("TIER_", "")
+                        except Exception:
+                            pass
+                    if not _chosen_tier:
+                        _ti_g = _amt_to_tier(int(_slip_amt))
+                        _chosen_tier = (_ti_g[0] if _ti_g else "300")
+                        _guessed = True
+                    _tier_str = _chosen_tier
                     _tier_enum_name = f"TIER_{_tier_str}"
+                    _chosen_price = None
+                    try:
+                        _cp = await _get_effective_price(_tier_str, context.user_data)
+                        _chosen_price = float(_cp) if _cp else None
+                    except Exception:
+                        _chosen_price = None
 
                     async with get_session() as _sess0:
                         _r = await _sess0.execute(_sql_t(
@@ -984,17 +1006,26 @@ async def handle_photo_slip(
                             _admin_chat = int(_os.environ.get("ADMIN_GROUP_CHAT_ID", ""))
                             _safe_tg = _h.escape(str(user.first_name or user.username or "ลูกค้า"))
                             _safe_rcv = _h.escape(_rcv_name)
+                            _pkg_pick = (f"{_tier_str} (฿{int(_chosen_price):,})" if _chosen_price else _tier_str)
+                            _pick_line = (f"📦 เดาจากยอด: <b>{_pkg_pick}</b> <i>(ลูกค้าไม่ได้เลือกแพ็ก)</i>" if _guessed else f"📦 ลูกค้าเลือก: <b>{_pkg_pick}</b>")
+                            _paid_line = f"💰 จ่ายจริง: <b>฿{int(_slip_amt):,}</b>"
+                            if _chosen_price and int(_chosen_price) != int(_slip_amt):
+                                _paid_line += " ⚠️ <b>ยอดไม่ตรง!</b>"
                             _msg = (
-                                "🔍 <b>สลิปต้องตรวจสอบ</b> (สลิปจริง แต่บัญชีไม่ตรง)\n"
-                                "━━━━━━━━━━━━━━\n"
-                                f"👤 ลูกค้า: {_safe_tg} (<code>{user.id}</code>)\n"
-                                f"💰 ยอดในสลิป: <b>฿{int(_slip_amt):,}</b>\n"
-                                f"📦 ระบบเดาเป็นแพ็ก: <b>{_tier_str}</b>\n"
-                                f"🎯 บัญชีปลายทางในสลิป: {_safe_rcv}\n"
-                                f"❌ เข้าบัญชีเรา: ไม่ใช่ ({_h.escape(rcv_reason or '-')})\n"
-                                f"🔖 เลขสลิป: <code>{(slip2go_data.get('transRef') or '')[:32]}</code>\n"
-                                f"🆔 เลขชำระเงิน: <code>{_pay_id}</code>\n"
-                                f"\n💬 ลูกค้าได้รับแจ้งว่ากำลังตรวจสอบ — กรุณากดปุ่มด้านล่าง"
+                                "🟡 <b>ต้องตรวจสอบด้วยมือ</b> ⚠️\n"
+                                "<i>สลิปจริง แต่บัญชีปลายทางไม่ตรง</i>\n"
+                                "━━━━━━━━━━━━━━━━\n"
+                                f"{_pick_line}\n"
+                                f"{_paid_line}\n"
+                                f"👤 ลูกค้า: {_safe_tg} · <code>{user.id}</code>\n"
+                                "\n"
+                                f"🔴 เข้าบัญชีเรา: <b>ไม่ใช่</b>\n"
+                                f"🎯 บัญชีในสลิป: {_safe_rcv}\n"
+                                f"<i>({_h.escape(rcv_reason or '-')})</i>\n"
+                                "\n"
+                                f"🧾 จ่าย #{_pay_id} · 🔖 <code>{(slip2go_data.get('transRef') or '')[:24]}</code>\n"
+                                "💬 แจ้งลูกค้าว่ากำลังตรวจสอบแล้ว\n"
+                                "👇 เลือกจัดการด้านล่าง"
                             )
                             _kb = build_admin_review_buttons(_pay_id, user.id)
                             _wr_sent = False
@@ -1406,17 +1437,21 @@ async def handle_photo_slip(
                                     if _odays: _onb_lines += f"\n   📅 +{_odays} วัน"
                             except Exception:
                                 pass
+                            import datetime as _dtm_a
+                            _t_bkk_a = _dtm_a.datetime.now(_dtm_a.timezone(_dtm_a.timedelta(hours=7))).strftime("%H:%M")
                             _admin_msg = (
-                                f"🤖 <b>อนุมัติอัตโนมัติ (Slip2Go)</b>\n"
-                                f"━━━━━━━━━━━━━━\n"
-                                f"📋 เลขที่: #{_new_pay_id}\n"
-                                f"👤 ลูกค้า: {_safe_tg_name} (<code>{user.id}</code>)\n"
-                                f"🆔 <b>ชื่อจริง:</b> {_safe_real}\n"
-                                f"🏦 <b>จาก:</b> {_safe_bank}\n"
-                                f"🎯 <b>เข้าบัญชีเรา:</b> {_recv_label}\n"
-                                f"💰 ยอด: <b>฿{int(s2g_amount):,}</b>\n"
-                                f"📦 แพ็ก: <b>{_h.escape(_pkg_name_safe)}</b> {'🔥 (โปร)' if is_promo else ''}\n"
-                                f"🔖 เลขสลิป: <code>{s2g_trans_ref or '-'}</code>"
+                                f"🟢 <b>อนุมัติอัตโนมัติ</b> ✅\n"
+                                f"<i>Slip2Go ตรวจผ่าน · บัญชีถูกต้อง</i>\n"
+                                f"━━━━━━━━━━━━━━━━\n"
+                                f"💰 ยอด    <b>฿{int(s2g_amount):,}</b>\n"
+                                f"📦 แพ็ก    <b>{_h.escape(_pkg_name_safe)}</b> {'🔥 โปร' if is_promo else ''}\n"
+                                f"👤 ลูกค้า   {_safe_tg_name} · <code>{user.id}</code>\n"
+                                f"\n"
+                                f"🟢 เข้าบัญชี: <b>{_recv_label}</b>\n"
+                                f"🆔 ผู้โอน: {_safe_real}\n"
+                                f"🏧 ต้นทาง: {_safe_bank}\n"
+                                f"\n"
+                                f"🧾 #{_new_pay_id} · 🔖 <code>{s2g_trans_ref or '-'}</code> · 🕒 {_t_bkk_a}"
                                 f"{_onb_lines}"
                             )
                             # Try send slip photo with caption; fallback to text if no file_id
