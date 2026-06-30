@@ -74,7 +74,7 @@ async def daily_report_today(admin=Depends(require_role('admin'))):
 
     # SOS open
     sos_open = await pool.fetchval("""
-        SELECT COUNT(*) FROM sos_alerts WHERE status IN ('OPEN','IN_PROGRESS')
+        SELECT COUNT(*) FROM sos_alerts WHERE status = 'PENDING'
     """)
 
     diff_revenue = today['revenue'] - (yest['revenue'] or 0)

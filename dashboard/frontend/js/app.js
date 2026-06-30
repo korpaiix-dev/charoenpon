@@ -1970,7 +1970,7 @@ async function inboxAction(action, id) {
             return;
         } else if (action === 'resolve_sos') {
             if (!await confirmModal({ message: 'จบ SOS ticket #' + id + '?', dangerous: true })) return;
-            await api(`/dashboard/sos/${id}/resolve`, { method: 'POST' });
+            await api(`/dashboard/sos/by-id/${id}/resolve`, { method: 'POST' });
             toast('✅ Resolved', 'success');
             renderInbox();
         } else if (action === 'preview_broadcast') {

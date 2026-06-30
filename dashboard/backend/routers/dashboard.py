@@ -507,6 +507,23 @@ async def sos_resolve_manual(telegram_id: int, admin=Depends(get_current_admin))
     return {"success": True}
 
 
+@router.post("/sos/by-id/{alert_id}/resolve")
+async def sos_resolve_by_id(alert_id: int, admin=Depends(get_current_admin)):
+    """จบเคส SOS ตาม ticket id (ใช้จากหน้า Inbox — กันบั๊ก id/telegram_id สลับกัน)."""
+    admin_name = admin.get("display_name", "Dashboard")
+    result = await pool.execute("""
+        UPDATE sos_alerts SET status = 'RESOLVED', resolved_by = $1, resolved_at = NOW()
+        WHERE id = $2 AND status = 'PENDING'
+    """, admin_name, alert_id)
+    updated = int(result.split()[-1]) if result else 0
+    await log_admin_action(
+        admin_id=admin["id"], action="sos_resolve_manual",
+        target_type="sos", target_id=alert_id,
+        details=f"resolved SOS ticket #{alert_id} (updated={updated})",
+    )
+    return {"success": True, "updated": updated}
+
+
 @router.post("/sos/{telegram_id}/resend-links")
 async def sos_resend_links(telegram_id: int, admin=Depends(get_current_admin)):
     """Generate new invite links and send to customer via DM."""
