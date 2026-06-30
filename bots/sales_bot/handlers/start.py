@@ -687,7 +687,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     # Day-0 (2026-06-28): Handle promo deep link: /start promo_{code}
     if source and source.startswith("promo_"):
-        promo_code = source  # full code (e.g. "promo_end1")
+        promo_code = source[len("promo_"):]  # strip prefix -> matches DB code
         handled = await _handle_promo_start(update, context, promo_code)
         if handled:
             return
@@ -751,6 +751,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         from bots.sales_bot.handlers.shaker import cmd_shaker
         await cmd_shaker(update, context)
         return
+
+    # Bare promo code deep link: /start <CODE> (dashboard share-link format, no prefix)
+    if source:
+        handled = await _handle_promo_start(update, context, source)
+        if handled:
+            return
 
     # MAIN_KBD_V2 — unified builder w/ flash-sale conditional
     dynamic_keyboard = await _build_main_keyboard(tg_user.id)
