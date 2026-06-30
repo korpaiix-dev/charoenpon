@@ -83,11 +83,14 @@ async def trigger_sos_workflow(
             try:
                 user_label = first_name or username or f"tg:{telegram_id}"
                 msg = (
-                    f"🚨 <b>SOS</b> — ลูกค้าทักว่าเข้ากลุ่มไม่ได้\n"
-                    f"👤 <b>{user_label}</b>"
+                    f"🆘 <b>SOS — ลูกค้าขอความช่วยเหลือ</b> 🔴\n"
+                    f"<i>เข้ากลุ่มไม่ได้</i>\n"
+                    f"━━━━━━━━━━━━━━━━\n"
+                    f"👤 ลูกค้า: <b>{user_label}</b>"
                     f"{' @' + username if username else ''}\n"
                     f"🆔 <code>{telegram_id}</code>\n"
-                    f"💬 <i>{user_text[:200]}</i>"
+                    f"\n💬 <i>{user_text[:200]}</i>\n"
+                    f"\n👇 กดปุ่มเพื่อช่วยเหลือ"
                 )
                 # FIX 2026-06-17: "tg://user?id=X" causes Button_user_invalid when bot has no contact
                 _btn_rows = []

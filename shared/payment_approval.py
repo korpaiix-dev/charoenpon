@@ -820,11 +820,12 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
                     try:
                         from shared.admin_alert import notify_admin_group as _nag
                         await _nag(
-                            "⚠️ <b>ยอดสะสมถึง threshold</b> — บัญชี <b>"
-                            + str(_rcv_rec.get("owner_name","?"))
-                            + "</b> ยอดสะสม ฿" + format(int(_rcv_rec.get("cumulative",0)), ",")
-                            + " (ผ่าน ฿" + format(int(_rcv_rec.get("milestone",0)), ",")
-                            + ") 📌 พิจารณาถอนเงิน + กด Reset ยอดสะสม"
+                            "💰 <b>ยอดสะสมถึงเป้า</b> 🔔\n"
+                            "━━━━━━━━━━━━━━━━\n"
+                            "🏦 บัญชี: <b>" + str(_rcv_rec.get("owner_name","?")) + "</b>\n"
+                            "📊 ยอดสะสม: <b>฿" + format(int(_rcv_rec.get("cumulative",0)), ",") + "</b>\n"
+                            "🎯 ผ่านเป้า: ฿" + format(int(_rcv_rec.get("milestone",0)), ",") + "\n"
+                            "\n📌 ถอนเงิน + กด Reset ยอดสะสม"
                         )
                     except Exception as _ae:
                         logger.warning("[approval] milestone alert failed: %s", _ae)
@@ -1091,12 +1092,16 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
             from shared.admin_alert import notify_admin_group
             links_flat = "\n".join([f"  {l.title}: {l.url}" for l in invite_links_list]) or "(no links)"
             await notify_admin_group(
-                f"⚠️ <b>Approval partial-fail — manual intervene</b>\n"
-                f"🆔 tg=<code>{inp.telegram_id}</code> pay=<code>{payment_id_final}</code>\n"
-                f"📦 {package_name} ({_tier_value(target_tier_str)})\n"
-                f"💰 ฿{inp.amount_paid}\n"
-                f"DM sent: {customer_dm_sent} | links: {len(invite_links_list)}\n\n"
-                f"🔗 ลิงก์ที่มี:\n{links_flat}",
+                f"🔴 <b>ต้องแก้มือด่วน</b> ⚠️\n"
+                f"<i>อนุมัติแล้ว แต่ส่งให้ลูกค้าไม่ครบ</i>\n"
+                f"━━━━━━━━━━━━━━━━\n"
+                f"📦 แพ็ก: <b>{package_name}</b> ({_tier_value(target_tier_str)})\n"
+                f"💰 ยอด: <b>฿{inp.amount_paid}</b>\n"
+                f"👤 ลูกค้า: <code>{inp.telegram_id}</code> · จ่าย #{payment_id_final}\n"
+                f"\n"
+                f"📨 ส่ง DM: {'✅ สำเร็จ' if customer_dm_sent else '❌ ไม่สำเร็จ'}\n"
+                f"🔗 ลิงก์ที่มี: {len(invite_links_list)} อัน\n{links_flat}\n"
+                f"\n👉 ตรวจ + ส่งลิงก์ให้ลูกค้าเอง",
                 parse_mode="HTML",
             )
         except Exception:

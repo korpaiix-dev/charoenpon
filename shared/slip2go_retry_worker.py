@@ -255,16 +255,15 @@ async def _escalate_to_admin(row: dict, attempt: int, err: str, bot: Bot):
         logger.warning("ADMIN_GROUP_CHAT_ID not set — cannot escalate")
         return
     msg = (
-        "⚠️ <b>Slip2Go Auto-Retry Exhausted</b>\n"
-        "━━━━━━━━━━━━━━━\n\n"
-        f"💳 Payment: <code>#{row['payment_id']}</code>\n"
-        f"👤 User: <code>{row['telegram_id']}</code>\n"
-        f"💰 Expected: ฿{row['expected_amount']}\n"
-        f"🔁 Attempts: {attempt}/{MAX_ATTEMPTS}\n"
-        f"❌ Last error: <code>{err[:200]}</code>\n\n"
-        "→ ตรวจสอบใน Telegram admin payment list (/pending)\n"
-        "→ หรือใช้ /approve_300_{tg} ใน admin bot"
-    ).format(tg=row['telegram_id'])
+        "🔴 <b>ตรวจสลิปไม่ผ่าน (ลองครบแล้ว)</b>\n"
+        "━━━━━━━━━━━━━━━━\n"
+        f"💳 จ่าย: <code>#{row['payment_id']}</code>\n"
+        f"👤 ลูกค้า: <code>{row['telegram_id']}</code>\n"
+        f"💰 ยอดที่คาด: ฿{row['expected_amount']}\n"
+        f"🔁 ลองแล้ว: {attempt}/{MAX_ATTEMPTS} ครั้ง\n"
+        f"❌ เหตุ: <code>{err[:160]}</code>\n"
+        f"\n👉 ตรวจที่ /pending หรือ /approve_300_{row['telegram_id']}"
+    )
     try:
         await bot.send_message(chat_id=ADMIN_GROUP_CHAT_ID, text=msg, parse_mode=ParseMode.HTML)
     except Exception as exc:
