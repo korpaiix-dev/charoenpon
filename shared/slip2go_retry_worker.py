@@ -262,12 +262,36 @@ async def _escalate_to_admin(row: dict, attempt: int, err: str, bot: Bot):
         f"💰 ยอดที่คาด: ฿{row['expected_amount']}\n"
         f"🔁 ลองแล้ว: {attempt}/{MAX_ATTEMPTS} ครั้ง\n"
         f"❌ เหตุ: <code>{err[:160]}</code>\n"
-        f"\n👉 ตรวจที่ /pending หรือ /approve_300_{row['telegram_id']}"
+        f"\n👇 กดปุ่มด้านล่างเพื่ออนุมัติ/ปฏิเสธ (หรือดูที่ /pending)"
     )
+    # FIX 2026-07-01: escalate via ADMIN bot. The retry worker runs inside the Guardian
+    # bot, which is NOT a member of the admin group ("Chat not found") -> escalation was
+    # failing silently and stuck slips got no admin notification. Also attach the same
+    # approve/reject buttons so admin can act right from the alert.
+    import os as _os_esc
+    from telegram import Bot as _Bot_esc
+    _kb_esc = None
     try:
-        await bot.send_message(chat_id=ADMIN_GROUP_CHAT_ID, text=msg, parse_mode=ParseMode.HTML)
+        from shared.slip_review import build_admin_review_buttons as _bld_esc
+        _kb_esc = _bld_esc(row["payment_id"], row["telegram_id"])
+    except Exception as _kbe:
+        logger.warning("escalate buttons build failed: %s", _kbe)
+    _atok = _os_esc.environ.get("ADMIN_BOT_TOKEN", "")
+    _sender = _Bot_esc(token=_atok) if _atok else bot
+    try:
+        if _atok:
+            await _sender.initialize()
+        await _sender.send_message(chat_id=ADMIN_GROUP_CHAT_ID, text=msg,
+                                   parse_mode=ParseMode.HTML, reply_markup=_kb_esc)
+        logger.info("Escalation sent to admin group for payment %s", row["payment_id"])
     except Exception as exc:
         logger.warning("Admin escalation send failed: %s", exc)
+    finally:
+        if _atok:
+            try:
+                await _sender.shutdown()
+            except Exception:
+                pass
 
 
 async def _sweep_stale_processing():
