@@ -178,6 +178,7 @@ services:
       # apply instantly without rebuild → zero-downtime for frontend edits
       - ./dashboard/frontend:/app/dashboard/frontend:ro
       - ./dashboard/frontend/assets/receiver_qr:/app/dashboard/frontend/assets/receiver_qr  # AUDIT: RW for QR uploads
+      - ./dashboard/frontend/assets/uploads:/app/dashboard/frontend/assets/uploads  # RW for content image uploads
       # 2026-06-28: backend + shared as RO volume so uvicorn --reload picks up edits
       # without container rebuild → zero downtime to boss while we work
       - ./dashboard/backend:/app/dashboard/backend:ro
