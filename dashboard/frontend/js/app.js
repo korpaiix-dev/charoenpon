@@ -7626,7 +7626,7 @@ async function renderBotSchedules() {
                             <input type="number" min="0" max="59" value="${String(s.schedule_minute).padStart(2,'0')}" data-sched="${s.id}" data-field="minute" onchange="updateSchedTime(${s.id},'minute',this.value)">
                         </div>
                         <div style="font-size:0.7rem;color:var(--text-muted);font-family:var(--font-mono);">${esc(s.job_name)}</div>
-                        <button class="btn-icon-only" title="ลบ schedule นี้" onclick="schedDelete(${s.id}, ${JSON.stringify(s.display_name || s.job_name)})" style="background:transparent;border:1px solid #ef4444;color:#ef4444;padding:0.3rem 0.55rem;border-radius:6px;cursor:pointer;font-size:0.85rem;line-height:1;">🗑</button>
+                        <button class="btn-icon-only" title="ลบ schedule นี้" onclick="schedDelete(${s.id})" style="background:transparent;border:1px solid #ef4444;color:#ef4444;padding:0.3rem 0.55rem;border-radius:6px;cursor:pointer;font-size:0.85rem;line-height:1;">🗑</button>
                     </div>
                 `).join('')}
             </div>`;
@@ -7798,9 +7798,11 @@ function ctPreview(btn) {
                            .replace(/\{tier\}/g, "300");
 
     // Build image URL via backend asset endpoint
-    const imgSrc = imgPath
-        ? "/api/admin/asset?path=" + encodeURIComponent(imgPath) + "&token=" + encodeURIComponent(typeof token !== "undefined" ? token : (localStorage.getItem("jwt") || ""))
-        : null;
+    const imgSrc = !imgPath
+        ? null
+        : (imgPath.startsWith("/assets/") || imgPath.startsWith("http"))
+            ? imgPath
+            : "/api/admin/asset?path=" + encodeURIComponent(imgPath) + "&token=" + encodeURIComponent(typeof token !== "undefined" ? token : (localStorage.getItem("jwt") || ""));
 
     // Build buttons HTML — Telegram inline button style: full-width grey pill rows
     const buttonsHtml = (btns && btns.length)
@@ -8244,7 +8246,7 @@ async function schedSubmitAdd() {
         toast('✅ สร้าง schedule + กำลัง restart บอต...');
         // Restart the bot so new schedule binds
         try {
-            await api(`/admin/bots/charoenpon-${(_schedBot||'content_bot').replace('_','-')}/restart`, { method: 'POST' });
+            await api(`/admin/bots/charoenpon-${(_schedBot||'content_bot').replace(/_/g,'-')}/restart`, { method: 'POST' });
         } catch (e) { /* non-fatal */ }
         setTimeout(() => { toast('✅ Schedule พร้อมแล้ว'); renderBotSchedules(); }, 4000);
     } catch (e) {
@@ -8253,11 +8255,11 @@ async function schedSubmitAdd() {
 }
 
 async function schedDelete(id, jobName) {
-    if (!await confirmModal({ message: `ลบ schedule "${jobName}" ?\n\nบอตจะ restart 1 ครั้งเพื่อให้มีผล`, dangerous: true })) return;
+    if (!await confirmModal({ message: `ลบ schedule นี้?\n\nบอตจะ restart 1 ครั้งเพื่อให้มีผล`, dangerous: true })) return;
     try {
         await api(`/admin/bots/schedules/${id}`, { method: 'DELETE' });
         toast('🗑 ลบแล้ว + กำลัง restart...');
-        try { await api(`/admin/bots/charoenpon-${(_schedBot||'content_bot').replace('_','-')}/restart`, { method: 'POST' }); } catch (e) {}
+        try { await api(`/admin/bots/charoenpon-${(_schedBot||'content_bot').replace(/_/g,'-')}/restart`, { method: 'POST' }); } catch (e) {}
         setTimeout(() => renderBotSchedules(), 4000);
     } catch (e) {
         alert('❌ ' + (e.message || 'ลบไม่สำเร็จ'));

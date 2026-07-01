@@ -985,7 +985,7 @@ async def upload_content_image(
     if not file:
         raise HTTPException(400, "no file uploaded")
 
-    upload_dir = "/app/assets/uploads"
+    upload_dir = "/app/dashboard/frontend/assets/uploads"
     _os_up.makedirs(upload_dir, exist_ok=True)
 
     # Generate safe filename: timestamp + original ext
@@ -1006,7 +1006,7 @@ async def upload_content_image(
         f.write(content)
 
     return {
-        "path": full_path,
+        "path": f"/assets/uploads/{safe}",
         "url": f"/assets/uploads/{safe}",
         "size": len(content),
     }

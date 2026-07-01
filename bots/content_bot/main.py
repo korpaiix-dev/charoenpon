@@ -1581,12 +1581,15 @@ def _build_inline_keyboard(buttons: list) -> "InlineKeyboardMarkup | None":
         for r in rows_raw:
             row = []
             for b in r:
-                if not isinstance(b, dict) or not b.get("text"):
+                if not isinstance(b, dict):
+                    continue
+                _txt = b.get("text") or b.get("label")
+                if not _txt:
                     continue
                 if b.get("url"):
-                    row.append(InlineKeyboardButton(b["text"], url=b["url"]))
+                    row.append(InlineKeyboardButton(_txt, url=b["url"]))
                 elif b.get("callback_data"):
-                    row.append(InlineKeyboardButton(b["text"], callback_data=b["callback_data"]))
+                    row.append(InlineKeyboardButton(_txt, callback_data=b["callback_data"]))
             if row:
                 rows.append(row)
         return InlineKeyboardMarkup(rows) if rows else None
@@ -1631,28 +1634,36 @@ async def post_template_to_free_groups(
         template_key, tpl["display_name"], len(free_groups),
     )
     
-    # Resolve image path — accept relative paths from /app/assets/
+    # Resolve image -> bytes: local file, campaigns fallback, else fetch from dashboard (uploads live there)
     from pathlib import Path as _P
-    img_full = None
+    img_bytes = None
     if image_path:
-        img_full = _P("/app") / image_path.lstrip("/")
-        if not img_full.exists():
-            # Try campaigns/ prefix as fallback
-            alt = _P("/app/assets/campaigns") / image_path
-            if alt.exists():
-                img_full = alt
-            else:
-                img_full = None
-                logger.warning("Image not found: %s", image_path)
+        _local = _P("/app") / image_path.lstrip("/")
+        _alt = _P("/app/assets/campaigns") / image_path.lstrip("/")
+        if _local.exists():
+            img_bytes = _local.read_bytes()
+        elif _alt.exists():
+            img_bytes = _alt.read_bytes()
+        else:
+            try:
+                import urllib.request as _ureq
+                _pth = image_path if image_path.startswith("/") else "/" + image_path
+                if _pth.startswith("/app"):
+                    _pth = _pth[len("/app"):]
+                with _ureq.urlopen("http://charoenpon-dashboard:8010" + _pth, timeout=8) as _rsp:
+                    img_bytes = _rsp.read()
+            except Exception as _fx:
+                logger.warning("Image fetch failed for %s: %s", image_path, _fx)
+                img_bytes = None
     
+    import io as _io
     for group_id in free_groups:
         try:
-            if img_full and img_full.exists():
-                with open(img_full, "rb") as _f:
-                    await bot.send_photo(
-                        chat_id=group_id, photo=_f, caption=caption,
-                        parse_mode="HTML", reply_markup=keyboard,
-                    )
+            if img_bytes:
+                await bot.send_photo(
+                    chat_id=group_id, photo=_io.BytesIO(img_bytes), caption=caption,
+                    parse_mode="HTML", reply_markup=keyboard,
+                )
             else:
                 await bot.send_message(
                     chat_id=group_id, text=caption, parse_mode="HTML",
