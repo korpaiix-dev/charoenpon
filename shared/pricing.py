@@ -514,6 +514,10 @@ def approve_buttons(user_id: int) -> list[list[dict]]:
         {"text": "✅ 1299 (3M)",     "callback_data": f"approve_1299_{user_id}"},
         {"text": "✅ 2499 (GOD)",    "callback_data": f"approve_2499_{user_id}"},
     ])
+    # Super VIP — top lifetime tier
+    rows.append([
+        {"text": "👑 Super VIP",     "callback_data": f"approve_4999_{user_id}"},
+    ])
     # Row 3: Summer add-on (always)
     rows.append([
         {"text": "🌊 500 (Summer)",  "callback_data": f"approve_ADD500_{user_id}"},
@@ -550,6 +554,7 @@ def admin_callback_tier_map() -> dict[str, str]:
         "349":   "500",  "500": "500",
         "999":   "1299", "1299": "1299",
         "2000":  "2499", "2499": "2499",
+        "2999":  "4999", "4999": "4999",
         "ADD500": "ADD500",
         # Comeback (always-on)
         "180": "300", "210": "300",
