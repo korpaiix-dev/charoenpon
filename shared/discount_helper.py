@@ -1,7 +1,7 @@
 """Discount usage helper — compute & apply discount credit when buying packages.
 
 Rules:
-- Only apply to TIER_399 / TIER_999 / TIER_1299 / TIER_2499 (not GACHA bundles, not 100, not 300/500)
+- Applies to paid tiers 300/500/1299/2499/4999 (+ legacy 399/999); NOT gacha bundles or 100
 - Discount cap per tier:
     * TIER_399  → max ฿50  (12.5%)
     * TIER_999  → max ฿100 (10%)
@@ -29,6 +29,7 @@ DISCOUNT_CAP = {
     "999": Decimal("100"),
     "1299": Decimal("100"),
     "2499": Decimal("200"),
+    "4999": Decimal("200"),  # Super VIP — boss decision 2026-07-02
 }
 
 
