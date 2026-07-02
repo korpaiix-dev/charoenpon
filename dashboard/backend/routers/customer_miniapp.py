@@ -169,6 +169,49 @@ def _verify_telegram_init_data(init_data: str, bot_token: str) -> dict | None:
     return None
 
 
+async def _compute_pkg_price(tier_full: str, promo_id) -> "dict | None":
+    """SERVER-SIDE price for a package (revenue-leak fix — never trust client payload.price).
+
+    Returns {"base": int, "final": int}: real DB price minus a *validated* campaign promo
+    (promo must be active AND the package tier must be in its package_codes). None if invalid tier.
+    """
+    import json as _json
+    tdb = tier_full if (tier_full.startswith("TIER_") or tier_full.startswith("GACHA_")) else f"TIER_{tier_full}"
+    tshort = tdb.replace("TIER_", "")
+    row = await pool.fetchrow("SELECT price FROM packages WHERE tier::text = $1 AND is_active = TRUE", tdb)
+    if not row:
+        return None
+    base = float(row["price"])
+    final = base
+    if promo_id:
+        try:
+            pr = await pool.fetchrow(
+                "SELECT package_codes, discount_type, discount_value, is_active FROM promotions WHERE id = $1",
+                int(promo_id),
+            )
+        except Exception:
+            pr = None
+        if pr and pr["is_active"]:
+            raw = pr["package_codes"]
+            if isinstance(raw, str):
+                try:
+                    codes = _json.loads(raw)
+                except Exception:
+                    codes = []
+            else:
+                codes = list(raw) if raw else []
+            if tdb in codes or tshort in codes:
+                dt = (pr["discount_type"] or "none").lower()
+                dv = float(pr["discount_value"] or 0)
+                if dt == "percent":
+                    final = base * (100 - dv) / 100
+                elif dt == "fixed_off":
+                    final = max(0, base - dv)
+                elif dt == "fixed_price":
+                    final = dv
+    return {"base": int(round(base)), "final": int(round(final))}
+
+
 @router.post("/webapp/api/customer/buy")
 async def customer_buy(request: Request):
     """Customer ใน Mini App กด 'ซื้อเลย' → POST มาที่นี่ → ส่ง QR กลับใน chat ผ่าน Bot API."""
@@ -227,6 +270,16 @@ async def customer_buy(request: Request):
         await _send_bot_message(bot_token, tg_id, msg, reply_markup=keyboard)
         return {"ok": True, "action": "gacha_button_sent"}
 
+    # ── SERVER-SIDE price (revenue-leak fix): recompute from DB, ignore client payload.price ──
+    _pinfo = await _compute_pkg_price(tier_full, promo_id)
+    if not _pinfo:
+        await _send_bot_message(bot_token, tg_id, "⚠️ แพ็กเกจไม่ถูกต้อง กรุณาลองใหม่ค่ะ")
+        return {"ok": False, "error": "invalid_package"}
+    if price and price != _pinfo["final"]:
+        logger.warning("MINIAPP_BUY price corrected: client=%s server=%s tg=%s tier=%s",
+                       price, _pinfo["final"], tg_id, tier_full)
+    price = _pinfo["final"]
+
     # PACKAGE — record promo_click + pick receiver + send QR
     if promo_id:
         try:
@@ -236,15 +289,7 @@ async def customer_buy(request: Request):
             logger.warning("promo click record failed: %s", exc)
 
     # Create purchase_intent (ตั๋ว) — sales bot ใช้เป็น fallback selected_tier
-    _orig_price = price
-    if promo_id:
-        try:
-            from shared.pricing import TIER_PRICES as _TP
-            _short = tier_full.replace("TIER_", "")
-            _orig_dec = _TP.get(_short) or _TP.get(tier_full) or price
-            _orig_price = int(_orig_dec)
-        except Exception:
-            _orig_price = price
+    _orig_price = _pinfo["base"]
     _intent_id = await _create_intent(
         tg_id=tg_id,
         tier=tier_full if tier_full.startswith("TIER_") else f"TIER_{tier_full}",
