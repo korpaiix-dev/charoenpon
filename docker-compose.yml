@@ -168,7 +168,7 @@ services:
       context: .
       dockerfile: dashboard/Dockerfile
     ports:
-      - "8010:8010"
+      - "127.0.0.1:8010:8010"
     env_file:
       - .env
     volumes:
@@ -226,45 +226,45 @@ services:
     ports:
       - '127.0.0.1:8001:8001'
 
-  dashboard-staging:
+#   dashboard-staging:
     # Added 2026-06-26: lightweight nginx serving static UI mockups + spec docs
     # for boss to preview the new dashboard design before implementation.
     # NO production code, NO DB access. Pure static HTML + markdown.
-    image: nginx:alpine
-    container_name: charoenpon-dashboard-staging
-    restart: unless-stopped
-    ports:
-      - "8011:80"
-    volumes:
-      - ./dashboard-staging/public:/usr/share/nginx/html:ro
-      - ./dashboard-staging/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./dashboard-staging/nginx/.htpasswd:/etc/nginx/.htpasswd:ro
-      - ./dashboard-staging/docs:/usr/share/nginx/spec:ro
+#     image: nginx:alpine
+#     container_name: charoenpon-dashboard-staging
+#     restart: unless-stopped
+#     ports:
+#       - "8011:80"
+#     volumes:
+#       - ./dashboard-staging/public:/usr/share/nginx/html:ro
+#       - ./dashboard-staging/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+#       - ./dashboard-staging/nginx/.htpasswd:/etc/nginx/.htpasswd:ro
+#       - ./dashboard-staging/docs:/usr/share/nginx/spec:ro
 
 
-  dashboard-test:
+#   dashboard-test:
     # Phase A.2 (2026-06-27): TEST MODE clone of dashboard on port 8012
     # ALL POST/PATCH/DELETE blocked → boss can click anything safely.
     # GET passes through → real data still visible.
-    container_name: charoenpon-dashboard-test
-    build:
-      context: .
-      dockerfile: dashboard/Dockerfile
-    ports:
-      - "8012:8010"
-    env_file:
-      - .env
-    environment:
-      DASHBOARD_TEST_MODE: "true"
-    volumes:
-      - ./.env:/app/host.env
-      - ./docker-compose.yml:/app/docker-compose.yml:ro
-      - ./dashboard/frontend:/app/dashboard/frontend:ro
-      - ./bots/relay_bot/data/state.json:/app/bots/relay_bot/data/state.json:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
+#     container_name: charoenpon-dashboard-test
+#     build:
+#       context: .
+#       dockerfile: dashboard/Dockerfile
+#     ports:
+#       - "8012:8010"
+#     env_file:
+#       - .env
+#     environment:
+#       DASHBOARD_TEST_MODE: "true"
+#     volumes:
+#       - ./.env:/app/host.env
+#       - ./docker-compose.yml:/app/docker-compose.yml:ro
+#       - ./dashboard/frontend:/app/dashboard/frontend:ro
+#       - ./bots/relay_bot/data/state.json:/app/bots/relay_bot/data/state.json:ro
+#     depends_on:
+#       postgres:
+#         condition: service_healthy
+#     restart: unless-stopped
 
 
   # ──────────────────────────────────────────────────────────────────────────
