@@ -1091,6 +1091,27 @@ async def handle_photo_slip(
                                 _pending_disc, s2g_amount, _exp_slip)
                     _pending_disc = 0  # don't apply
             tier_match = amount_to_tier(_s2g_for_match)
+            # MINI-APP INTENT AUTHORITATIVE (2026-07): the fixed-price table only knows standard
+            # tier prices, so a per-customer mini-app discount (e.g. gacha credit: 300-50=250) yields
+            # an amount it can't map -> everything was wrongly routed to admin. If a mini-app intent
+            # was recovered (Layer 0) and the customer paid exactly its final_price, trust the intent's
+            # tier. amount_paid stays the real slip amount (250) so STEP17 in apply_payment_approval
+            # still deducts the gacha credit exactly once. Additive: only runs when amount_to_tier fails.
+            if not tier_match:
+                try:
+                    _pi_am = locals().get("pending_intent")
+                    if _pi_am and _pi_am.get("tier"):
+                        _pi_final_am = float(_pi_am.get("final_price") or 0)
+                        if _pi_final_am > 0 and abs(float(s2g_amount) - _pi_final_am) <= 1.0:
+                            _pi_ts_am = str(_pi_am["tier"]).replace("TIER_", "")
+                            tier_match = (_pi_ts_am, "Mini-app", False)
+                            logger.info(
+                                "INTENT tier-match: slip=%s == intent.final=%s -> tier=%s (intent_id=%s credit=%s)",
+                                s2g_amount, _pi_final_am, _pi_ts_am,
+                                _pi_am.get("id"), _pi_am.get("discount_credit"),
+                            )
+                except Exception as _pe_am:
+                    logger.warning("INTENT tier-match failed: %s", _pe_am)
             if not tier_match:
                 # Bug #11: hand off to admin instead of hard reject
                 rejection = None  # let admin review
