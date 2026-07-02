@@ -446,6 +446,10 @@ async def _build_main_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
     elif state == "god":
         # ── GOD MODE (TIER_2499 ถาวร) — เน้น engagement ──
         rows.append([InlineKeyboardButton(
+            "👑 ดูแพ็คเกจ Super VIP + โปร",
+            web_app=WebAppInfo(url=_URL_MINIAPP_PACKAGES),
+        )])
+        rows.append([InlineKeyboardButton(
             "📊 ข้อมูลของฉัน",
             web_app=WebAppInfo(url=_URL_MINIAPP_PROFILE),
         )])
@@ -456,6 +460,10 @@ async def _build_main_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
         )])
     else:
         # ── ลูกค้า ACTIVE (มี sub แต่ไม่ถาวร) — เน้น ต่ออายุ ──
+        rows.append([InlineKeyboardButton(
+            "🛒 ต่ออายุ / ซื้อแพ็คเกจ + โปร",
+            web_app=WebAppInfo(url=_URL_MINIAPP_PACKAGES),
+        )])
         rows.append([InlineKeyboardButton(
             "📊 ข้อมูลของฉัน (ต่ออายุ / อัพเกรด)",
             web_app=WebAppInfo(url=_URL_MINIAPP_PROFILE),
