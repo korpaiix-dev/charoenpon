@@ -818,6 +818,21 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
                                     _active_ids[0], payment_id_final)
             except Exception as exc:
                 logger.warning("[approval] auto-default receiver failed: %s", exc)
+        # STEP 16.5 (2026-07 harden): bind the mini-app intent to THIS payment
+        # (set consumed_payment_id) so STEP 17 can match on payment_id only, dropping the
+        # fragile final_price fallback that could pick a stale same-price intent.
+        if payment_id_final and inp.method.upper() in ("SLIP", "PROMPTPAY", "TRUEWALLET"):
+            try:
+                from shared.purchase_intent import find_latest_pending as _flp165, consume_intent as _ci165
+                _pi165 = await _flp165(inp.telegram_id, amount=inp.amount_paid)
+                if (_pi165 and _pi165.get("id") and not _pi165.get("consumed_at")
+                        and _pi165.get("final_price") is not None
+                        and Decimal(str(_pi165["final_price"])) == Decimal(str(inp.amount_paid))):
+                    await _ci165(int(_pi165["id"]), payment_id_final)
+                    logger.info("[approval] STEP16.5 bound intent %s -> payment %s",
+                                _pi165.get("id"), payment_id_final)
+            except Exception as _e165:
+                logger.warning("[approval] STEP16.5 intent bind failed (non-fatal): %s", _e165)
         # STEP 17 (2026-07): deduct gacha discount credit recorded on the mini-app intent.
         # Additive + idempotent (apply_usage checks payment_id) + try/except -> cannot break approval.
         if payment_id_final and inp.method.upper() in ("SLIP", "PROMPTPAY", "TRUEWALLET"):
@@ -825,9 +840,8 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
                 async with get_session() as _cs17:
                     _ci17 = (await _cs17.execute(sql_text(
                         "SELECT discount_credit, tier, original_price, final_price FROM purchase_intents "
-                        "WHERE user_telegram_id = :tg AND (consumed_payment_id = :pid OR (consumed_at IS NULL AND final_price = :amt)) "
-                        "ORDER BY (consumed_payment_id = :pid) DESC, created_at DESC LIMIT 1"
-                    ), {"tg": inp.telegram_id, "pid": payment_id_final, "amt": inp.amount_paid})).fetchone()
+                        "WHERE consumed_payment_id = :pid AND discount_credit > 0 LIMIT 1"
+                    ), {"pid": payment_id_final})).fetchone()
                 if _ci17 and _ci17[0] and float(_ci17[0]) > 0:
                     from shared.discount_helper import apply_usage as _du17
                     await _du17(
