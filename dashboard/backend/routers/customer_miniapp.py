@@ -119,6 +119,24 @@ async def get_packages_and_promos(request: Request):
         _tg = 0
     _ret_pct = await _get_customer_retention_pct(_tg) if _tg else 0
 
+    # personal gacha credit (best-single vs campaign/retention) — same rule as _compute_pkg_price
+    _gc_bal = 0.0
+    _gc_caps = {}
+    if _tg:
+        try:
+            _gcr = await pool.fetchrow("SELECT balance FROM user_discount_credits WHERE telegram_id=$1", int(_tg))
+            _gc_bal = float(_gcr["balance"]) if _gcr and _gcr["balance"] else 0.0
+        except Exception:
+            _gc_bal = 0.0
+        if _gc_bal > 0:
+            try:
+                _capr = await pool.fetchrow("SELECT value_json FROM promo_config WHERE config_key='gacha_discount_cap_per_tier'")
+                if _capr and _capr["value_json"]:
+                    import json as _jgc2
+                    _gc_caps = _capr["value_json"] if isinstance(_capr["value_json"], dict) else _jgc2.loads(_capr["value_json"])
+            except Exception:
+                _gc_caps = {}
+
     # Split packages vs gacha
     packages = []
     gachas = []
@@ -144,6 +162,22 @@ async def get_packages_and_promos(request: Request):
                     "discounted": float(_rdisc),
                     "savings": round(_rsav, 2),
                 }
+        # personal gacha credit (best-single): show only if it beats current best
+        if _gc_bal > 0 and not d["tier"].startswith("GACHA_"):
+            _tshort = d["tier"].replace("TIER_", "")
+            _use = min(_gc_bal, float(_gc_caps.get(_tshort, 50)), d["price"])
+            if _use > 0:
+                _gdisc = round(d["price"] - _use)
+                _gsav = d["price"] - _gdisc
+                if best is None or _gsav > best["savings"]:
+                    best = {
+                        "promo_id": None,
+                        "promo_code": "GACHA_CREDIT",
+                        "promo_name": f"เครดิตกาชา -฿{int(_use)}",
+                        "original": float(d["price"]),
+                        "discounted": float(_gdisc),
+                        "savings": round(_gsav, 2),
+                    }
         d["discount"] = best
 
         if d["tier"].startswith("GACHA_"):
