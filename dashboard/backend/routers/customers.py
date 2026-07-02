@@ -1194,6 +1194,8 @@ async def reset_payment(payment_id: int, admin=Depends(require_role("admin"))):
         raise HTTPException(404, "payment not found")
     if row["status"] == "PENDING":
         return {"ok": True, "note": "already pending"}
+    if row["status"] == "CONFIRMED":
+        raise HTTPException(400, "payment ยืนยันแล้ว (CONFIRMED) — reset ไม่ได้ กันเครดิตซ้ำ/ให้สิทธิ์ซ้ำ. ถ้าต้องยกเลิกจริงใช้เมนูยกเลิก/refund")
     await pool.execute(
         "UPDATE payments SET status = 'PENDING' WHERE id = $1",
         payment_id,

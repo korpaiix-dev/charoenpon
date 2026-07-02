@@ -735,9 +735,9 @@ async def bulk_reject(req: _BulkRejectReq, admin=Depends(get_current_admin)):
     for pid in req.payment_ids[:50]:
         try:
             row = await pool.fetchrow(
-                "UPDATE payments SET status='REJECTED', reject_reason=$2, verified_at=NOW() "
+                "UPDATE payments SET status='REJECTED', reject_reason=$2, verified_at=NOW(), verified_by=$3 "
                 "WHERE id=$1 AND status::text NOT IN ('CONFIRMED','REJECTED') RETURNING id",
-                pid, reason_clipped
+                pid, reason_clipped, admin['telegram_id']
             )
             if row:
                 results['rejected'].append(pid)
