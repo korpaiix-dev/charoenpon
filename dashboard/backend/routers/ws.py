@@ -48,7 +48,17 @@ async def ws_events(websocket: WebSocket, token: Optional[str] = Query(None)):
         if not payload:
             await websocket.close(code=1008, reason="invalid token")
             return
-        if (payload.get("role") or "") not in ("admin", "super_admin", "owner", "moderator"):
+        # re-check session not revoked + account active + current role from DB
+        # (so demote/disable takes effect immediately, like the HTTP path)
+        _sr = await pool.fetchrow(
+            "SELECT s.revoked_at, a.is_active, a.role FROM dashboard_sessions s "
+            "JOIN dashboard_admins a ON a.id = s.admin_id WHERE s.token_jti = $1",
+            payload.get("jti"),
+        )
+        if (not _sr) or _sr["revoked_at"] or (not _sr["is_active"]):
+            await websocket.close(code=1008, reason="session revoked")
+            return
+        if (_sr["role"] or "") not in ("admin", "super_admin", "owner", "moderator"):
             await websocket.close(code=1008, reason="forbidden")
             return
     except Exception:
@@ -120,8 +130,18 @@ async def ws_container_logs(websocket: WebSocket, container: str, token: Optiona
         if not payload:
             await websocket.close(code=1008, reason="invalid token")
             return
-        # Admin-only
-        role = payload.get("role") or ""
+        # re-check session not revoked + account active + current role from DB
+        # (so demote/disable takes effect immediately, like the HTTP path)
+        _sr = await pool.fetchrow(
+            "SELECT s.revoked_at, a.is_active, a.role FROM dashboard_sessions s "
+            "JOIN dashboard_admins a ON a.id = s.admin_id WHERE s.token_jti = $1",
+            payload.get("jti"),
+        )
+        if (not _sr) or _sr["revoked_at"] or (not _sr["is_active"]):
+            await websocket.close(code=1008, reason="session revoked")
+            return
+        # Admin-only (DB role, not token)
+        role = _sr["role"] or ""
         if role not in ("admin", "super_admin", "owner"):
             await websocket.close(code=1008, reason="admin only")
             return
