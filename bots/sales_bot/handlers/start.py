@@ -296,17 +296,10 @@ async def _handle_comeback_start(update: Update, context: ContextTypes.DEFAULT_T
 
     text = (
         f"🔥 <b>ยินดีต้อนรับกลับค่ะ!</b>\n\n"
-        f"คุณได้รับส่วนลด <b>{discount_pct}%</b> สำหรับแพ็กเกจ VIP 30 วัน\n\n"
-        f"💰 ราคาพิเศษ: <b>฿{discounted_price}</b> (จาก ฿300)\n"
+        f"คุณได้รับ <b>ส่วนลดต่ออายุ {discount_pct}%</b> เฉพาะคุณ 🎁\n"
         f"⏰ ใช้ได้อีก 48 ชม. เท่านั้น\n\n"
-        f"📌 <b>วิธีชำระเงิน:</b>\n"
-        f"1️⃣ สแกน QR PromptPay ด้านล่าง หรือโอนเงิน <b>฿{discounted_price}</b>\n"
-        f"2️⃣ ส่งสลิปโอนเงิน หรือ ลิงก์ซอง TrueMoney\n"
-        f"3️⃣ รอแอดมินตรวจสอบ\n\n"
-        f"💳 <b>ช่องทางชำระ:</b>\n"
-        f"• PromptPay / โอนธนาคาร → ส่งรูปสลิป\n"
-        f"• TrueMoney Wallet → ส่งลิงก์ gift.truemoney.com\n\n"
-        f"⚠️ <b>หมายเหตุ:</b> กรุณาโอน <b>฿{discounted_price}</b> บาทเท่านั้นค่ะ"
+        f"👇 กดปุ่มด้านล่างเปิดแอป — เลือกแพ็กเกจที่จะต่ออายุได้เลย\n"
+        f"<b>ราคาลดพิเศษของคุณจะแสดงในแอปอัตโนมัติ</b> ไม่ต้องกรอกโค้ด ✨"
     )
 
     keyboard = InlineKeyboardMarkup(

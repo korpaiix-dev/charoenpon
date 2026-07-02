@@ -107,6 +107,18 @@ async def get_packages_and_promos(request: Request):
             "savings": round(savings, 2),
         }
 
+    # personal retention discount (best-single vs campaign) — frontend sends X-Telegram-InitData
+    _tg = 0
+    try:
+        _init = request.headers.get("X-Telegram-InitData", "")
+        if _init:
+            _ui = _verify_telegram_init_data(_init, os.environ.get("SALES_BOT_TOKEN", ""))
+            if _ui:
+                _tg = int(_ui.get("id") or 0)
+    except Exception:
+        _tg = 0
+    _ret_pct = await _get_customer_retention_pct(_tg) if _tg else 0
+
     # Split packages vs gacha
     packages = []
     gachas = []
@@ -119,6 +131,19 @@ async def get_packages_and_promos(request: Request):
             calc = _apply_discount(promo, d["tier"], d["price"])
             if calc and (best is None or calc["savings"] > best["savings"]):
                 best = calc
+        # personal retention (best-single): show it only if it beats the campaign
+        if _ret_pct > 0 and not d["tier"].startswith("GACHA_"):
+            _rdisc = round(d["price"] * (100 - _ret_pct) / 100)
+            _rsav = d["price"] - _rdisc
+            if best is None or _rsav > best["savings"]:
+                best = {
+                    "promo_id": None,
+                    "promo_code": "RETENTION",
+                    "promo_name": f"ส่วนลดต่ออายุ {_ret_pct}%",
+                    "original": float(d["price"]),
+                    "discounted": float(_rdisc),
+                    "savings": round(_rsav, 2),
+                }
         d["discount"] = best
 
         if d["tier"].startswith("GACHA_"):
