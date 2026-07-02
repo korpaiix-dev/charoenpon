@@ -45,3 +45,10 @@ backups/
 bots/relay_bot/data/
 dashboard/frontend/assets/receiver_qr/
 _webroot_backups/
+
+# === general backup/junk patterns (added 2026-07-02 security cleanup) ===
+*.pre_*
+*.bak_*
+*.backup
+*.orig
+archive/**/*.sql
