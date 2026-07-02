@@ -77,6 +77,7 @@ async def list_queue(admin=Depends(get_current_admin)):
 
 @router.delete("/queue/{item_id}")
 async def delete_queue_item(item_id: int, request: Request, admin=Depends(require_role("admin"))):
+    await pool.execute("DELETE FROM content_previews WHERE content_id = $1", item_id)
     await pool.execute("DELETE FROM content_queue WHERE id = $1", item_id)
     ip = request.client.host if request.client else None
     await _log(admin["id"], "delete_content_queue", "content_queue", item_id, None, ip)

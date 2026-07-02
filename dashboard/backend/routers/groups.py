@@ -103,7 +103,7 @@ async def group_members(group_id: int, admin=Depends(require_role("admin"))):
         JOIN subscriptions s ON s.user_id = u.id AND s.status = 'ACTIVE'
         JOIN packages p ON s.package_id = p.id
         WHERE EXISTS (
-            SELECT 1 FROM jsonb_array_elements_text(p.groups_access::jsonb) AS slug
+            SELECT 1 FROM jsonb_array_elements_text(CASE WHEN left(btrim(coalesce(p.groups_access,'')),1) = '[' THEN p.groups_access::jsonb ELSE '[]'::jsonb END) AS slug
             WHERE slug = $1
         )
         ORDER BY u.first_name LIMIT 100

@@ -132,6 +132,8 @@ class PackageUpdate(BaseModel):
     description: Optional[str] = None
     is_active: Optional[bool] = None
     sort_order: Optional[int] = None
+    tier: Optional[str] = None
+    groups_access: Optional[str] = None
 
 # --- Payment ---
 class PaymentReject(BaseModel):

@@ -52,7 +52,10 @@ async def update_package(pkg_id: int, req: PackageUpdate, request: Request, admi
     params = []
     idx = 1
     for field, val in req.dict(exclude_none=True).items():
-        updates.append(f"{field} = ${idx}")
+        if field == "tier":
+            updates.append(f"tier = ${idx}::packagetier")
+        else:
+            updates.append(f"{field} = ${idx}")
         params.append(val)
         idx += 1
     if not updates:
