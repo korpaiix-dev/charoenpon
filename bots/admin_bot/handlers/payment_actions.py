@@ -106,6 +106,21 @@ async def _verify_approve_amount(payment: "Payment", button_amount) -> tuple[boo
                 return True, ""
     except Exception:
         pass
+    # FIX 2026-07-02: accept a lower payment when a gacha/discount intent explains the gap
+    # (customer paid final_price < tier price using credit) — not a real mismatch.
+    if pay < btn:
+        try:
+            from sqlalchemy import text as _t2
+            async with get_session() as _s2:
+                _r2 = await _s2.execute(_t2(
+                    "SELECT 1 FROM purchase_intents pi JOIN users u ON u.telegram_id = pi.user_telegram_id "
+                    "WHERE u.id = :uid AND pi.final_price = :pay AND pi.discount_credit > 0 "
+                    "AND pi.created_at > NOW() - interval '2 days' LIMIT 1"
+                ), {"uid": payment.user_id, "pay": pay})
+                if _r2.first():
+                    return True, ""
+        except Exception:
+            pass
     diff = abs(pay - btn)
     return False, (
         f"⚠️ AMOUNT MISMATCH: button={btn} payment={pay} "
@@ -349,7 +364,12 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
         elif price == "999" and tier == "1299" and is_may_combo_promo_active():
             amount_paid = _slip_amt if _slip_amt and _slip_amt >= PROMO_1299_PRICE else PROMO_1299_PRICE
         else:
-            amount_paid = _Dec(str(price if price != "ADD500" else "500"))
+            _btn_price = _Dec(str(price if price != "ADD500" else "500"))
+            # FIX 2026-07-02 (over-count bug): record the ACTUAL amount transferred (from the
+            # pending slip), not the button tier price. Customer may pay less using
+            # gacha/discount credit (e.g. slip 250 for a 300 tier). Button sets the TIER;
+            # amount reflects real cash into the bank (fixes payments.amount + receiver drift).
+            amount_paid = _slip_amt if (_slip_amt and _slip_amt > 0 and _slip_amt <= _btn_price) else _btn_price
 
         # ── REFACTOR 2026-06-29 (P1 audit #447): route through unified service ──
         # ก่อนหน้านี้ branch นี้ self-contained ~400 บรรทัด — สร้าง Subscription แบบ orphan
