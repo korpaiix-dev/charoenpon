@@ -103,10 +103,14 @@ async def summary(request: Request, admin=Depends(get_current_admin)):
 @router.get("/revenue-chart")
 async def revenue_chart(days: int = 30, admin=Depends(get_current_admin)):
     rows = await pool.fetch("""
-        SELECT p.created_at::date as date, COALESCE(SUM(p.amount), 0) as revenue
+        SELECT (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date as date,
+               COALESCE(SUM(p.amount), 0) as revenue
         FROM payments p
-        WHERE p.status = 'CONFIRMED' AND p.created_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day'
-        GROUP BY p.created_at::date ORDER BY date
+        JOIN users u ON u.id = p.user_id
+        WHERE p.status = 'CONFIRMED'
+          AND u.telegram_id < 9000000000 AND p.amount > 0
+          AND p.created_at >= ((NOW() AT TIME ZONE 'Asia/Bangkok')::date - $1 * interval '1 day')
+        GROUP BY 1 ORDER BY 1
     """, days)
     return [{"date": str(r["date"]), "revenue": float(r["revenue"] or 0)} for r in rows]
 

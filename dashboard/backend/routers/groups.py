@@ -26,21 +26,19 @@ async def list_groups_categorized(admin=Depends(require_role("admin"))):
     vip = []
     free = []
     chat = []
-    vip_tiers = {"TIER_300", "TIER_500", "TIER_1299", "TIER_2499", "TIER_99"}
     chat_slugs = {"CHAT", "TALK", "DISCUSS", "พูดคุย"}
     for r in rows:
         d = dict(r)
         slug_upper = (d.get("slug") or "").upper()
         tier = d.get("min_tier") or ""
-        # Classify
+        # Classify by data — any real (non-FREE) tier is VIP, so new tiers
+        # like TIER_4999 / TIER_100 are not misfiled as Free.
         if any(cs in slug_upper for cs in chat_slugs) or tier == "FREE_CHAT":
             chat.append(d)
-        elif tier == "FREE":
+        elif tier == "FREE" or not tier:
             free.append(d)
-        elif tier in vip_tiers:
-            vip.append(d)
         else:
-            free.append(d)
+            vip.append(d)
     return {"vip": vip, "free": free, "chat": chat}
 
 @router.post("")
