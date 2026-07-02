@@ -169,7 +169,24 @@ def _verify_telegram_init_data(init_data: str, bot_token: str) -> dict | None:
     return None
 
 
-async def _compute_pkg_price(tier_full: str, promo_id) -> "dict | None":
+async def _get_customer_retention_pct(tg_id) -> int:
+    """Active per-customer retention discount % (comeback_dm_log, not purchased, within 48h). 0 if none."""
+    if not tg_id:
+        return 0
+    try:
+        row = await pool.fetchrow(
+            "SELECT discount_pct FROM comeback_dm_log "
+            "WHERE telegram_id = $1 AND purchased = FALSE "
+            "  AND sent_at > (now() AT TIME ZONE 'UTC') - interval '48 hours' "
+            "ORDER BY sent_at DESC LIMIT 1",
+            int(tg_id),
+        )
+        return int(row["discount_pct"]) if row and row["discount_pct"] else 0
+    except Exception:
+        return 0
+
+
+async def _compute_pkg_price(tier_full: str, promo_id, tg_id=None) -> "dict | None":
     """SERVER-SIDE price for a package (revenue-leak fix — never trust client payload.price).
 
     Returns {"base": int, "final": int}: real DB price minus a *validated* campaign promo
@@ -209,7 +226,16 @@ async def _compute_pkg_price(tier_full: str, promo_id) -> "dict | None":
                     final = max(0, base - dv)
                 elif dt == "fixed_price":
                     final = dv
-    return {"base": int(round(base)), "final": int(round(final))}
+    # personal RETENTION discount — best-single (no stacking): keep whichever gives the lowest price
+    _src = "campaign" if final < base else "none"
+    if tg_id:
+        _ret = await _get_customer_retention_pct(tg_id)
+        if _ret > 0:
+            _ret_final = base * (100 - _ret) / 100
+            if _ret_final < final:
+                final = _ret_final
+                _src = "retention:%d%%" % _ret
+    return {"base": int(round(base)), "final": int(round(final)), "source": _src}
 
 
 @router.post("/webapp/api/customer/buy")
@@ -271,7 +297,7 @@ async def customer_buy(request: Request):
         return {"ok": True, "action": "gacha_button_sent"}
 
     # ── SERVER-SIDE price (revenue-leak fix): recompute from DB, ignore client payload.price ──
-    _pinfo = await _compute_pkg_price(tier_full, promo_id)
+    _pinfo = await _compute_pkg_price(tier_full, promo_id, tg_id)
     if not _pinfo:
         await _send_bot_message(bot_token, tg_id, "⚠️ แพ็กเกจไม่ถูกต้อง กรุณาลองใหม่ค่ะ")
         return {"ok": False, "error": "invalid_package"}
