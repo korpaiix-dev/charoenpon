@@ -275,12 +275,12 @@ async def broadcast_history(page: int = 1, per_page: int = 25, admin=Depends(get
     per_page = max(1, min(per_page, 100))
     page = max(1, page)
     offset = (page - 1) * per_page
-    total = await pool.fetchval("SELECT COUNT(*) FROM broadcast_log")
+    # FIX: read from broadcasts (the real table all writers use); broadcast_log has 0 writers
+    total = await pool.fetchval("SELECT COUNT(*) FROM broadcasts")
     rows = await pool.fetch("""
-        SELECT bl.*, u.display_name as admin_name
-        FROM broadcast_log bl
-        LEFT JOIN dashboard_admins u ON bl.admin_id = u.id
-        ORDER BY bl.created_at DESC
+        SELECT b.*, b.started_at AS created_at, b.sent_by_username AS admin_name
+        FROM broadcasts b
+        ORDER BY b.started_at DESC
         LIMIT $1 OFFSET $2
     """, per_page, offset)
     return {
