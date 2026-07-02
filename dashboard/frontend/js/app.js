@@ -1478,8 +1478,7 @@ async function renderGacha() {
 
             <div class="filters" style="margin-bottom:1.25rem;">
                 ${tabBtn('overview', '📊 ภาพรวม')}
-                ${tabBtn('prizes_legacy', '🎁 รางวัลทั่วไป (' + (prizes.legacy_prizes?.length || 0) + ')')}
-                ${tabBtn('prizes_pool', '💎 รางวัลใหญ่/Cash (' + (prizes.prize_pool?.length || 0) + ')')}
+                ${tabBtn('prizes_legacy', '🎁 รางวัลกาชา (ใช้งานจริง) (' + (prizes.legacy_prizes?.length || 0) + ')')}
             </div>
 
             <div>${tabContent()}</div>
