@@ -253,6 +253,7 @@ async def _compute_pkg_price(tier_full: str, promo_id, tg_id=None) -> "dict | No
                     final = dv
     # personal RETENTION discount — best-single (no stacking): keep whichever gives the lowest price
     _src = "campaign" if final < base else "none"
+    _credit_used = 0.0
     if tg_id:
         _ret = await _get_customer_retention_pct(tg_id)
         if _ret > 0:
@@ -260,7 +261,28 @@ async def _compute_pkg_price(tier_full: str, promo_id, tg_id=None) -> "dict | No
             if _ret_final < final:
                 final = _ret_final
                 _src = "retention:%d%%" % _ret
-    return {"base": int(round(base)), "final": int(round(final)), "source": _src}
+        # personal GACHA CREDIT (฿ balance) — best-single (compare vs current best price)
+        try:
+            _br = await pool.fetchrow("SELECT balance FROM user_discount_credits WHERE telegram_id=$1", int(tg_id))
+            _bal = float(_br["balance"]) if _br and _br["balance"] else 0.0
+        except Exception:
+            _bal = 0.0
+        if _bal > 0:
+            _cap = 50.0
+            try:
+                _cr = await pool.fetchrow("SELECT value_json FROM promo_config WHERE config_key='gacha_discount_cap_per_tier'")
+                if _cr and _cr["value_json"]:
+                    import json as _jgc
+                    _cm = _cr["value_json"] if isinstance(_cr["value_json"], dict) else _jgc.loads(_cr["value_json"])
+                    _cap = float(_cm.get(tshort, 50))
+            except Exception:
+                _cap = 50.0
+            _usable = min(_bal, _cap, base)
+            if _usable > 0 and (base - _usable) < final:
+                final = base - _usable
+                _src = "gacha_credit"
+                _credit_used = _usable
+    return {"base": int(round(base)), "final": int(round(final)), "source": _src, "credit_used": round(_credit_used, 2)}
 
 
 @router.post("/webapp/api/customer/buy")
@@ -349,6 +371,7 @@ async def customer_buy(request: Request):
         promo_id=int(promo_id) if promo_id else None,
         source="miniapp",
         ttl_minutes=30,
+        discount_credit=_pinfo.get("credit_used", 0),
     )
 
     from shared.receiver_pool import pick_random

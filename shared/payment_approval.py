@@ -818,6 +818,31 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
                                     _active_ids[0], payment_id_final)
             except Exception as exc:
                 logger.warning("[approval] auto-default receiver failed: %s", exc)
+        # STEP 17 (2026-07): deduct gacha discount credit recorded on the mini-app intent.
+        # Additive + idempotent (apply_usage checks payment_id) + try/except -> cannot break approval.
+        if payment_id_final and inp.method.upper() in ("SLIP", "PROMPTPAY", "TRUEWALLET"):
+            try:
+                async with get_session() as _cs17:
+                    _ci17 = (await _cs17.execute(sql_text(
+                        "SELECT discount_credit, tier, original_price, final_price FROM purchase_intents "
+                        "WHERE user_telegram_id = :tg AND (consumed_payment_id = :pid OR (consumed_at IS NULL AND final_price = :amt)) "
+                        "ORDER BY (consumed_payment_id = :pid) DESC, created_at DESC LIMIT 1"
+                    ), {"tg": inp.telegram_id, "pid": payment_id_final, "amt": inp.amount_paid})).fetchone()
+                if _ci17 and _ci17[0] and float(_ci17[0]) > 0:
+                    from shared.discount_helper import apply_usage as _du17
+                    await _du17(
+                        telegram_id=inp.telegram_id,
+                        payment_id=payment_id_final,
+                        tier_purchased=str(_ci17[1] or ""),
+                        full_price=Decimal(str(_ci17[2] or inp.amount_paid)),
+                        discount_used=Decimal(str(_ci17[0])),
+                        actual_paid=Decimal(str(_ci17[3] or inp.amount_paid)),
+                    )
+                    logger.info("[approval] STEP17 gacha credit deducted tg=%s pid=%s used=%s",
+                                inp.telegram_id, payment_id_final, _ci17[0])
+            except Exception as _ce17:
+                logger.warning("[approval] STEP17 gacha credit deduct failed (non-fatal): %s", _ce17)
+
         if inp.matched_receiver_account_id and inp.method.upper() in ("SLIP", "PROMPTPAY"):
             try:
                 from shared.receiver_pool import record_payment_received

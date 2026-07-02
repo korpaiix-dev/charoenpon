@@ -36,6 +36,7 @@ async def create_intent(
     promo_id: Optional[int] = None,
     source: str = "miniapp",
     ttl_minutes: int = 30,
+    discount_credit: float | int | Decimal = 0,
 ) -> Optional[int]:
     """สร้าง intent ใหม่ + return intent_id (None on failure — caller does not crash)."""
     try:
@@ -45,14 +46,14 @@ async def create_intent(
                 """
                 INSERT INTO purchase_intents (
                     user_telegram_id, tier, original_price, final_price,
-                    promo_id, source, created_at, expires_at
+                    promo_id, source, discount_credit, created_at, expires_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW() + ($7 || ' minutes')::interval)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW() + ($8 || ' minutes')::interval)
                 RETURNING id
                 """,
                 int(tg_id), str(tier),
                 Decimal(str(original_price)), Decimal(str(final_price)),
-                promo_id, source, str(ttl_minutes),
+                promo_id, source, Decimal(str(discount_credit)), str(ttl_minutes),
             )
         finally:
             await conn.close()
