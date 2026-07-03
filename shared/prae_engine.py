@@ -300,7 +300,8 @@ async def today_cost_thb() -> float:
     async with get_session() as s:
         r = await s.execute(_t("""
             SELECT COALESCE(SUM(cost_usd), 0) FROM prae_conversations
-            WHERE created_at::date = CURRENT_DATE
+            WHERE (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')::date
+                  = (NOW() AT TIME ZONE 'Asia/Bangkok')::date
         """))
         cost_usd = float(r.scalar() or 0)
     return cost_usd * 35.0  # rough USD→THB
