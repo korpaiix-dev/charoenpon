@@ -546,37 +546,20 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
             else:
                 end_date_final, is_lifetime = None, False
 
-            # STEP 8: Expire existing subs (with lifetime guard)
+            # STEP 8: Expire existing subs — SAME package only (renewal replaces itself).
+            # Boss decision 2026-07-02: different products STACK (VIP + GOD + SHAKER + OF can
+            # coexist). Buying a package only expires an ACTIVE sub of the SAME package, never
+            # other products. (Fix: buying ห้องมีคนชัก 100 was wiping active VIP/GOD.)
             if not is_gacha and package:
-                if is_addon:
-                    # Only expire same-package subs
-                    await session.execute(
-                        sa_update(Subscription)
-                        .where(
-                            Subscription.user_id == db_user_id,
-                            Subscription.status == SubscriptionStatus.ACTIVE,
-                            Subscription.package_id == package.id,
-                        )
-                        .values(status=SubscriptionStatus.EXPIRED)
+                await session.execute(
+                    sa_update(Subscription)
+                    .where(
+                        Subscription.user_id == db_user_id,
+                        Subscription.status == SubscriptionStatus.ACTIVE,
+                        Subscription.package_id == package.id,
                     )
-                else:
-                    # Preserve lifetime (TIER_2499) — expire other actives only
-                    sub_ids_q = await session.execute(
-                        select(Subscription.id)
-                        .join(Package, Subscription.package_id == Package.id)
-                        .where(
-                            Subscription.user_id == db_user_id,
-                            Subscription.status == SubscriptionStatus.ACTIVE,
-                            Package.tier != PackageTier.TIER_2499,
-                        )
-                    )
-                    non_lifetime_ids = [row[0] for row in sub_ids_q]
-                    if non_lifetime_ids:
-                        await session.execute(
-                            sa_update(Subscription)
-                            .where(Subscription.id.in_(non_lifetime_ids))
-                            .values(status=SubscriptionStatus.EXPIRED)
-                        )
+                    .values(status=SubscriptionStatus.EXPIRED)
+                )
 
             # STEP 9: Upsert Payment
             method_enum = {
