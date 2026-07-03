@@ -370,7 +370,7 @@ async def customer_buy(request: Request):
                 tg_id=tg_id, tier=tier_full,
                 original_price=price, final_price=price,
                 promo_id=int(promo_id) if promo_id else None,
-                source="miniapp", ttl_minutes=30,
+                source="miniapp", ttl_minutes=1440,
             )
         except Exception as _gex:
             logger.warning("gacha intent create failed: %s", _gex)
@@ -404,7 +404,7 @@ async def customer_buy(request: Request):
         final_price=price,
         promo_id=int(promo_id) if promo_id else None,
         source="miniapp",
-        ttl_minutes=30,
+        ttl_minutes=1440,
         discount_credit=_pinfo.get("credit_used", 0),
     )
 

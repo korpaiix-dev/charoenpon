@@ -921,7 +921,7 @@ async def handle_photo_slip(
                     if not _chosen_tier:
                         try:
                             from shared.purchase_intent import find_latest_pending as _flp_rv
-                            _pi_rv = await _flp_rv(user.id)
+                            _pi_rv = await _flp_rv(user.id, amount=_slip_amt)
                             if _pi_rv and _pi_rv.get("tier"):
                                 _chosen_tier = str(_pi_rv["tier"]).replace("TIER_", "")
                         except Exception:
