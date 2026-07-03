@@ -31,7 +31,7 @@ async def kpi(days: int = 30, admin=Depends(require_role("admin"))):
 async def weekly_comparison(admin=Depends(require_role("admin"))):
     rows = await pool.fetch("""
         SELECT 
-            date_trunc('week', p.created_at)::date as week_start,
+            date_trunc('week', (p.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok'))::date as week_start,
             SUM(p.amount) as revenue,
             COUNT(*) as transactions
         FROM payments p
