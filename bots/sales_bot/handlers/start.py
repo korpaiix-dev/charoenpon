@@ -288,9 +288,10 @@ async def _handle_comeback_start(update: Update, context: ContextTypes.DEFAULT_T
     discount_pct = promo["discount_pct"]
     discounted_price = promo["discounted_price"]
 
-    # Store promo in user context for payment
-    context.user_data["selected_tier"] = "300"
-    context.user_data["selected_price"] = str(discounted_price)
+    # Store promo in user context for payment.
+    # NOTE: do NOT pre-set selected_tier/price to VIP-300 — the customer picks ANY package in the
+    # mini-app and their comeback % applies to whatever they choose (per-customer retention discount,
+    # read from comeback_dm_log). Pre-anchoring to 300 hid the premium tiers (GOD / Super VIP).
     context.user_data["comeback_promo"] = promo_code
     context.user_data["comeback_discount"] = discount_pct
 

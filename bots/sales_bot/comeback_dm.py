@@ -102,11 +102,11 @@ def _variant_r1_a(first_name: str, discount_pct: int, promo_code: str, new_clips
     return (
         f"คุณ {first_name} พลาดคลิปใหม่ {clips_text} แล้วนะ 🔥\n"
         f"\n"
-        f"กลับมาวันนี้ ลด {discount_pct}%\n"
-        f"VIP 30 วัน ฿{price} (จาก ฿300)\n"
+        f"กลับมาวันนี้ รับส่วนลด {discount_pct}% ทุกแพ็ก เฉพาะคุณ\n"
+        f"💚 VIP · 💜 GOD 90 วัน · ❤️ GOD ถาวร · 👑 Super VIP — เลือกได้เลย\n"
         f"\n"
         f"⏰ ใช้ได้ 48 ชม.\n"
-        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">สมัครต่อเลย</a>'
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">กลับมาเลือกแพ็กเลย</a>'
     )
 
 
@@ -116,12 +116,13 @@ def _variant_r1_b(first_name: str, discount_pct: int, promo_code: str, new_clips
     # ใช้ random range สำหรับ social proof number (realistic)
     social_count = random.randint(8, 25)
     return (
-        f"คุณ {first_name} รู้มั้ย? เมื่อวานมี {social_count} คนกลับมาสมัคร VIP แล้ว 🎉\n"
+        f"คุณ {first_name} รู้มั้ย? เมื่อวานมี {social_count} คนกลับมาสมัครแล้ว 🎉\n"
         f"\n"
-        f"ลด {discount_pct}% เฉพาะคุณ → ฿{price} เท่านั้น!\n"
+        f"รับส่วนลด {discount_pct}% ทุกแพ็ก เฉพาะคุณ — เลือกแพ็กที่ชอบได้เลย\n"
+        f"💚 VIP → 👑 Super VIP ลดหมดทุกตัว!\n"
         f"\n"
         f"⏰ หมดเขต 48 ชม.\n"
-        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">สมัคร VIP ลด {discount_pct}%</a>'
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">กลับมาเลือกเลย</a>'
     )
 
 
@@ -131,7 +132,7 @@ def _variant_r1_c(first_name: str, discount_pct: int, promo_code: str, new_clips
     return (
         f"⚠️ คุณ {first_name} โปรนี้เหลืออีก 48 ชั่วโมงเท่านั้น!\n"
         f"\n"
-        f"VIP 30 วัน ลด {discount_pct}% → ฿{price}\n"
+        f"ลด {discount_pct}% ทุกแพ็ก — VIP, GOD ถาวร, Super VIP เลือกได้หมด\n"
         f"คลิปเต็มไม่เบลอ 10,000+ ชิ้น\n"
         f"\n"
         f"หมดแล้วหมดเลย!\n"
@@ -143,9 +144,9 @@ def _variant_r1_d(first_name: str, discount_pct: int, promo_code: str, new_clips
     """Direct/สั้น: VIP ลด 30% วันนี้วันเดียว"""
     price = _calculate_discounted_price(discount_pct)
     return (
-        f"VIP เจริญพร ลด {discount_pct}% → ฿{price} 🔥\n"
+        f"เจริญพร ลด {discount_pct}% ทุกแพ็ก 🔥 เลือกแพ็กที่ชอบได้เลย\n"
         f"⏰ 48 ชม. เท่านั้น\n"
-        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">สมัครเลย</a>'
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">เปิดแอปเลือกเลย</a>'
     )
 
 
@@ -166,10 +167,11 @@ def _variant_r2_a(first_name: str, discount_pct: int, promo_code: str, new_clips
         f"โอกาสสุดท้ายค่ะ คุณ {first_name} 🚨\n"
         f"\n"
         f"คลิปใหม่{clips_text}รอคุณอยู่\n"
-        f"ลดพิเศษ {discount_pct}% → ฿{price} เท่านั้น!\n"
+        f"ลดพิเศษ {discount_pct}% ทุกแพ็ก — เลือกแพ็กที่ชอบได้เลย!\n"
+        f"💚 VIP · ❤️ GOD ถาวร · 👑 Super VIP\n"
         f"\n"
         f"⏰ หมดเขต 48 ชม.\n"
-        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">สมัคร VIP ลด {discount_pct}%</a>'
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">กลับมาเลือกเลย</a>'
     )
 
 
@@ -179,7 +181,8 @@ def _variant_r2_b(first_name: str, discount_pct: int, promo_code: str, new_clips
     return (
         f"คุณ {first_name} ลดเพิ่มเป็น {discount_pct}% แล้วค่ะ! 🎉\n"
         f"\n"
-        f"VIP 30 วัน เหลือ ฿{price} เท่านั้น\n"
+        f"ลด {discount_pct}% ทุกแพ็ก — เลือกแพ็กที่ชอบได้เลย\n"
+        f"💚 VIP · 💜 GOD 90 วัน · ❤️ GOD ถาวร · 👑 Super VIP\n"
         f"คลิปเต็มไม่เบลอ 10,000+ ชิ้น\n"
         f"\n"
         f"⏰ 48 ชม. สุดท้าย!\n"
@@ -193,9 +196,10 @@ def _variant_r2_c(first_name: str, discount_pct: int, promo_code: str, new_clips
     return (
         f"คุณ {first_name} ลองดูฟรี 24 ชม. ก่อนก็ได้นะ! 🎁\n"
         f"\n"
-        f"หรือถ้าชอบ สมัคร VIP เลย ลด {discount_pct}% → ฿{price}\n"
+        f"หรือถ้าชอบ กลับมาเลือกแพ็กที่ใช่ รับส่วนลด {discount_pct}% ทุกแพ็ก\n"
+        f"💚 VIP → 👑 Super VIP ลดหมด\n"
         f"\n"
-        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">เริ่มทดลองฟรี / สมัคร VIP</a>'
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">เริ่มทดลองฟรี / เลือกแพ็ก</a>'
     )
 
 
@@ -406,11 +410,11 @@ def _build_comeback_message_round1(first_name: str, discount_pct: int, promo_cod
     return (
         f"คุณ {first_name} พลาด{clips_text}แล้วนะ 🔥\n"
         f"\n"
-        f"กลับมาวันนี้ ลด {discount_pct}%\n"
-        f"VIP 30 วัน ฿{discounted_price} (จาก ฿300)\n"
+        f"กลับมาวันนี้ รับส่วนลด {discount_pct}% ทุกแพ็ก เฉพาะคุณ\n"
+        f"💚 VIP · 💜 GOD 90 วัน · ❤️ GOD ถาวร · 👑 Super VIP — เลือกได้เลย\n"
         f"\n"
         f"⏰ ใช้ได้ 48 ชม.\n"
-        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">สมัครต่อเลย</a>'
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">กลับมาเลือกแพ็กเลย</a>'
     )
 
 
@@ -422,10 +426,11 @@ def _build_comeback_message_round2(first_name: str, discount_pct: int, promo_cod
         f"โอกาสสุดท้ายค่ะ คุณ {first_name} 🚨\n"
         f"\n"
         f"คลิปใหม่{clips_text}รอคุณอยู่\n"
-        f"ลดพิเศษ {discount_pct}% → ฿{discounted_price} เท่านั้น!\n"
+        f"ลดพิเศษ {discount_pct}% ทุกแพ็ก — เลือกแพ็กที่ชอบได้เลย!\n"
+        f"💚 VIP · ❤️ GOD ถาวร · 👑 Super VIP\n"
         f"\n"
         f"⏰ หมดเขต 48 ชม.\n"
-        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">สมัคร VIP ลด {discount_pct}%</a>'
+        f'👉 <a href="tg://resolve?domain=NamwarnJarern_bot&start=comeback_{promo_code}">กลับมาเลือกเลย</a>'
     )
 
 
