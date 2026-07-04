@@ -232,9 +232,10 @@ async def _build_live_promos_block() -> str:
                 "WHERE is_active=TRUE ORDER BY price"))).fetchall()
             promos = (await sess.execute(_t_sql(
                 "SELECT code, name, package_codes, discount_type, discount_value, "
-                "CEIL(EXTRACT(EPOCH FROM ((created_at + (valid_hours||' hours')::interval) - now()))/86400.0) AS days_left "
+                "CASE WHEN ends_at IS NULL THEN NULL ELSE CEIL(EXTRACT(EPOCH FROM (ends_at - now()))/86400.0) END AS days_left "
                 "FROM promotions WHERE is_active=TRUE "
-                "AND (created_at + (valid_hours||' hours')::interval) > now() ORDER BY id DESC"))).fetchall()
+                "AND (starts_at IS NULL OR starts_at <= now()) "
+                "AND (ends_at IS NULL OR ends_at > now()) ORDER BY id DESC"))).fetchall()
     except Exception:
         return ""
     pmap = {}
@@ -269,9 +270,10 @@ async def _build_live_promos_block() -> str:
                 elif dt == "fixed_price": fin = dv
                 else: fin = base
                 dl = int(m["days_left"]) if m["days_left"] else 0
+                _dpart = (" (เหลือ %d วัน)" % dl) if dl and dl > 0 else ""
                 promo_lines.append(
-                    "- %s: ปกติ %s฿ → ลดเหลือ %s฿ (เหลือ %d วัน) | ลูกค้าพิมพ์ \"%d\" หรือ \"%d\" = อันนี้ → เรียก send_payment_info ด้วยเลขที่ลูกค้าพิมพ์"
-                    % (nm, format(int(base), ","), format(int(fin), ","), dl, int(fin), int(base)))
+                    "- %s: ปกติ %s฿ → ลดเหลือ %s฿%s | ลูกค้าพิมพ์ \"%d\" หรือ \"%d\" = อันนี้ → เรียก send_payment_info ด้วยเลขที่ลูกค้าพิมพ์"
+                    % (nm, format(int(base), ","), format(int(fin), ","), _dpart, int(fin), int(base)))
     if promo_lines:
         out.append("")
         out.append("\U0001f381 โปรที่ใช้ได้ตอนนี้ (สำคัญมาก! ถ้าลูกค้าพูดเลขที่ตรงกับราคาโปร/ราคาปกติ = สนใจอันนั้น):")

@@ -91,7 +91,8 @@ async def compute_package_price(tier_full: str, promo_id=None, tg_id=None) -> "d
                 arows = await conn.fetch(
                     "SELECT package_codes, discount_type, discount_value FROM promotions "
                     "WHERE is_active = TRUE "
-                    "  AND (created_at + (valid_hours || ' hours')::interval) > now()"
+                    "  AND (starts_at IS NULL OR starts_at <= now()) "
+                    "  AND (ends_at IS NULL OR ends_at > now())"
                 )
             except Exception:
                 arows = []

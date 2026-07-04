@@ -595,7 +595,8 @@ async def _resolve_tier_from_text(s_raw: str):
         prows = await conn.fetch("SELECT tier::text AS t, name, price FROM packages WHERE is_active=TRUE")
         promo_rows = await conn.fetch(
             "SELECT package_codes, discount_type, discount_value FROM promotions "
-            "WHERE is_active=TRUE AND (created_at + (valid_hours||' hours')::interval) > now()")
+            "WHERE is_active=TRUE AND (starts_at IS NULL OR starts_at <= now()) "
+            "AND (ends_at IS NULL OR ends_at > now())")
     finally:
         await conn.close()
     pkgs = {r["t"]: (r["name"], float(r["price"])) for r in prows if not r["t"].startswith("GACHA_")}
