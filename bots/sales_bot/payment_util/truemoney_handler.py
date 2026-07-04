@@ -313,7 +313,9 @@ async def handle_truemoney_link(
             user_id=db_user.id,
             telegram_id=user.id,
             source=_ApSrc.TRUEMONEY,
-            amount_paid=Decimal(str(payment.amount)),
+            # FIX 2026-07-04 (P0-3): record the EXACT redeemed voucher amount, not the
+            # matched expected/base price (record-actual principle).
+            amount_paid=Decimal(str(tm_result.get("amount") or payment.amount)),
             explicit_package_id=payment.package_id,
             payment_id=payment.id,
             slip_trans_ref=tm_result.get("voucher_id") or None,
