@@ -585,6 +585,65 @@ async def _handle_group_access_issue_with_sos(telegram_id: int) -> dict:
 # Tool: send_payment_info
 # Used when customer expresses purchase intent (types amount, "อยากซื้อ", "เอา X")
 # Returns: package info + bank account + QR code URL → Prae includes in reply
+async def _resolve_tier_from_text(s_raw: str):
+    """Resolve customer text -> (display_name, tier) using LIVE dashboard packages + active promos.
+    NO hardcoded prices. Price itself is recomputed later by prepare_purchase. None if no match."""
+    import json as _pj
+    from shared.purchase_intent import _connect
+    conn = await _connect()
+    try:
+        prows = await conn.fetch("SELECT tier::text AS t, name, price FROM packages WHERE is_active=TRUE")
+        promo_rows = await conn.fetch(
+            "SELECT package_codes, discount_type, discount_value FROM promotions "
+            "WHERE is_active=TRUE AND (created_at + (valid_hours||' hours')::interval) > now()")
+    finally:
+        await conn.close()
+    pkgs = {r["t"]: (r["name"], float(r["price"])) for r in prows if not r["t"].startswith("GACHA_")}
+    if not pkgs:
+        return None
+    promo_price = {}
+    for pr in promo_rows:
+        raw = pr["package_codes"]
+        try:
+            codes = raw if isinstance(raw, list) else (_pj.loads(raw) if raw else [])
+        except Exception:
+            codes = []
+        dt = (pr["discount_type"] or "").lower(); dv = float(pr["discount_value"] or 0)
+        for c in codes:
+            if c in pkgs:
+                base = pkgs[c][1]
+                if dt == "percent": fin = base * (100 - dv) / 100
+                elif dt == "fixed_off": fin = max(0, base - dv)
+                elif dt == "fixed_price": fin = dv
+                else: fin = base
+                promo_price[int(round(fin))] = c
+    s = s_raw
+    # 1) explicit tier code (e.g. TIER_4999)
+    for t in pkgs:
+        if t.upper() in s:
+            return (pkgs[t][0], t)
+    # 2) promo discounted price number (e.g. 2999)
+    for p in sorted(promo_price, reverse=True):
+        if str(p) in s:
+            return (pkgs[promo_price[p]][0], promo_price[p])
+    # 3) base price number (longest/biggest first to avoid substring clashes)
+    for t, (nm, pr) in sorted(pkgs.items(), key=lambda kv: -kv[1][1]):
+        if str(int(pr)) in s:
+            return (nm, t)
+    # 4) semantic aliases (words) -- specific before generic
+    aliases = [
+        ("SUPER VIP", "TIER_4999"), ("SUPERVIP", "TIER_4999"),
+        ("ONLYFANS", "TIER_500"), ("OF+VIP", "TIER_500"), ("OF", "TIER_500"),
+        ("GODMODE", "TIER_2499"), ("GOD90", "TIER_1299"), ("GOD", "TIER_2499"),
+        ("VIP", "TIER_300"),
+        ("ห้องชัก", "TIER_100"), ("ชัก", "TIER_100"), ("SHAKER", "TIER_100"),
+    ]
+    for key, t in aliases:
+        if key.upper() in s and t in pkgs:
+            return (pkgs[t][0], t)
+    return None
+
+
 async def send_payment_info(telegram_id: int, tier_or_amount: str) -> dict:
     """Get payment instructions for a customer's selected tier.
 
@@ -597,46 +656,15 @@ async def send_payment_info(telegram_id: int, tier_or_amount: str) -> dict:
     from shared.database import get_session
     from sqlalchemy import text as _t
 
-    # Normalize input to find tier
+    # Resolve tier from LIVE dashboard packages + active promos (no hardcoded prices).
     s_raw = (tier_or_amount or "").strip().upper()
-    tier_map = {
-        # Super VIP FIRST (before generic "VIP") so "super vip" doesn't match VIP-300.
-        "SUPER VIP": ("Super VIP ถาวร", 4999, "TIER_4999"),
-        "SUPERVIP": ("Super VIP ถาวร", 4999, "TIER_4999"),
-        "2999": ("Super VIP ถาวร (โปรเปิดตัว)", 2999, "TIER_4999"),
-        "4999": ("Super VIP ถาวร", 4999, "TIER_4999"),
-        "100": ("ห้องมีคนชัก 30 วัน", 100, "TIER_100"),
-        "ชัก": ("ห้องมีคนชัก 30 วัน", 100, "TIER_100"),
-        "SHAKER": ("ห้องมีคนชัก 30 วัน", 100, "TIER_100"),
-        "300": ("VIP 30 วัน", 300, "TIER_300"),
-        "VIP": ("VIP 30 วัน", 300, "TIER_300"),
-        "TIER_300": ("VIP 30 วัน", 300, "TIER_300"),
-        "500": ("OnlyFans + VIP 30 วัน", 500, "TIER_500"),
-        "OF": ("OnlyFans + VIP 30 วัน", 500, "TIER_500"),
-        "ONLYFANS": ("OnlyFans + VIP 30 วัน", 500, "TIER_500"),
-        "TIER_500": ("OnlyFans + VIP 30 วัน", 500, "TIER_500"),
-        "1299": ("GOD MODE 90 วัน", 1299, "TIER_1299"),
-        "GOD90": ("GOD MODE 90 วัน", 1299, "TIER_1299"),
-        "TIER_1299": ("GOD MODE 90 วัน", 1299, "TIER_1299"),
-        "2499": ("GOD MODE ถาวร", 2499, "TIER_2499"),
-        "GOD": ("GOD MODE ถาวร", 2499, "TIER_2499"),
-        "GODMODE": ("GOD MODE ถาวร", 2499, "TIER_2499"),
-        "TIER_2499": ("GOD MODE ถาวร", 2499, "TIER_2499"),
-    }
-
-    matched = None
-    for key, val in tier_map.items():
-        if key in s_raw:
-            matched = val
-            break
-
-    if not matched:
+    resolved = await _resolve_tier_from_text(s_raw)
+    if not resolved:
         return {
             "error": "unknown_tier",
             "message": f"Could not identify tier from '{tier_or_amount}'. Customer should specify clearly.",
         }
-
-    pkg_name, price, tier = matched
+    pkg_name, tier = resolved
 
     # -- Compute discount-aware price + create a persistent purchase_intent + bind receiver --
     # Single source of truth: same engine the mini-app uses -> chat is now as safe as mini-app.

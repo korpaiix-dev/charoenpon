@@ -100,13 +100,13 @@ SYSTEM_PROMPT_V3 = """คุณคือ "แพร" ผู้ช่วยฝ่
 
 ═══════════════════════════════════════════════
 
-PACKAGES (ราคาจำได้แม่น):
-- VIP 300 บาท/30วัน → ห้อง G300 (1 ห้อง — งานทางบ้าน/นักเรียน/แอบถ่าย)
-- OF+VIP 500 บาท/30วัน → G300 + G500 (2 ห้อง — เพิ่ม OnlyFans แรร์ 50+ คน)
-- GOD MODE 1,299 บาท/90วัน → 6 ห้อง (G300, G500, SSS, VGOD, INTER, SERIES + สายซุ่ม) เฉลี่ย ฿14/วัน
-- GOD MODE ถาวร 2,499 บาท → ครบทุกห้อง 7 ห้อง + หนัง + Summer Fest 🔥 ⭐แนะนำ (จ่ายครั้งเดียว ดูตลอดชีพ)
-- Super VIP ถาวร: ปกติ 4,999 บาท (แพ็กพรีเมียมสูงสุด ถาวร) — โปรลดสดดูในบล็อก "โปรที่ใช้ได้ตอนนี้" ด้านล่าง
-- ห้องมีคนชัก 100 บาท/30วัน → จับเลข 00-99 ลุ้น GOD ถาวร ทุกจันทร์ 21:00
+PACKAGES (รายละเอียดห้องแต่ละแพ็ก — ⚠️ ราคายึดตามบล็อก "เมนู + ราคาปัจจุบัน" ด้านล่างเท่านั้น ห้ามใช้ราคาที่จำมา):
+- VIP (30 วัน) → ห้อง G300 (1 ห้อง — งานทางบ้าน/นักเรียน/แอบถ่าย)
+- OF+VIP (30 วัน) → G300 + G500 (2 ห้อง — เพิ่ม OnlyFans แรร์ 50+ คน)
+- GOD MODE (90 วัน) → 6 ห้อง (G300, G500, SSS, VGOD, INTER, SERIES + สายซุ่ม)
+- GOD MODE ถาวร → ครบทุกห้อง 7 ห้อง + หนัง + Summer Fest 🔥 ⭐แนะนำ (จ่ายครั้งเดียว ดูตลอดชีพ)
+- Super VIP ถาวร → แพ็กพรีเมียมสูงสุด ถาวร (ราคา/โปรดูในบล็อกเมนูสดด้านล่าง)
+- ห้องมีคนชัก (30 วัน) → จับเลข 00-99 ลุ้น GOD ถาวร ทุกจันทร์ 21:00
 
 กฎแนะนำ:
 - ลูกค้าใหม่/ทักครั้งแรก → ทักทาย + แนะนำ VIP 300 (low barrier)
@@ -219,16 +219,17 @@ import time as _t_prompt
 _prompt_cache_v3 = {"val": None, "expires": 0}
 
 async def _build_live_promos_block() -> str:
-    """Live active-promotions block injected into Prae's prompt so she ALWAYS knows current
-    promos (self-updating via valid_hours; e.g. Super VIP 4999->2999). '' if none active."""
+    """Live CATALOG (packages + active promos) pulled from the dashboard-managed DB tables
+    (packages, promotions) and injected into Prae's prompt. Prices are NEVER hardcoded here —
+    whatever the boss sets in the dashboard is what Prae quotes (refreshes every 60s). '' on error."""
     try:
         from shared.database import get_session
         from sqlalchemy import text as _t_sql
         import json as _pj
         async with get_session() as sess:
             pkgs = (await sess.execute(_t_sql(
-                "SELECT tier::text AS t, name, price FROM packages WHERE is_active=TRUE"))).fetchall()
-            pmap = {r._mapping["t"]: (r._mapping["name"], float(r._mapping["price"])) for r in pkgs}
+                "SELECT tier::text AS t, name, price, duration_days FROM packages "
+                "WHERE is_active=TRUE ORDER BY price"))).fetchall()
             promos = (await sess.execute(_t_sql(
                 "SELECT code, name, package_codes, discount_type, discount_value, "
                 "CEIL(EXTRACT(EPOCH FROM ((created_at + (valid_hours||' hours')::interval) - now()))/86400.0) AS days_left "
@@ -236,14 +237,25 @@ async def _build_live_promos_block() -> str:
                 "AND (created_at + (valid_hours||' hours')::interval) > now() ORDER BY id DESC"))).fetchall()
     except Exception:
         return ""
-    if not promos:
+    pmap = {}
+    menu = []
+    for r in pkgs:
+        m = r._mapping
+        t = m["t"]; nm = m["name"]; pr = float(m["price"]); dd = m["duration_days"]
+        pmap[t] = (nm, pr)
+        if t.startswith("GACHA_"):
+            continue
+        dur = "ถาวร" if (dd and int(dd) >= 3650) else (("%d วัน" % int(dd)) if dd else "")
+        menu.append("- %s: %s บาท%s" % (nm, format(int(pr), ","), (" / " + dur if dur else "")))
+    if not menu:
         return ""
     out = ["", "===============================================",
-           "\U0001f381 โปรที่ใช้ได้ตอนนี้ (ระบบอัปเดตสด — สำคัญมาก!):",
-           "ถ้าลูกค้าพูดถึงราคา/เลขที่ไม่มีในเมนูปกติ เช็คตรงนี้ก่อนบอกว่า \"ไม่มี\":"]
-    for pr in promos:
-        _m = pr._mapping
-        raw = _m["package_codes"]
+           "\U0001f4cb เมนู + ราคาปัจจุบัน (ดึงสดจากแดชบอร์ด — ใช้ราคานี้เท่านั้น ห้ามจำราคาเอง):"]
+    out += menu
+    promo_lines = []
+    for pr in (promos or []):
+        m = pr._mapping
+        raw = m["package_codes"]
         try:
             codes = raw if isinstance(raw, list) else (_pj.loads(raw) if raw else [])
         except Exception:
@@ -251,16 +263,19 @@ async def _build_live_promos_block() -> str:
         for c in codes:
             if c in pmap:
                 nm, base = pmap[c]
-                dt = (_m["discount_type"] or "").lower(); dv = float(_m["discount_value"] or 0)
-                if dt == "percent": fin = base*(100-dv)/100
-                elif dt == "fixed_off": fin = max(0, base-dv)
+                dt = (m["discount_type"] or "").lower(); dv = float(m["discount_value"] or 0)
+                if dt == "percent": fin = base * (100 - dv) / 100
+                elif dt == "fixed_off": fin = max(0, base - dv)
                 elif dt == "fixed_price": fin = dv
                 else: fin = base
-                dl = int(_m["days_left"]) if _m["days_left"] else 0
-                out.append(
-                    "- %s: ปกติ %s฿ → โปรลดเหลือ %s฿ (เหลือ %d วัน) | ลูกค้าพิมพ์ \"%d\" หรือ \"%d\" = อันนี้ → เรียก send_payment_info ด้วยเลขที่ลูกค้าพิมพ์ได้เลยค่ะ"
-                    % (nm, format(int(base), ","), format(int(fin), ","), dl, int(fin), int(base))
-                )
+                dl = int(m["days_left"]) if m["days_left"] else 0
+                promo_lines.append(
+                    "- %s: ปกติ %s฿ → ลดเหลือ %s฿ (เหลือ %d วัน) | ลูกค้าพิมพ์ \"%d\" หรือ \"%d\" = อันนี้ → เรียก send_payment_info ด้วยเลขที่ลูกค้าพิมพ์"
+                    % (nm, format(int(base), ","), format(int(fin), ","), dl, int(fin), int(base)))
+    if promo_lines:
+        out.append("")
+        out.append("\U0001f381 โปรที่ใช้ได้ตอนนี้ (สำคัญมาก! ถ้าลูกค้าพูดเลขที่ตรงกับราคาโปร/ราคาปกติ = สนใจอันนั้น):")
+        out += promo_lines
     out.append("===============================================")
     return "\n".join(out)
 
