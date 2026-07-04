@@ -350,9 +350,29 @@ async def _escalate_to_admin(row: dict, attempt: int, err: str, bot: Bot):
     try:
         if _atok:
             await _sender.initialize()
-        await _sender.send_message(chat_id=ADMIN_GROUP_CHAT_ID, text=msg,
-                                   parse_mode=ParseMode.HTML, reply_markup=_kb_esc)
-        logger.info("Escalation sent to admin group for payment %s", row["payment_id"])
+        # FIX 2026-07-04: attach the slip IMAGE so admin can verify it visually before
+        # approving (download via worker bot which owns the file_id; send via admin bot).
+        _slip_sent = False
+        _sfid = row.get("slip_file_id")
+        if _sfid:
+            try:
+                import io as _io_esc
+                _sf = await bot.get_file(_sfid)
+                _sbuf = _io_esc.BytesIO()
+                await _sf.download_to_memory(_sbuf)
+                _sbuf.seek(0)
+                await _sender.send_photo(chat_id=ADMIN_GROUP_CHAT_ID, photo=_sbuf,
+                                         caption=msg, parse_mode=ParseMode.HTML,
+                                         reply_markup=_kb_esc)
+                _slip_sent = True
+            except Exception as _pe_esc:
+                logger.warning("escalation slip photo failed (fallback text) pay=%s: %s",
+                               row["payment_id"], _pe_esc)
+        if not _slip_sent:
+            await _sender.send_message(chat_id=ADMIN_GROUP_CHAT_ID, text=msg,
+                                       parse_mode=ParseMode.HTML, reply_markup=_kb_esc)
+        logger.info("Escalation sent to admin group for payment %s (slip_photo=%s)",
+                    row["payment_id"], _slip_sent)
     except Exception as exc:
         logger.warning("Admin escalation send failed: %s", exc)
     finally:
