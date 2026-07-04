@@ -142,6 +142,16 @@ async def _process_one(row: dict, bot: Bot) -> None:
     queue_expected = float(row["expected_amount"])
     expected = queue_expected  # fallback
 
+    # FIX 2026-07-04: record the ACTUAL amount read from the slip (not the enqueue estimate),
+    # so both auto-approve and admin-fallback record the real paid amount (discount over-count fix).
+    try:
+        async with get_session() as _amt_s:
+            await _amt_s.execute(sql_text("UPDATE payments SET amount = :amt WHERE id = :pid"),
+                                 {"amt": s2g_amount, "pid": payment_id})
+            await _amt_s.commit()
+    except Exception as _amt_e:
+        logger.warning("update payment %s amount->actual %s failed: %s", payment_id, s2g_amount, _amt_e)
+
     # Try recalc using selected_tier + current Day-0 promos
     selected_tier = (row.get("selected_tier") or "").replace("TIER_", "").strip()
     if selected_tier:
@@ -173,13 +183,51 @@ async def _process_one(row: dict, bot: Bot) -> None:
         except Exception as exc:
             logger.warning("expected recalc failed (non-fatal): %s — using queue value", exc)
 
-    # ±1 baht tolerance for rounding edge cases (e.g. 240.5 → 240 or 241)
-    if abs(s2g_amount - expected) > 1.0:
-        logger.warning("Slip2Go OK but amount mismatch (s2g=%s expected=%s queue=%s) for payment %s — escalate",
-                       s2g_amount, expected, queue_expected, payment_id)
+    # FIX 2026-07-04: accept ANY valid price for this customer+tier — base, campaign promo,
+    # OR per-customer RETENTION discount (comeback_dm_log). Before, only campaign promos were
+    # considered -> retention buyers (e.g. VIP -15% = 255) were falsely flagged "amount mismatch".
+    acceptable = {expected, queue_expected}
+    _ret_used = False
+    if selected_tier:
+        try:
+            from shared.pricing import TIER_PRICES as _TP2
+            _base2 = float(_TP2.get(selected_tier, queue_expected))
+            acceptable.add(_base2)
+            _tg2 = int(row.get("telegram_id") or 0)
+            if _tg2:
+                async with get_session() as _ret_s:
+                    _ret_r = await _ret_s.execute(sql_text(
+                        "SELECT discount_pct FROM comeback_dm_log WHERE telegram_id = :tg "
+                        "AND purchased = FALSE AND sent_at > NOW() - interval '48 hours' "
+                        "ORDER BY sent_at DESC LIMIT 1"), {"tg": _tg2})
+                    _pct2 = _ret_r.scalar()
+                if _pct2:
+                    _ret_price = float(round(_base2 * (100 - float(_pct2)) / 100))
+                    acceptable.add(_ret_price)
+                    if abs(s2g_amount - _ret_price) <= 1.0:
+                        _ret_used = True
+        except Exception as _acc_e:
+            logger.warning("acceptable-amount build failed (non-fatal): %s", _acc_e)
+
+    # ±1 baht tolerance for rounding edge cases
+    if not any(abs(s2g_amount - a) <= 1.0 for a in acceptable):
+        logger.warning("Slip2Go OK but amount mismatch (s2g=%s acceptable=%s queue=%s) for payment %s — escalate",
+                       s2g_amount, sorted(acceptable), queue_expected, payment_id)
         await _escalate_to_admin(row, attempt, f"amount mismatch s2g={s2g_amount} expected={expected}", bot)
         await _mark_status(row_id, "FAILED", attempt, "amount mismatch")
         return
+
+    # Customer used their retention discount -> mark it purchased (prevent reuse)
+    if _ret_used:
+        try:
+            async with get_session() as _mk_s:
+                await _mk_s.execute(sql_text(
+                    "UPDATE comeback_dm_log SET purchased = TRUE, responded = TRUE "
+                    "WHERE telegram_id = :tg AND purchased = FALSE "
+                    "AND sent_at > NOW() - interval '48 hours'"), {"tg": int(row.get("telegram_id") or 0)})
+                await _mk_s.commit()
+        except Exception as _mk_e:
+            logger.warning("mark retention purchased failed: %s", _mk_e)
 
     # All checks pass — APPROVE
     async with get_session() as s:
@@ -254,12 +302,33 @@ async def _escalate_to_admin(row: dict, attempt: int, err: str, bot: Bot):
     if not ADMIN_GROUP_CHAT_ID:
         logger.warning("ADMIN_GROUP_CHAT_ID not set — cannot escalate")
         return
+    # FIX 2026-07-04: show the ACTUAL paid amount (parsed from err "s2g=...") instead of only
+    # the expected price, plus a hint when the customer paid less (likely a discount/promo).
+    import re as _re_esc
+    _actual = None
+    _m_esc = _re_esc.search(r"s2g=([0-9.]+)", err or "")
+    if _m_esc:
+        try: _actual = float(_m_esc.group(1))
+        except Exception: _actual = None
+    try:
+        _exp_val = float(row.get("expected_amount") or 0)
+    except Exception:
+        _exp_val = 0.0
+    if _actual is not None:
+        _amt_line = f"💰 ยอดจ่ายจริง: <b>฿{_actual:,.0f}</b>  (ราคาเต็ม ฿{_exp_val:,.0f})\n"
+        if _actual < _exp_val - 1:
+            _amt_line += "   ↳ <i>จ่ายน้อยกว่าราคาเต็ม — อาจใช้ส่วนลด/โปร ตรวจก่อนอนุมัติ</i>\n"
+        elif _actual > _exp_val + 1:
+            _amt_line += "   ↳ <i>จ่ายมากกว่าราคา — ตรวจสอบ</i>\n"
+    else:
+        _amt_line = f"💰 ยอดที่คาด: ฿{row['expected_amount']}\n"
     msg = (
-        "🔴 <b>ตรวจสลิปไม่ผ่าน (ลองครบแล้ว)</b>\n"
+        "🟡 <b>สลิปต้องตรวจสอบด้วยมือ</b>\n"
+        "<i>ระบบตรวจอัตโนมัติไม่ผ่าน — ตรวจแล้วกดอนุมัติ/ปฏิเสธ</i>\n"
         "━━━━━━━━━━━━━━━━\n"
         f"💳 จ่าย: <code>#{row['payment_id']}</code>\n"
         f"👤 ลูกค้า: <code>{row['telegram_id']}</code>\n"
-        f"💰 ยอดที่คาด: ฿{row['expected_amount']}\n"
+        f"{_amt_line}"
         f"🔁 ลองแล้ว: {attempt}/{MAX_ATTEMPTS} ครั้ง\n"
         f"❌ เหตุ: <code>{err[:160]}</code>\n"
         f"\n👇 กดปุ่มด้านล่างเพื่ออนุมัติ/ปฏิเสธ (หรือดูที่ /pending)"
