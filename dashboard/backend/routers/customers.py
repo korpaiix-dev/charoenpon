@@ -388,11 +388,13 @@ async def upgrade_subscription(user_id: int, req: UpgradeRequest, request: Reque
     if not pkg:
         raise HTTPException(400, "Package not found")
     
-    sub = await pool.fetchrow(
-        "SELECT * FROM subscriptions WHERE user_id = $1 AND status = 'ACTIVE' LIMIT 1", user_id
+    # FIX 2026-07-04 (P0-B): expire existing ACTIVE sub of the SAME (target) package only —
+    # was: cancel one arbitrary active sub (could leave duplicates / cancel the wrong product).
+    await pool.execute(
+        "UPDATE subscriptions SET status = 'EXPIRED', updated_at = NOW() "
+        "WHERE user_id = $1 AND status = 'ACTIVE' AND package_id = $2",
+        user_id, req.package_id,
     )
-    if sub:
-        await pool.execute("UPDATE subscriptions SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1", sub["id"])
     
     await pool.execute("""
         INSERT INTO subscriptions (user_id, package_id, status, start_date, end_date, auto_renew)
@@ -772,6 +774,13 @@ async def gift_subscription(user_id: int, req: _GiftSubReq, admin=Depends(requir
     if not user:
         raise HTTPException(404, 'user not found')
 
+    # FIX 2026-07-04 (P0-A): expire existing ACTIVE sub of the SAME package before gifting
+    # (prevents duplicate active subs; different products still stack).
+    await pool.execute(
+        "UPDATE subscriptions SET status='EXPIRED', updated_at=NOW() "
+        "WHERE user_id=$1 AND status='ACTIVE' AND package_id=$2",
+        user_id, req.package_id,
+    )
     # Create sub starting now
     row = await pool.fetchrow(
         """INSERT INTO subscriptions (user_id, package_id, status, start_date, end_date, auto_renew)
