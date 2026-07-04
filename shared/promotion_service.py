@@ -141,11 +141,14 @@ def calculate_price(promo: dict, package_code: str, original_price: float) -> di
 
     # Round to whole baht
     discounted = round(discounted)
+    # FIX 2026-07-04 (P1-2): clamp against misconfigured promos (percent>100, fixed_price>orig,
+    # negative discount_value) — price must stay within [0, original], never negative/inflated.
+    discounted = max(0.0, min(orig, float(discounted)))
     return {
         "original": orig,
         "discounted": float(discounted),
         "savings": round(orig - discounted, 2),
-        "applied": True,
+        "applied": (discounted < orig),
     }
 
 
@@ -171,12 +174,27 @@ async def record_click(
             valid_hours = int(promo_row["valid_hours"] or 48)
             expires_at = datetime.now(timezone.utc) + timedelta(hours=valid_hours)
 
-            row = await conn.fetchrow(
-                "INSERT INTO promotion_clicks (promotion_id, user_telegram_id, "
-                "package_code, expires_at) VALUES ($1, $2, $3, $4) "
-                "RETURNING id, expires_at",
-                promo_id, user_telegram_id, package_code, expires_at,
+            # FIX 2026-07-04 (P1-3): dedup — one UNCONSUMED click per (promo, user). Refresh the
+            # existing unconsumed click instead of stacking new rows (prevents riding one promo
+            # across several separate purchases).
+            _existing = await conn.fetchrow(
+                "SELECT id FROM promotion_clicks WHERE promotion_id=$1 AND user_telegram_id=$2 "
+                "AND consumed_at IS NULL ORDER BY id DESC LIMIT 1",
+                promo_id, user_telegram_id,
             )
+            if _existing:
+                row = await conn.fetchrow(
+                    "UPDATE promotion_clicks SET package_code=$2, expires_at=$3 WHERE id=$1 "
+                    "RETURNING id, expires_at",
+                    _existing["id"], package_code, expires_at,
+                )
+            else:
+                row = await conn.fetchrow(
+                    "INSERT INTO promotion_clicks (promotion_id, user_telegram_id, "
+                    "package_code, expires_at) VALUES ($1, $2, $3, $4) "
+                    "RETURNING id, expires_at",
+                    promo_id, user_telegram_id, package_code, expires_at,
+                )
         finally:
             await conn.close()
         return {
