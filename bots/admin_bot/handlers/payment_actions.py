@@ -615,24 +615,28 @@ async def approve_promo_callback(update: Update, context: ContextTypes.DEFAULT_T
                     _psacct = pending.sender_bank_account
                     _psfid = pending.slip_file_id
                     _pmrid = getattr(pending, "matched_receiver_account_id", None)
-                # P0-3: renew the customer's ACTUAL tier (their most recent sub), not a
-                # hardcoded VIP-300. comeback_dm_log has no tier, so infer from last sub.
-                try:
-                    # P0-3 fix: infer only from the customer's REAL base-membership subs —
-                    # never a shaker(TIER_100)/gacha/trial row (those also create subscriptions and
-                    # would renew a GOD customer into the wrong tiny tier).
-                    _base_tiers = [PackageTier.TIER_300, PackageTier.TIER_500,
-                                   PackageTier.TIER_1299, PackageTier.TIER_2499, PackageTier.TIER_4999]
-                    _last_pkg = (await session.execute(
-                        select(Package).join(Subscription, Subscription.package_id == Package.id)
-                        .where(Subscription.user_id == db_user.id, Package.tier.in_(_base_tiers))
-                        .order_by(Subscription.created_at.desc()).limit(1)
-                    )).scalars().first()
-                    if _last_pkg:
-                        _pkg_id = _last_pkg.id
-                        _pkg_name = _last_pkg.name
-                except Exception:
-                    pass
+                # P0-3: infer the customer's REAL tier ONLY for retention_alert renewals
+                # (round 200-299). Those DMs offer the customer's actual expiring package at that
+                # package's own discounted price, so granting that tier + the real slip amount is
+                # correct. comeback_dm (round 1-2) and welcome_journey (round 300+) DMs instead
+                # offer "VIP 30 วัน" off ฿300 -> they MUST grant TIER_300 (the default set above).
+                # Inferring a former-GOD tier there would hand GOD ถาวร for the ฿255 VIP price.
+                if 200 <= (_round or 0) <= 299:
+                    try:
+                        # only REAL base-membership subs — never a shaker(TIER_100)/gacha/trial row
+                        # (those also create subscriptions and would renew into the wrong tiny tier).
+                        _base_tiers = [PackageTier.TIER_300, PackageTier.TIER_500,
+                                       PackageTier.TIER_1299, PackageTier.TIER_2499, PackageTier.TIER_4999]
+                        _last_pkg = (await session.execute(
+                            select(Package).join(Subscription, Subscription.package_id == Package.id)
+                            .where(Subscription.user_id == db_user.id, Package.tier.in_(_base_tiers))
+                            .order_by(Subscription.created_at.desc()).limit(1)
+                        )).scalars().first()
+                        if _last_pkg:
+                            _pkg_id = _last_pkg.id
+                            _pkg_name = _last_pkg.name
+                    except Exception:
+                        pass
 
         if _banned:
             await query.answer("🚫 ลูกค้าถูกแบน — /unban ก่อน", show_alert=True)
