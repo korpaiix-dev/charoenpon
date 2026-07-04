@@ -195,44 +195,46 @@ async def check_active_promo() -> dict:
         }
     """
     try:
+        import json as _pjc
         async with get_session() as s:
-            # Active promotion campaigns
+            # Active promotions (REAL discount table — same source as mini-app/catalog)
             r = await s.execute(_t("""
-                SELECT name, normal_price, promo_price, starts_at, ends_at
-                FROM promotion_campaigns
+                SELECT name, package_codes, discount_type, discount_value, starts_at, ends_at
+                FROM promotions
                 WHERE is_active = true
                   AND (starts_at IS NULL OR starts_at <= NOW())
                   AND (ends_at IS NULL OR ends_at > NOW())
-                ORDER BY id DESC LIMIT 5
+                ORDER BY id DESC LIMIT 10
             """))
-            promos = [
-                {
-                    "name": row.name,
-                    "normal_price": float(row.normal_price) if row.normal_price else None,
-                    "promo_price": float(row.promo_price) if row.promo_price else None,
-                    "starts_at": row.starts_at.strftime("%Y-%m-%d") if row.starts_at else None,
-                    "ends_at": row.ends_at.strftime("%Y-%m-%d %H:%M") if row.ends_at else None,
-                }
-                for row in r.fetchall()
-            ]
-            # Flash sale check
-            f = await s.execute(_t("""
-                SELECT name, flash_price, original_price, total_slots, sold_slots, ends_at
-                FROM flash_sales
-                WHERE is_active = true AND ends_at > NOW() AND starts_at <= NOW()
-                LIMIT 1
-            """))
-            frow = f.fetchone()
-            flash = None
-            if frow:
-                flash = {
-                    "name": frow.name,
-                    "flash_price": float(frow.flash_price),
-                    "original_price": float(frow.original_price),
-                    "slots_left": int(frow.total_slots - frow.sold_slots),
-                    "ends_at": frow.ends_at.strftime("%Y-%m-%d %H:%M"),
-                }
-        return {"promos": promos, "active_flash_sale": flash}
+            prom_rows = r.fetchall()
+            pk = await s.execute(_t("SELECT tier::text AS tiercode, name, price FROM packages WHERE is_active=true"))
+            pmap = {}
+            for _pr in pk.fetchall():
+                _m = _pr._mapping
+                pmap[_m["tiercode"]] = (_m["name"], float(_m["price"]))
+            promos = []
+            for row in prom_rows:
+                m = row._mapping
+                raw = m["package_codes"]
+                try:
+                    codes = raw if isinstance(raw, list) else (_pjc.loads(raw) if raw else [])
+                except Exception:
+                    codes = []
+                for c in codes:
+                    if c in pmap:
+                        nm, base = pmap[c]
+                        dt = (m["discount_type"] or "").lower(); dv = float(m["discount_value"] or 0)
+                        if dt == "percent": fin = base*(100-dv)/100
+                        elif dt == "fixed_off": fin = max(0, base-dv)
+                        elif dt == "fixed_price": fin = dv
+                        else: fin = base
+                        promos.append({
+                            "name": m["name"], "package": nm,
+                            "normal_price": int(base), "promo_price": int(round(fin)),
+                            "starts_at": m["starts_at"].strftime("%Y-%m-%d") if m["starts_at"] else None,
+                            "ends_at": m["ends_at"].strftime("%Y-%m-%d %H:%M") if m["ends_at"] else None,
+                        })
+        return {"promos": promos, "active_flash_sale": None}
     except Exception as e:
         logger.exception("check_active_promo failed")
         return {"error": f"DB error: {e}"}
