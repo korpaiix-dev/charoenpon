@@ -56,7 +56,7 @@ async def list_customers(
                s.status as sub_status, s.end_date, p.name as package_name, p.tier as package_tier
         FROM users u
         LEFT JOIN LATERAL (
-            SELECT * FROM subscriptions WHERE user_id = u.id ORDER BY created_at DESC LIMIT 1
+            SELECT * FROM subscriptions WHERE user_id = u.id ORDER BY (status::text='ACTIVE') DESC, end_date DESC NULLS LAST, created_at DESC LIMIT 1  -- P2: show the customer's BEST active sub (permanent GOD outranks a newer short/expired bonus), not just the newest
         ) s ON TRUE
         LEFT JOIN packages p ON s.package_id = p.id
         LEFT JOIN LATERAL (
