@@ -83,6 +83,41 @@ async def compute_package_price(tier_full: str, promo_id=None, tg_id=None) -> "d
                     elif dt == "fixed_price":
                         final = dv
 
+        # 1b) AUTO-DISCOVER active public promotion for this tier (only when caller gave no
+        #     explicit promo_id). Lets Prae / in-chat quote launch-promo prices (e.g. Super VIP
+        #     4999 -> 2999) without the customer clicking a promo link. Self-expiring via valid_hours.
+        if not promo_id:
+            try:
+                arows = await conn.fetch(
+                    "SELECT package_codes, discount_type, discount_value FROM promotions "
+                    "WHERE is_active = TRUE "
+                    "  AND (created_at + (valid_hours || ' hours')::interval) > now()"
+                )
+            except Exception:
+                arows = []
+            for _pr in arows:
+                _raw = _pr["package_codes"]
+                if isinstance(_raw, str):
+                    try:
+                        _codes = _json.loads(_raw)
+                    except Exception:
+                        _codes = []
+                else:
+                    _codes = list(_raw) if _raw else []
+                if tdb in _codes or tshort in _codes:
+                    _dt = (_pr["discount_type"] or "none").lower()
+                    _dv = float(_pr["discount_value"] or 0)
+                    if _dt == "percent":
+                        _cand = base * (100 - _dv) / 100
+                    elif _dt == "fixed_off":
+                        _cand = max(0, base - _dv)
+                    elif _dt == "fixed_price":
+                        _cand = _dv
+                    else:
+                        _cand = base
+                    if _cand < final:
+                        final = _cand
+
         _src = "campaign" if final < base else "none"
         _credit_used = 0.0
 

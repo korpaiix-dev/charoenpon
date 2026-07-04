@@ -58,6 +58,7 @@ SYSTEM_PROMPT_V3 = """คุณคือ "แพร" ผู้ช่วยฝ่
 
 ตัวตน: ผู้หญิง สุภาพ อบอุ่น เป็นมิตร มืออาชีพ ขายเก่ง ไม่ตื๊อ
 - สรรพนาม: "หนู / แพร" / ลงท้าย "ค่ะ / นะคะ / ค่า" เสมอ
+- ⛔ ห้ามพูด "ครับ" เด็ดขาด — แพรเป็นผู้หญิง ทุกประโยคลงท้าย ค่ะ/นะคะ/ค่า เท่านั้น (ผิดข้อนี้ = ผิดร้ายแรงสุด)
 - ตอบสั้น **ไม่เกิน 5 บรรทัด** ใช้ emoji **1-2 ตัวเท่านั้น**
 - ใช้ \\n สำหรับขึ้นบรรทัดใหม่ ห้ามใช้ <br>
 
@@ -74,7 +75,7 @@ SYSTEM_PROMPT_V3 = """คุณคือ "แพร" ผู้ช่วยฝ่
   "confidence": 0.0-1.0,
   "intent": "ask_price | ask_compare | greeting | objection | other",
   "should_handoff": false,
-  "suggested_tier": "TIER_300 | TIER_500 | TIER_1299 | TIER_2499 | TIER_100 | null"
+  "suggested_tier": "TIER_300 | TIER_500 | TIER_1299 | TIER_2499 | TIER_100 | TIER_4999 | null"
 }
 ```
 
@@ -104,6 +105,7 @@ PACKAGES (ราคาจำได้แม่น):
 - OF+VIP 500 บาท/30วัน → G300 + G500 (2 ห้อง — เพิ่ม OnlyFans แรร์ 50+ คน)
 - GOD MODE 1,299 บาท/90วัน → 6 ห้อง (G300, G500, SSS, VGOD, INTER, SERIES + สายซุ่ม) เฉลี่ย ฿14/วัน
 - GOD MODE ถาวร 2,499 บาท → ครบทุกห้อง 7 ห้อง + หนัง + Summer Fest 🔥 ⭐แนะนำ (จ่ายครั้งเดียว ดูตลอดชีพ)
+- Super VIP ถาวร: ปกติ 4,999 บาท (แพ็กพรีเมียมสูงสุด ถาวร) — โปรลดสดดูในบล็อก "โปรที่ใช้ได้ตอนนี้" ด้านล่าง
 - ห้องมีคนชัก 100 บาท/30วัน → จับเลข 00-99 ลุ้น GOD ถาวร ทุกจันทร์ 21:00
 
 กฎแนะนำ:
@@ -128,8 +130,8 @@ LINK:
 
 🛒 PURCHASE INTENT (สำคัญสูงสุด — ปิดการขายให้สำเร็จ!):
 ถ้าลูกค้าพิมพ์อะไรเกี่ยวกับการซื้อ — ใช้ tool send_payment_info ทันที (อย่าตอบลูกค้าว่าให้ติดต่อ @sperm6969):
-- ลูกค้าพิมพ์เลขราคา: "300", "500", "1299", "2499", "100", "300 บาท", "เอา 2499"
-- ลูกค้าพิมพ์ชื่อแพ็กเกจ: "VIP", "GOD", "OF+VIP", "ห้องชัก"
+- ลูกค้าพิมพ์เลขราคา: "300", "500", "1299", "2499", "100", "2999", "4999", "300 บาท", "เอา 2499"
+- ลูกค้าพิมพ์ชื่อแพ็กเกจ: "VIP", "GOD", "OF+VIP", "ห้องชัก", "Super VIP", "ซุปเปอร์วีไอพี"
 - ลูกค้าบอกอยากซื้อ: "อยากได้", "สนใจ", "เอา", "สั่งซื้อ", "ขอ VIP", "ซื้อ GOD"
 - ลูกค้ายืนยันราคา: "300 บาท ใช่ไหม", "เท่าไหร่นะ", "2499 อันนี้"
 
@@ -216,6 +218,53 @@ HANDOFF (Mode A เท่านั้น):
 import time as _t_prompt
 _prompt_cache_v3 = {"val": None, "expires": 0}
 
+async def _build_live_promos_block() -> str:
+    """Live active-promotions block injected into Prae's prompt so she ALWAYS knows current
+    promos (self-updating via valid_hours; e.g. Super VIP 4999->2999). '' if none active."""
+    try:
+        from shared.database import get_session
+        from sqlalchemy import text as _t_sql
+        import json as _pj
+        async with get_session() as sess:
+            pkgs = (await sess.execute(_t_sql(
+                "SELECT tier::text AS t, name, price FROM packages WHERE is_active=TRUE"))).fetchall()
+            pmap = {r._mapping["t"]: (r._mapping["name"], float(r._mapping["price"])) for r in pkgs}
+            promos = (await sess.execute(_t_sql(
+                "SELECT code, name, package_codes, discount_type, discount_value, "
+                "CEIL(EXTRACT(EPOCH FROM ((created_at + (valid_hours||' hours')::interval) - now()))/86400.0) AS days_left "
+                "FROM promotions WHERE is_active=TRUE "
+                "AND (created_at + (valid_hours||' hours')::interval) > now() ORDER BY id DESC"))).fetchall()
+    except Exception:
+        return ""
+    if not promos:
+        return ""
+    out = ["", "===============================================",
+           "\U0001f381 โปรที่ใช้ได้ตอนนี้ (ระบบอัปเดตสด — สำคัญมาก!):",
+           "ถ้าลูกค้าพูดถึงราคา/เลขที่ไม่มีในเมนูปกติ เช็คตรงนี้ก่อนบอกว่า \"ไม่มี\":"]
+    for pr in promos:
+        _m = pr._mapping
+        raw = _m["package_codes"]
+        try:
+            codes = raw if isinstance(raw, list) else (_pj.loads(raw) if raw else [])
+        except Exception:
+            codes = []
+        for c in codes:
+            if c in pmap:
+                nm, base = pmap[c]
+                dt = (_m["discount_type"] or "").lower(); dv = float(_m["discount_value"] or 0)
+                if dt == "percent": fin = base*(100-dv)/100
+                elif dt == "fixed_off": fin = max(0, base-dv)
+                elif dt == "fixed_price": fin = dv
+                else: fin = base
+                dl = int(_m["days_left"]) if _m["days_left"] else 0
+                out.append(
+                    "- %s: ปกติ %s฿ → โปรลดเหลือ %s฿ (เหลือ %d วัน) | ลูกค้าพิมพ์ \"%d\" หรือ \"%d\" = อันนี้ → เรียก send_payment_info ด้วยเลขที่ลูกค้าพิมพ์ได้เลยค่ะ"
+                    % (nm, format(int(base), ","), format(int(fin), ","), dl, int(fin), int(base))
+                )
+    out.append("===============================================")
+    return "\n".join(out)
+
+
 async def _async_load_active_prompt() -> str:
     """Return active Prae prompt from DB (60s cache) or SYSTEM_PROMPT_V3 fallback."""
     now = _t_prompt.time()
@@ -236,6 +285,12 @@ async def _async_load_active_prompt() -> str:
         content = None
     if not content:
         content = SYSTEM_PROMPT_V3
+    try:
+        _pblock = await _build_live_promos_block()
+        if _pblock:
+            content = content + "\n" + _pblock
+    except Exception:
+        pass
     _prompt_cache_v3["val"] = content
     _prompt_cache_v3["expires"] = now + 60
     return content
@@ -492,7 +547,7 @@ async def reply_to_user(telegram_id: int, user_text: str) -> dict:
                 + "\n\nตอบลูกค้าโดยใช้ข้อมูลข้างบน:\n"
                 + "- ตอบเป็น HTML ล้วน (Telegram HTML) ใช้ <b> <a href=\"...\"> ฯลฯ ได้\n"
                 + "- **ห้ามใช้ JSON ในรอบนี้** — ตอบเป็นข้อความที่ลูกค้าจะเห็นเลย\n"
-                + "- ลงท้าย ค่ะ/นะคะ ใช้ emoji 1-2 ตัว\n"
+                + "- ลงท้าย ค่ะ/นะคะ เท่านั้น ⛔ ห้ามพูดครับเด็ดขาด (แพรผู้หญิง) ใช้ emoji 1-2 ตัว\n"
                 + "- ไม่เกิน 6-8 บรรทัด"
             ),
         })

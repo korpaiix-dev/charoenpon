@@ -600,6 +600,11 @@ async def send_payment_info(telegram_id: int, tier_or_amount: str) -> dict:
     # Normalize input to find tier
     s_raw = (tier_or_amount or "").strip().upper()
     tier_map = {
+        # Super VIP FIRST (before generic "VIP") so "super vip" doesn't match VIP-300.
+        "SUPER VIP": ("Super VIP ถาวร", 4999, "TIER_4999"),
+        "SUPERVIP": ("Super VIP ถาวร", 4999, "TIER_4999"),
+        "2999": ("Super VIP ถาวร (โปรเปิดตัว)", 2999, "TIER_4999"),
+        "4999": ("Super VIP ถาวร", 4999, "TIER_4999"),
         "100": ("ห้องมีคนชัก 30 วัน", 100, "TIER_100"),
         "ชัก": ("ห้องมีคนชัก 30 วัน", 100, "TIER_100"),
         "SHAKER": ("ห้องมีคนชัก 30 วัน", 100, "TIER_100"),
