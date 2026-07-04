@@ -23,6 +23,7 @@ async def _log(admin_id, action, entity_type, entity_id, details, ip):
 @router.get("")
 async def list_customers(
     page: int = 1, per_page: int = 25, search: str = "", status: str = "all",
+    tier: str = "",
     admin=Depends(get_current_admin)
 ):
     # FIX 2025-05-21 (Phase D-6-business): clamp pagination
@@ -44,6 +45,12 @@ async def list_customers(
         conditions.append("NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id AND s.status = 'ACTIVE')")
     elif status == "banned":
         conditions.append("u.is_banned = TRUE")
+
+    if tier:
+        _tf = tier if tier.startswith("TIER_") else f"TIER_{tier}"
+        conditions.append(f"EXISTS (SELECT 1 FROM subscriptions s JOIN packages pk ON pk.id=s.package_id WHERE s.user_id=u.id AND s.status='ACTIVE' AND pk.tier::text=${idx} AND (pk.duration_days>=3650 OR s.end_date>now()))")
+        params.append(_tf)
+        idx += 1
 
     where = "WHERE " + " AND ".join(conditions) if conditions else ""
     
@@ -117,6 +124,19 @@ async def _get_broadcast_count(target: str) -> int:
     else:
         return 0
     return int(await pool.fetchval(sql) or 0)
+
+
+@router.get("/tier_counts")
+async def customer_tier_counts(admin=Depends(get_current_admin)):
+    """Count of customers holding an ACTIVE sub of each tier (lifetime or not-expired).
+    Stacked customers are counted under EACH tier they hold."""
+    rows = await pool.fetch("""
+        SELECT pk.tier::text AS tier, COUNT(DISTINCT s.user_id) AS cnt
+        FROM subscriptions s JOIN packages pk ON pk.id = s.package_id
+        WHERE s.status = 'ACTIVE' AND (pk.duration_days >= 3650 OR s.end_date > now())
+        GROUP BY pk.tier::text
+    """)
+    return {r["tier"]: r["cnt"] for r in rows}
 
 
 @router.get("/{user_id}/intents")

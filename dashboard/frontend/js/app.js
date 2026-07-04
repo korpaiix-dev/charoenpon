@@ -2342,7 +2342,19 @@ async function loadDashboardPendingSlips() {
 }
 
 // ========== PAGE: CUSTOMERS ==========
-let customerSearch = '', customerFilter = 'all', customerPage = 1;
+let customerSearch = '', customerFilter = 'all', customerPage = 1, customerTier = '', customerTierCounts = {};
+function tierBtn(t,label){
+  const c = t==='' ? '' : (customerTierCounts['TIER_'+t]||0);
+  const badge = t==='' ? '' : ` <b>(${c})</b>`;
+  return `<button class="filter-btn ${customerTier===t?'active':''}" onclick="customerTier='${t}';customerPage=1;loadCustomers()">${label}${badge}</button>`;
+}
+async function loadTierCounts(){
+  try{
+    customerTierCounts = await api('/customers/tier_counts');
+    const el = document.getElementById('tier-filters');
+    if(el) el.innerHTML = tierBtn('','ทุกแพ็ก')+tierBtn('100','🎲 ห้องมีคนชัก')+tierBtn('300','💚 VIP')+tierBtn('500','💙 OF+VIP')+tierBtn('1299','💜 GOD 90')+tierBtn('2499','❤️ GOD ถาวร')+tierBtn('4999','👑 Super VIP');
+  }catch(e){}
+}
 async function renderCustomers() {
     const content = document.getElementById('page-content');
     content.innerHTML = `
@@ -2354,10 +2366,14 @@ async function renderCustomers() {
             <button class="filter-btn ${customerFilter==='expired'?'active':''}" onclick="customerFilter='expired';customerPage=1;loadCustomers()">หมดอายุ</button>
             <button class="filter-btn ${customerFilter==='banned'?'active':''}" onclick="customerFilter='banned';customerPage=1;loadCustomers()">ถูกแบน</button>
         </div>
+        <div class="filters" id="tier-filters" style="flex-wrap:wrap;gap:6px;margin-top:-4px;">
+            ${tierBtn('','ทุกแพ็ก')}${tierBtn('100','🎲 ห้องมีคนชัก')}${tierBtn('300','💚 VIP')}${tierBtn('500','💙 OF+VIP')}${tierBtn('1299','💜 GOD 90')}${tierBtn('2499','❤️ GOD ถาวร')}${tierBtn('4999','👑 Super VIP')}
+        </div>
         <div id="customers-table"><div class="loading"><div class="spinner"></div> กำลังโหลด...</div></div>
         <div id="customers-pagination"></div>
     `;
     loadCustomers();
+    loadTierCounts();
 }
 
 // ========== BROADCAST ==========
@@ -2394,7 +2410,7 @@ async function loadCustomers(page) {
     if (page) customerPage = page;
     customerSearch = document.getElementById('cust-search')?.value || customerSearch;
     try {
-        const data = await api(`/customers?page=${customerPage}&per_page=25&search=${encodeURIComponent(customerSearch)}&status=${customerFilter}`);
+        const data = await api(`/customers?page=${customerPage}&per_page=25&search=${encodeURIComponent(customerSearch)}&status=${customerFilter}&tier=${customerTier}`);
         let html = '<div class="table-wrap"><table><thead><tr><th>#</th><th>ชื่อ</th><th>Telegram ID</th><th>แพ็กเกจ</th><th>สถานะ</th><th>หมดอายุ</th><th>ยอดจ่าย</th><th></th></tr></thead><tbody>';
         data.items.forEach((u, i) => {
             const status = u.sub_status || (u.is_banned ? 'BANNED' : 'NONE');
