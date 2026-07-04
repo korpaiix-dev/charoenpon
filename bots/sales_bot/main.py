@@ -133,7 +133,6 @@ from bots.sales_bot.promo_scheduler import (
 from bots.sales_bot.spam_filter import spam_filter_middleware
 from bots.sales_bot.handlers.referral import send_referral_reminder
 from bots.sales_bot.daily_report import send_daily_report
-from bots.sales_bot.handlers.birthday_upgrade import get_birthday_upgrade_handlers
 from bots.sales_bot.handlers.shaker import get_shaker_handlers
 from bots.sales_bot.handlers.gacha_buy import get_gacha_buy_handlers
 from bots.sales_bot.handlers.discount_button import get_discount_button_handlers
@@ -402,9 +401,6 @@ def create_application() -> Application:
     for handler in get_promo_purchase_handlers():
         app.add_handler(handler, group=0)
 
-    # Birthday Promo /upgrade — เฉพาะลูกค้าที่มี birthday_upgrade_offers
-    for handler in get_birthday_upgrade_handlers():
-        app.add_handler(handler, group=0)
 
     # ห้องมีคนชัก lottery (/shaker, /myticket)
     for handler in get_shaker_handlers():
