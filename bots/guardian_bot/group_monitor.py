@@ -733,13 +733,17 @@ async def _get_authorized_telegram_ids(group_slug: str) -> set[int]:
             if group_slug not in group_list:
                 continue
 
-            # Lifetime subscription — always authorized
-            if duration_days is None:
+            # Lifetime subscription — always authorized. Canonical test (matches
+            # subscription_access.is_lifetime_sub): duration_days NULL or >= ~10yr, OR a
+            # far-future end_date (year >= 2099). The old `duration_days is None` never matched
+            # the real lifetime encoding (36500) and depended on end_date>now — fragile if a
+            # lifetime row ever had a NULL end_date (would drop a paying GOD-ถาวร from authorized).
+            if duration_days is None or (duration_days and int(duration_days) >= 3650):
                 authorized.add(tg_id)
                 continue
 
             # Check if subscription hasn't expired
-            if end_date and end_date > now:
+            if end_date and (end_date > now or getattr(end_date, "year", 0) >= 2099):
                 authorized.add(tg_id)
 
     return authorized
