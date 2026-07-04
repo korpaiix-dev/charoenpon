@@ -142,7 +142,7 @@ def _format_user_brief(u: dict) -> str:
     if expiry:
         if hasattr(expiry, 'strftime'):
             try:
-                from shared.tz import now_th as _now_th_; _e = expiry.replace(tzinfo=None) if hasattr(expiry, 'tzinfo') and expiry.tzinfo else expiry; days_left = (_e - _now_th_().replace(tzinfo=None)).days
+                from datetime import datetime as _dtu; _e = expiry.replace(tzinfo=None) if hasattr(expiry, 'tzinfo') and expiry.tzinfo else expiry; days_left = (_e - _dtu.utcnow()).days  # P2 TZ: end_date is naive-UTC -> compare vs utcnow (was now_th, ~7h skew)
                 expiry_str = f"{expiry.strftime('%d/%m/%Y')} ({days_left:+d}d)"
             except Exception:
                 expiry_str = str(expiry)[:10]

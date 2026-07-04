@@ -33,7 +33,7 @@ async def health_check_payment_system():
         # ไม่ต้องอยู่ใน health check
         REQUIRED_TIERS = [
             "TIER_100", "TIER_300", "TIER_500",
-            "TIER_1299", "TIER_2499",
+            "TIER_1299", "TIER_2499", "TIER_4999",
             "GACHA_1", "GACHA_3", "GACHA_10",
         ]
         async with get_session() as s:
@@ -86,25 +86,49 @@ async def health_check_payment_system():
         from shared.pricing import amount_to_tier, admin_callback_tier_map, tier_str_to_enum
 
         # Test every supported tier
-        for tier_str in ["99", "100", "300", "500", "1299", "2499", "ADD500"]:
+        for tier_str in ["99", "100", "300", "500", "1299", "2499", "4999", "ADD500"]:
             r = _resolve_tier(tier_str)
             if r is None:
                 issues.append(f"❌ _resolve_tier('{tier_str}') = None")
 
-        for tier_str in ["99", "100", "300", "500", "1299", "2499"]:
+        for tier_str in ["99", "100", "300", "500", "1299", "2499", "4999"]:
             r = tier_str_to_enum(tier_str)
             if r is None:
                 issues.append(f"❌ tier_str_to_enum('{tier_str}') = None")
 
         m = admin_callback_tier_map()
-        for k in ["99", "100", "199", "270", "300", "500", "890", "1299", "2499"]:
+        for k in ["99", "100", "199", "270", "300", "500", "890", "1299", "2499", "4999"]:
             if k not in m:
                 issues.append(f"❌ admin_callback_tier_map missing key '{k}'")
 
-        for amt in [99, 100, 270, 300, 500, 890, 1299, 2499]:
+        for amt in [99, 100, 270, 300, 500, 890, 1299, 2499, 4999]:
             r = amount_to_tier(amt)
             if r is None:
                 issues.append(f"❌ amount_to_tier({amt}) = None")
+
+        # P2 drift-alert: every ACTIVE promo's discounted price must still resolve to a tier
+        # (catches a promo whose price stopped mapping — e.g. a mispriced 7.7 row / stale promo).
+        try:
+            from shared.database import get_session as _gs
+            from sqlalchemy import text as _tt
+            async with _gs() as _s2:
+                _pr = await _s2.execute(_tt(
+                    "SELECT p.code, p.discount_type, p.discount_value, pk.tier::text, pk.price "
+                    "FROM promotions p JOIN packages pk ON pk.tier::text = ANY("
+                    "  SELECT jsonb_array_elements_text(p.package_codes::jsonb)) "
+                    "WHERE p.is_active AND (p.starts_at IS NULL OR p.starts_at<=now()) "
+                    "  AND (p.ends_at IS NULL OR p.ends_at>now())"
+                ))
+                for code, dtype, dval, tier, base in _pr.fetchall():
+                    dtype = (dtype or "").lower(); dval = float(dval or 0); base = float(base)
+                    if dtype == "percent": disc = round(base*(100-dval)/100)
+                    elif dtype in ("fixed_off","fixed","amount","baht"): disc = round(max(0, base-dval))
+                    elif dtype == "fixed_price": disc = round(dval)
+                    else: continue
+                    if amount_to_tier(int(disc)) is None:
+                        issues.append(f"⚠️ promo {code}: ราคาลด ฿{disc} ({tier}) ไม่ resolve เป็น tier ใดเลย")
+        except Exception as _pex:
+            issues.append(f"💥 promo price round-trip check crashed: {_pex}")
 
     except Exception as exc:
         issues.append(f"💥 tier resolution test crashed: {exc}")
