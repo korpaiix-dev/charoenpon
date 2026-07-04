@@ -647,6 +647,28 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
                 except Exception as exc:
                     logger.error("[approval] SHAKER assignment failed: %s", exc)
 
+            # STEP 12.4 (2026-07-04): 7.7 campaign — free gacha spin for any PACKAGE buyer
+            # while a PROMO77_* promotion is live. Tied to the campaign window (auto on 7/7,
+            # auto off after) so no hardcoded date. Wrapped + idempotent (STEP 0 gates re-runs).
+            if not is_gacha and package:
+                try:
+                    _p77 = (await session.execute(sql_text(
+                        "SELECT 1 FROM promotions WHERE code LIKE 'PROMO77%' AND is_active = TRUE "
+                        "AND (starts_at IS NULL OR starts_at <= now()) "
+                        "AND (ends_at IS NULL OR ends_at > now()) LIMIT 1"
+                    ))).scalar()
+                    if _p77:
+                        await session.execute(sql_text(
+                            "INSERT INTO gachapon_credits (user_id, telegram_id, credits, total_purchased) "
+                            "VALUES (:uid, :tg, 1, 0) "
+                            "ON CONFLICT (user_id) DO UPDATE SET "
+                            "  credits = gachapon_credits.credits + 1, updated_at = NOW()"
+                        ), {"uid": db_user_id, "tg": inp.telegram_id})
+                        gacha_credits_added += 1
+                        logger.info("[approval] 7.7 free gacha spin granted to user=%s (payment=%s)", db_user_id, payment_id_final)
+                except Exception as _p77exc:
+                    logger.warning("[approval] 7.7 free-spin grant skipped: %s", _p77exc)
+
             # STEP 12.5 (NEW 2026-06-20): First-payment onboarding rewards
             onboarding_gacha = 0
             onboarding_discount = 0
