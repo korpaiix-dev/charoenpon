@@ -106,8 +106,20 @@ async def kick_expired_members(bot: Bot) -> dict[str, int]:
             db_sub = result.scalar_one()
             db_sub.status = SubscriptionStatus.EXPIRED
 
-        # Kick from all groups this package grants access to
-        group_slugs = package.group_list
+        # FIX 2026-07-05 (CRITICAL): do NOT kick from groups the user still has access to
+        # via ANOTHER active subscription (e.g. GOD MODE ถาวร lifetime). A user can hold several
+        # subs; when a shorter one expires we must only remove groups no active sub still covers.
+        from shared.subscription_access import user_active_group_slugs
+        covered_groups = await user_active_group_slugs(user.id, exclude_sub_id=sub.id)
+
+        # Kick only from groups NOT still covered by another active subscription
+        group_slugs = [s for s in (package.group_list or []) if s not in covered_groups]
+        if not group_slugs:
+            logger.info(
+                "User %s: sub %d expired but ALL its groups still covered by another active sub — skip kick/notify",
+                user.telegram_id, sub.id,
+            )
+            continue
         for slug in group_slugs:
             group = groups.get(slug)
             if not group:

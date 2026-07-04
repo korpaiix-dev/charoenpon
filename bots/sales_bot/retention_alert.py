@@ -359,6 +359,17 @@ async def run_retention_alert_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                 total_skipped += 1
                 continue
 
+            # ROOT FIX 2026-07-05: don't warn "your sub is expiring" if the user STILL keeps
+            # access to all of this sub's groups via ANOTHER active sub (e.g. GOD MODE ถาวร).
+            try:
+                from shared.subscription_access import still_covered_if_sub_expires
+                if await still_covered_if_sub_expires(sub["user_id"], sub["sub_id"]):
+                    total_skipped += 1
+                    await _log_notification(sub["user_id"], sub["sub_id"], notif_type, None)
+                    continue
+            except Exception as _covexc:
+                logger.warning("retention coverage check failed sub=%s: %s", sub.get("sub_id"), _covexc)
+
             # Generate promo code for this retention alert
             promo_code = _generate_promo_code()
 
