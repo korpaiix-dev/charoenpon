@@ -171,7 +171,7 @@ async def draw_winner(today: Optional[date] = None) -> dict:
             # New TIER_1299 starts today (วันที่ถูกรางวัล)
             await s.execute(sql_text("""
                 INSERT INTO subscriptions (user_id, package_id, status, start_date, end_date)
-                VALUES (:uid, 3, 'ACTIVE', NOW(), NOW() + INTERVAL '90 days')
+                VALUES (:uid, (SELECT id FROM packages WHERE tier='TIER_1299' LIMIT 1), 'ACTIVE', NOW(), NOW() + INTERVAL '90 days')
             """), {"uid": winner['user_id']})
             logger.info("Winner %s — new TIER_1299 90 days starting NOW", winner['user_id'])
 

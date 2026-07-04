@@ -382,8 +382,10 @@ def _check_db_promotion_match(amt: int) -> Optional[tuple[str, str, bool]]:
                 continue
             if dtype == "percent":
                 discounted = int(round(base * (100 - dval) / 100))
-            elif dtype in ("fixed", "amount", "baht"):
+            elif dtype in ("fixed", "amount", "baht", "fixed_off"):  # FIX 2026-07-04 P1-E: real promo vocab
                 discounted = int(round(base - dval))
+            elif dtype == "fixed_price":
+                discounted = int(round(dval))
             else:
                 continue
             # ±1 baht tolerance for rounding

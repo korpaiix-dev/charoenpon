@@ -347,7 +347,7 @@ async def claim(req: ClaimRequest):
                         await conn.execute(
                             "UPDATE subscriptions SET status='EXPIRED', updated_at=NOW() "
                             "WHERE user_id=$1 AND status='ACTIVE' "
-                            "AND package_id IN (SELECT id FROM packages WHERE tier::text IN ('TIER_100','TIER_300','TIER_500'))",
+                            "AND package_id IN (SELECT id FROM packages WHERE tier::text IN ('TIER_100','TIER_300','TIER_500','TIER_1299'))",  # FIX 2026-07-04 P1-C: incl 1299 so GOD-lifetime upgrade doesn't leave stacked GOD-90
                             int(pull["user_id"])
                         )
                         if prize["tier"] == "TIER_2499":
