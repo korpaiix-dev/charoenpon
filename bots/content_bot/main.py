@@ -1490,6 +1490,46 @@ async def _load_schedule_from_db() -> dict[str, dict]:
         return {}
 
 
+async def _job_is_enabled(job_name: str) -> bool:
+    """Fire-time gate: live check of bot_schedules.is_enabled for a job.
+    True if no row (jobs without a schedule row still run) or on error (fail-open)."""
+    if not job_name:
+        return True
+    import os as _os_je
+    try:
+        import asyncpg as _ap
+        url = _os_je.environ.get("DATABASE_URL", "").replace("postgresql+asyncpg://", "postgresql://")
+        if not url:
+            return True
+        conn = await _ap.connect(url)
+        try:
+            row = await conn.fetchrow(
+                "SELECT is_enabled FROM bot_schedules WHERE bot_key='content_bot' AND job_name=$1",
+                job_name)
+        finally:
+            await conn.close()
+        return True if row is None else bool(row["is_enabled"])
+    except Exception as exc:
+        logger.warning("_job_is_enabled(%s) failed (fail-open): %s", job_name, exc)
+        return True
+
+
+def _gated(handler):
+    """Wrap a scheduled handler so it re-checks bot_schedules.is_enabled at FIRE time.
+    Lets the Dashboard toggle take effect immediately (no bot restart). Uses context.job.name."""
+    async def _wrapped(context):
+        jn = None
+        try:
+            jn = context.job.name if getattr(context, "job", None) else None
+        except Exception:
+            jn = None
+        if jn and not await _job_is_enabled(jn):
+            logger.info("scheduled job '%s' disabled in Dashboard — skipping", jn)
+            return
+        return await handler(context)
+    return _wrapped
+
+
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -1754,14 +1794,14 @@ def main() -> None:
         else:
             logger.info("teaser_%d disabled via Dashboard", i)
     for i, t in teaser_times:
-        job_queue.run_daily(scheduled_teaser, time=t, name=f"teaser_{i}")
+        job_queue.run_daily(_gated(scheduled_teaser), time=t, name=f"teaser_{i}")
 
     # VIP PROMO — 2 rounds default, DB-overridable per slot
     vip_defaults = [(9, 30), (19, 30)]
     for i, (dh, dm) in enumerate(vip_defaults):
         t = _sched_time(f"vip_promo_{i}", dh, dm)
         if t is not None:
-            job_queue.run_daily(post_vip_promo_to_free_groups, time=t, name=f"vip_promo_{i}")
+            job_queue.run_daily(_gated(post_vip_promo_to_free_groups), time=t, name=f"vip_promo_{i}")
         else:
             logger.info("vip_promo_%d disabled via Dashboard", i)
 
@@ -1769,21 +1809,21 @@ def main() -> None:
     # Only runs when is_endmonth_vip_promo_active() returns True
     if os.environ.get("ENABLE_ENDMONTH_GOD_PROMO_SCHEDULE", "true").lower() == "true":
         job_queue.run_daily(
-            post_endmonth_god_promo_to_free_groups,
+            _gated(post_endmonth_god_promo_to_free_groups),
             time=dt_time(hour=15, minute=0, tzinfo=TH_TZ),
             name="endmonth_god_promo_daily",
         )
 
     # SHAKER promo — daily at 13:00 (lunch hour — high engagement)
     job_queue.run_daily(
-        post_shaker_promo_to_free_groups,
+        _gated(post_shaker_promo_to_free_groups),
         time=dt_time(hour=13, minute=0, tzinfo=TH_TZ),
         name="shaker_promo_daily_1300",
     )
 
     # GACHA promo — daily at 20:00 (peak evening — entertainment time)
     job_queue.run_daily(
-        post_gacha_promo_to_free_groups,
+        _gated(post_gacha_promo_to_free_groups),
         time=dt_time(hour=20, minute=0, tzinfo=TH_TZ),
         name="gacha_promo_daily_2000",
     )
@@ -1839,7 +1879,7 @@ def main() -> None:
         # Bind template_key into the callback
         async def _generic_cb(_ctx, _k=_tpl_key):
             await post_template_to_free_groups(_ctx, _k)
-        job_queue.run_daily(_generic_cb, time=_t, name=_job_name)
+        job_queue.run_daily(_gated(_generic_cb), time=_t, name=_job_name)
         generic_count += 1
         logger.info("Generic template scheduled: %s at %02d:%02d", _tpl_key, _cfg["hour"], _cfg["minute"])
     if generic_count:
