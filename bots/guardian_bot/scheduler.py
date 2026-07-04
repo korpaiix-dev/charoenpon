@@ -93,8 +93,9 @@ async def kick_expired_members(bot: Bot) -> dict[str, int]:
     for sub, user, package in expired_rows:
         stats["checked"] += 1
 
-        # Skip lifetime subscriptions (duration_days is NULL or > 3650 days / ~10 years)
-        if package.duration_days is None or package.duration_days > 3650:
+        # Skip lifetime subscriptions (canonical test)
+        from shared.subscription_access import is_lifetime_sub
+        if is_lifetime_sub(sub, package):
             stats["skipped_lifetime"] += 1
             continue
 
@@ -245,8 +246,9 @@ async def send_expiring_list(bot: Bot) -> dict[str, Any]:
             rows = result.all()
 
             for sub, user, package in rows:
-                # Skip lifetime
-                if package.duration_days is None:
+                # Skip lifetime (canonical test — end_date year>=2099 OR duration_days>=3650)
+                from shared.subscription_access import is_lifetime_sub
+                if is_lifetime_sub(sub, package):
                     continue
 
                 # Check if already notified for this tier

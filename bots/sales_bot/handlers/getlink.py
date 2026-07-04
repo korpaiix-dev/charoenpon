@@ -93,38 +93,17 @@ async def getlink_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             return
 
-        # Get most-recent active subscription (longest end_date wins if multiple)
-        sub_q = await session.execute(
-            select(Subscription, Package)
-            .join(Package, Subscription.package_id == Package.id)
-            .where(
-                Subscription.user_id == user.id,
-                Subscription.status == SubscriptionStatus.ACTIVE,
-                Subscription.end_date > now,
-            )
-            .order_by(Subscription.end_date.desc())
-            .limit(1)
-        )
-        row = sub_q.first()
-        if not row:
+        # P1-6: give links for ALL groups the user is entitled to via ANY active sub (union) —
+        # a stacked customer (e.g. GOD ถาวร + OF add-on) must get every room, not one sub's subset.
+        from shared.subscription_access import user_active_group_slugs
+        slugs = list(await user_active_group_slugs(user.id))
+        if not slugs:
             await update.message.reply_text(
                 "คุณยังไม่มีสมาชิก VIP ที่ active ค่ะ — กรุณาสมัครก่อน\n"
                 "พิมพ์ /packages เพื่อดูแพ็กเกจ",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("ดูแพ็กเกจ", callback_data="view_packages")],
                 ]),
-            )
-            return
-
-        sub, package = row
-        slugs = _parse_group_slugs(package.groups_access)
-        if not slugs:
-            await update.message.reply_text(
-                "แพ็กเกจของคุณไม่ได้ผูกกับกลุ่มใด ๆ — กรุณาทักแอดมินค่ะ"
-            )
-            logger.warning(
-                "getlink: package=%s (id=%d) has no groups_access for user=%d",
-                package.name, package.id, tg_id,
             )
             return
 

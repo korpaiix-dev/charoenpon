@@ -14,6 +14,25 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def is_lifetime_sub(sub, package) -> bool:
+    """ONE canonical 'is this a lifetime/permanent subscription' test (no DB query).
+    Lifetime is encoded inconsistently across the code (end_date year >= 2099/2126;
+    duration_days NULL / 36500 / > 3650). Use THIS everywhere instead of ad-hoc checks."""
+    try:
+        ed = getattr(sub, "end_date", None)
+        if ed is not None and getattr(ed, "year", 0) >= 2099:
+            return True
+    except Exception:
+        pass
+    try:
+        dd = getattr(package, "duration_days", None)
+        if dd is None or (dd and int(dd) >= 3650):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 async def user_active_group_slugs(user_id: int, exclude_sub_id: int | None = None) -> set[str]:
     """Union of group slugs the user currently has access to via ALL active (non-expired) subs.
 
