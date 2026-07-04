@@ -545,7 +545,24 @@ async def generate_invite_links_for_user(
                 select(Package).where(Package.id == package_id)
             )
             package = pkg_result.scalar_one()
-            group_slugs = package.group_list
+            group_slugs = list(package.group_list or [])
+        # P1-6: customers can hold several active subs at once (stacking). Merge in the groups of
+        # EVERY other active, non-expired sub so a stacked customer is never handed a subset of the
+        # rooms they've paid for. Entitlement-bounded (their own active subs only) -> can never
+        # over-grant. Degrades gracefully to just this package's groups on any error.
+        try:
+            from shared.subscription_access import user_active_group_slugs
+            from shared.models import User as _User
+            async with get_session() as session:
+                _u = (await session.execute(
+                    select(_User).where(_User.telegram_id == user_id)
+                )).scalar_one_or_none()
+            if _u is not None:
+                for _slug in await user_active_group_slugs(_u.id):
+                    if _slug not in group_slugs:
+                        group_slugs.append(_slug)
+        except Exception as _exc:
+            logger.warning("generate_invite_links union merge failed (tg=%s): %s", user_id, _exc)
     else:
         # ลูกค้าเก่า — ส่ง invite ทุกกลุ่มที่ active
         async with get_session() as session:
