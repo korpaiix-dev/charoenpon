@@ -531,310 +531,149 @@ async def inspect_payment_callback(update: Update, context: ContextTypes.DEFAULT
 
 
 async def approve_promo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """อนุมัติสลิปด้วยราคาโปรโมชั่น — approve_promo_userid format.
+    """อนุมัติสลิปด้วยราคาโปรโมชั่น (approve_promo_<uid>) — route ผ่าน apply_payment_approval.
 
-    ดึง active promo จาก comeback_dm_log แล้วใช้ discounted_price + package tier 300.
+    REFACTOR 2026-07-04 (P0 audit): เดิม hand-roll subscription (payment_id=NULL) + expire subs
+    ทั้งหมด + ไม่ credit บัญชี + dedup 10 นาที. ตอนนี้ route ผ่าน apply_payment_approval(
+    ADMIN_PROMO, comeback_dm_log_id=...) -> confirm payment เดิม + sub + credit บัญชี +
+    same-package expire + mark promo purchased + กันซ้ำ (STEP 0).
     """
     query = update.callback_query
     await query.answer()
-
     if not query.from_user or not _is_admin(query.from_user.id):
         await query.answer("⛔ คุณไม่มีสิทธิ์", show_alert=True)
         return
+    try:
+        target_user_id = int(query.data.split("_")[2])
+    except Exception:
+        await query.answer("bad callback", show_alert=True)
+        return
 
-    parts = query.data.split("_")  # approve_promo_12345
-    target_user_id = int(parts[2])
-
-    import os
-    import telegram as tg
     from datetime import timedelta
     from decimal import Decimal
-    from bots.guardian_bot.group_monitor import generate_invite_links_for_user
-    from shared.models import ComebackDmLog
+    from shared.models import ComebackDmLog, Package, PackageTier
 
     try:
-        # Find active promo for this user
         async with get_session() as session:
             from sqlalchemy import select as sa_select
-            cb_result = await session.execute(
+            cb_log = (await session.execute(
                 sa_select(ComebackDmLog).where(
                     ComebackDmLog.telegram_id == target_user_id,
                     ComebackDmLog.purchased == False,  # noqa: E712
                 ).order_by(ComebackDmLog.sent_at.desc()).limit(1)
-            )
-            cb_log = cb_result.scalar_one_or_none()
-
+            )).scalar_one_or_none()
         if not cb_log:
             await query.answer("❌ ไม่พบโปรโมชั่นที่ใช้งานได้", show_alert=True)
             return
-
-        # Check expiry (48 hours)
-        expiry = cb_log.sent_at + timedelta(hours=48)
-        if datetime.utcnow() > expiry:
+        if datetime.utcnow() > cb_log.sent_at + timedelta(hours=48):
             await query.answer("❌ โปรโมชั่นหมดอายุแล้ว", show_alert=True)
             return
-
         discount_pct = cb_log.discount_pct
         from bots.sales_bot.comeback_dm import _calculate_discounted_price
         discounted_price = _calculate_discounted_price(discount_pct)
-        promo_code = cb_log.promo_code
+        _cb_id = cb_log.id
+        _round = cb_log.round or 0
+        source = "Retention" if _round >= 200 else ("Lead Followup" if _round >= 100 else "Comeback")
 
-        # Determine source label
-        dm_round = cb_log.round
-        if dm_round >= 200:
-            source = "Retention"
-        elif dm_round >= 100:
-            source = "Lead Followup"
-        else:
-            source = "Comeback"
-
-        # Use the standard approve flow with discounted price
-        # Find package — default to tier 300 (VIP 30 วัน)
         async with get_session() as session:
-            from shared.models import Package, PackageTier
-            pkg_result = await session.execute(
+            package = (await session.execute(
                 select(Package).where(Package.tier == PackageTier.TIER_300)
-            )
-            package = pkg_result.scalar_one_or_none()
+            )).scalar_one_or_none()
             if not package:
                 await query.answer("❌ ไม่พบแพ็กเกจ", show_alert=True)
                 return
-
-            # Find or create user
-            user_result = await session.execute(
+            _pkg_id = package.id
+            _pkg_name = package.name
+            db_user = (await session.execute(
                 select(User).where(User.telegram_id == target_user_id)
-            )
-            db_user = user_result.scalar_one_or_none()
-            if not db_user:
-                db_user = User(telegram_id=target_user_id, first_name="ลูกค้า")
-                session.add(db_user)
-                await session.flush()
-
-            # Expire existing active subscriptions
-            from sqlalchemy import update as sa_update_sub
-            await session.execute(
-                sa_update_sub(Subscription)
-                .where(Subscription.user_id == db_user.id, Subscription.status == SubscriptionStatus.ACTIVE)
-                .values(status=SubscriptionStatus.EXPIRED)
-            )
-
-            # Create subscription
-            now = datetime.utcnow()
-            end_date = now + timedelta(days=package.duration_days)
-            subscription = Subscription(
-                user_id=db_user.id,
-                package_id=package.id,
-                status=SubscriptionStatus.ACTIVE,
-                start_date=now,
-                end_date=end_date,
-            )
-            session.add(subscription)
-            # FIX2_TRUST_TRIGGER total_spent maintained by DB trigger
-
-            # Mark teaser clicks as converted
-            from sqlalchemy import update as sa_update
-            from shared.models import TeaserClick
-            await session.execute(
-                sa_update(TeaserClick)
-                .where(TeaserClick.user_id == target_user_id, TeaserClick.converted == False)
-                .values(converted=True)
-            )
-
-            await session.flush()
-            pkg_name = package.name
-            duration = package.duration_days
-            pkg_id = package.id
-
-        # Mark promo as purchased
-        try:
-            async with get_session() as session:
-                cb_result2 = await session.execute(
-                    select(ComebackDmLog).where(ComebackDmLog.promo_code == promo_code)
-                )
-                cb_update = cb_result2.scalar_one_or_none()
-                if cb_update:
-                    cb_update.purchased = True
-                    cb_update.responded = True
-                    await session.flush()
-            logger.info("Promo %s marked purchased via admin approval", promo_code)
-        except Exception as exc_cb:
-            logger.warning("Promo mark purchased failed: %s", exc_cb)
-
-        # Generate invite links
-        guardian_bot = tg.Bot(token=os.environ.get("GUARDIAN_BOT_TOKEN", ""))
-        await guardian_bot.initialize()
-        sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
-        await sales_bot.initialize()
-        invite_links = await generate_invite_links_for_user(guardian_bot, target_user_id, pkg_id)
-
-        links_list = []
-        async with get_session() as session:
-            from shared.models import GroupRegistry
-            for slug, link in invite_links.items():
-                if is_songkran_bonus_slug(slug):
-                    title = get_group_display_title(slug)
-                else:
-                    grp_result = await session.execute(
-                        select(GroupRegistry).where(GroupRegistry.slug == slug)
-                    )
-                    group = grp_result.scalar_one_or_none()
-                    title = group.title if group else get_group_display_title(slug)
-                links_list.append({"text": f"🚀 {title}", "url": link})
-
-        # Send invite links to customer
-        link_buttons = [links_list[i:i+2] for i in range(0, len(links_list), 2)]
-        from shared.tz import now_th as _now_th_; expire_date = (_now_th_() + timedelta(days=duration)).strftime("%d/%m/%Y")
-        msg = (
-            f"✅ <b>อนุมัติยอด {discounted_price} บาท ({source} ลด {discount_pct}%) เรียบร้อยค่ะ</b>\n"
-            f"📦 แพ็กเกจ: {pkg_name}\n"
-            f"📅 หมดอายุ: {expire_date}\n\n"
-            f"👇 <b>กดเข้ากลุ่มที่ปุ่มด้านล่างได้เลย</b>\n\n"
-            f"🆓 <b>ห้องฟรี:</b> https://t.me/addlist/w0YSyuHC_aE2ZGVl"
-        )
-        invite_keyboard = tg.InlineKeyboardMarkup(
-            [[tg.InlineKeyboardButton(b["text"], url=b["url"]) for b in row]
-             for row in link_buttons]
-        )
-        try:
-            await sales_bot.send_message(chat_id=target_user_id, text=msg, parse_mode="HTML", reply_markup=invite_keyboard)
-        except Exception as exc_send:
-            logger.error("Failed to send promo invite links to %s: %s", target_user_id, exc_send)
-            admin_group_id = _admin_group_id()
-            flat_links = "\n".join([f"• {b['text']}: {b['url']}" for b in links_list]) or "(ไม่มีลิงก์)"
-            await context.bot.send_message(
-                chat_id=admin_group_id,
-                text=(
-                    f"🚨 <b>ส่งลิงก์ลูกค้าไม่สำเร็จ</b>\n"
-                    f"🆔 TG ID: <code>{target_user_id}</code>\n"
-                    f"📦 แพ็กเกจ: {pkg_name}\n"
-                    f"💰 โปร: {discounted_price} บาท ({source} -{discount_pct}%)\n"
-                    f"❗ Error: {type(exc_send).__name__}: {exc_send}\n\n"
-                    f"🔗 ลิงก์ที่สร้างไว้แล้ว:\n{flat_links}"
-                ),
-                parse_mode="HTML",
-                reply_markup=_build_manual_invite_alert_keyboard(target_user_id),
-            )
-
-        # Update admin message
-        safe_admin = query.from_user.first_name or "Admin"
-        old_caption = query.message.caption or ""
-        new_caption = f"{old_caption}\n\n✅ <b>สถานะ: อนุมัติ โปร {discounted_price}บ. ({source} -{discount_pct}%) โดย {safe_admin}</b>"
-        post_keyboard = None
-        if db_user and db_user.username:
-            post_keyboard = tg.InlineKeyboardMarkup([[
-                tg.InlineKeyboardButton(
-                    f"💬 @{db_user.username}",
-                    url=f"https://t.me/{db_user.username}",
-                    api_kwargs={"style": "primary"},
-                )
-            ]])
-        try:
-            await query.edit_message_caption(caption=new_caption[:1024], parse_mode="HTML", reply_markup=post_keyboard)
-        except Exception as e:
-            logger.error("Failed to edit promo approval caption: %s", e)
-
-        # ── Confirm existing PENDING payment (ไม่สร้างใหม่ — แก้ duplicate bug) ──
-        try:
-            async with get_session() as session:
-                from shared.models import PaymentMethod
-                pending_result = await session.execute(
+            )).scalar_one_or_none()
+            _uid = db_user.id if db_user else None
+            _uname = db_user.username if db_user else None
+            _banned = bool(db_user.is_banned) if db_user else False
+            _pid = _ptrans = _phash = _psname = _psbank = _psacct = _psfid = _pmrid = None
+            if db_user:
+                pending = (await session.execute(
                     select(Payment).where(
                         Payment.user_id == db_user.id,
                         Payment.status == PaymentStatus.PENDING,
                     ).order_by(Payment.created_at.desc()).limit(1)
-                )
-                pending_payment = pending_result.scalar_one_or_none()
-                if pending_payment:
-                    pending_payment.status = PaymentStatus.CONFIRMED
-                    pending_payment.verified_by = query.from_user.id
-                    pending_payment.verified_at = datetime.utcnow()
-                    pending_payment.amount = Decimal(str(discounted_price))
-                    pending_payment.package_id = pkg_id
-                    await session.flush()
-                    new_payment_id = pending_payment.id
-                    logger.info("Existing PENDING payment #%d confirmed (promo) for user %d", new_payment_id, target_user_id)
-                else:
-                    dedup_cutoff = datetime.utcnow() - timedelta(minutes=10)
-                    dup_check = await session.execute(
-                        select(Payment).where(
-                            Payment.user_id == db_user.id,
-                            Payment.amount == Decimal(str(discounted_price)),
-                            Payment.status == PaymentStatus.CONFIRMED,
-                            Payment.created_at >= dedup_cutoff,
-                        )
-                    )
-                    if dup_check.scalar_one_or_none():
-                        logger.warning("Duplicate promo payment skipped: user_id=%s", db_user.id)
-                        new_payment_id = 0
-                    else:
-                        new_payment = Payment(
-                            user_id=db_user.id,
-                            package_id=pkg_id,
-                            amount=Decimal(str(discounted_price)),
-                            method=PaymentMethod.SLIP,
-                            status=PaymentStatus.CONFIRMED,
-                            verified_by=query.from_user.id,
-                            verified_at=datetime.utcnow(),
-                        )
-                        session.add(new_payment)
-                        await session.flush()
-                        new_payment_id = new_payment.id
-        except Exception as exc_p:
-            logger.warning("Failed to confirm/create promo payment record: %s", exc_p)
-            new_payment_id = 0
+                )).scalar_one_or_none()
+                if pending:
+                    _pid = pending.id
+                    _ptrans = pending.slip_trans_ref
+                    _phash = pending.slip_hash
+                    _psname = pending.sender_name
+                    _psbank = pending.sender_bank_name
+                    _psacct = pending.sender_bank_account
+                    _psfid = pending.slip_file_id
+                    _pmrid = getattr(pending, "matched_receiver_account_id", None)
 
-        # Sync Sheets
+        if _banned:
+            await query.answer("🚫 ลูกค้าถูกแบน — /unban ก่อน", show_alert=True)
+            return
+
+        from shared.payment_approval import (
+            apply_payment_approval as _apply, ApprovalInput as _ApIn, ApprovalSource as _ApSrc,
+        )
+        result = await _apply(_ApIn(
+            user_id=_uid, telegram_id=target_user_id, source=_ApSrc.ADMIN_PROMO,
+            amount_paid=Decimal(str(discounted_price)), explicit_package_id=_pkg_id,
+            admin_id=query.from_user.id, payment_id=_pid, comeback_dm_log_id=_cb_id,
+            slip_trans_ref=_ptrans, slip_hash=_phash, sender_name=_psname,
+            sender_bank_name=_psbank, sender_bank_account=_psacct, slip_file_id=_psfid,
+            method="SLIP", matched_receiver_account_id=_pmrid, skip_sender_ring=True,
+        ))
+        if not result.success:
+            _ek = (result.error or "").split(":")[0]
+            _emap = {"dup_transref": "สลิปนี้เคยถูกใช้แล้ว", "dup_hash": "สลิปนี้เคยถูกใช้แล้ว",
+                     "user_banned": "ลูกค้าถูกแบน", "sender_ring": "เข้าข่ายสแกม"}
+            await query.answer(f"❌ อนุมัติไม่สำเร็จ: {_emap.get(_ek, result.error or '?')}", show_alert=True)
+            return
+
+        import telegram as tg
+        safe_admin = query.from_user.first_name or "Admin"
+        _dm = "ส่งลิงก์แล้ว" if result.customer_dm_sent else "DM ไม่สำเร็จ (เช็คห้องแอดมิน)"
+        old_caption = query.message.caption or ""
+        new_caption = f"{old_caption}\n\n✅ <b>อนุมัติ โปร {discounted_price}บ. ({source} -{discount_pct}%) โดย {safe_admin}</b> · {_dm}"
+        post_kb = None
+        if _uname:
+            post_kb = tg.InlineKeyboardMarkup([[tg.InlineKeyboardButton(f"💬 @{_uname}", url=f"https://t.me/{_uname}")]])
+        try:
+            await query.edit_message_caption(caption=new_caption[:1024], parse_mode="HTML", reply_markup=post_kb)
+        except Exception:
+            pass
+
+        try:
+            from sqlalchemy import update as _sa_upd
+            from shared.models import TeaserClick as _TC
+            async with get_session() as _s3:
+                await _s3.execute(_sa_upd(_TC).where(_TC.user_id == target_user_id, _TC.converted == False).values(converted=True))
+                await _s3.commit()
+        except Exception:
+            pass
         try:
             from sheets.daily_revenue import DailyRevenueSheet
-            from sheets.members import MembersSheet
             from sheets.income_log import IncomeLogSheet
             await DailyRevenueSheet.update()
-            from sheets.daily_summary import DailySummarySheet
-            await DailySummarySheet.update()
-            await IncomeLogSheet.log_payment(new_payment_id, approved_by=safe_admin)
-            await MembersSheet.update_member(db_user.id)
+            await IncomeLogSheet.log_payment(result.payment_id or 0, approved_by=safe_admin)
         except Exception as exc_s:
-            logger.warning("Sheets sync failed for promo approval: %s", exc_s)
-
-        # Process referral reward
+            logger.warning("Sheets sync failed (promo): %s", exc_s)
         try:
+            import os as _os_ref
+            _sb = tg.Bot(token=_os_ref.environ.get("SALES_BOT_TOKEN", ""))
+            await _sb.initialize()
             from bots.sales_bot.handlers.referral import process_referral_reward
-            await process_referral_reward(target_user_id, sales_bot)
+            await process_referral_reward(target_user_id, _sb)
         except Exception as exc_ref:
-            logger.warning("Referral reward failed for promo user %d: %s", target_user_id, exc_ref)
+            logger.warning("Referral reward failed (promo) %d: %s", target_user_id, exc_ref)
 
-        # Welcome referral DM
-        try:
-            import asyncio
-            await asyncio.sleep(3)
-            await sales_bot.send_message(
-                chat_id=target_user_id,
-                text=(
-                    '🎉 ยินดีต้อนรับสู่ VIP เจริญพร! 💕\n'
-                    '\n'
-                    '\n'
-                    '\n'
-                    '━━━━━━━━━━━━━━━━━━\n'
-                    '━━━━━━━━━━━━━━━━━━'
-                ),
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-            )
-        except Exception as exc_w:
-            logger.warning("Welcome DM failed for promo user %d: %s", target_user_id, exc_w)
-
-        logger.info(
-            "[%s] [ADMIN_BOT] [APPROVE_PROMO] [%s] [user=%d promo=%s price=%d]",
-            datetime.now(timezone.utc).isoformat(),
-            query.from_user.id,
-            target_user_id,
-            promo_code,
-            discounted_price,
-        )
+        logger.info("[ADMIN_BOT][APPROVE_PROMO via canonical] user=%d promo=%s price=%d pid=%s by=%s",
+                    target_user_id, cb_log.promo_code, discounted_price, result.payment_id, query.from_user.id)
 
     except Exception as exc:
         logger.error("approve_promo error: %s", exc)
         await query.answer(f"❌ Error: {str(exc)[:100]}", show_alert=True)
+
 
 
 # FIX 2025-05-21 (Phase 2f): Verify slip amount matches the button admin clicked.
@@ -850,258 +689,129 @@ from bots.admin_bot.handlers.payment_actions import (
 
 # ── Round 8: approve_payment_callback + reject_payment_callback ──
 async def approve_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """อนุมัติ payment — สร้าง subscription ให้สมาชิก."""
+    """อนุมัติ payment (pay_approve:<id>) — route ผ่าน apply_payment_approval (canonical).
+
+    REFACTOR 2026-07-04 (P0 audit): เดิม hand-roll subscription + expire subs ทั้งหมด +
+    ไม่เรียก record_payment_received (เงินเข้าแต่ไม่ track บัญชี) + ข้าม dup/ring/blacklist +
+    ไม่มี idempotency. ตอนนี้ route ผ่าน apply_payment_approval(ADMIN_BY_PID) เหมือน dashboard
+    -> side-effect ครบ + credit บัญชี + same-package expire + กันอนุมัติซ้ำ.
+    """
     query = update.callback_query
     await query.answer()
-
     if not query.from_user or not _is_admin(query.from_user.id):
         await query.edit_message_text("⛔ คุณไม่มีสิทธิ์")
         return
-
-    payment_id = int(query.data.split(":")[1])
+    try:
+        payment_id = int(query.data.split(":")[1])
+    except Exception:
+        await query.answer("bad callback", show_alert=True)
+        return
 
     async with get_session() as session:
         payment = await session.get(Payment, payment_id)
         if not payment:
             await query.edit_message_text(f"❌ ไม่พบ Payment #{payment_id}")
             return
-
         if payment.status != PaymentStatus.PENDING:
-            await query.edit_message_text(
-                f"⚠️ Payment #{payment_id} สถานะเป็น {payment.status.value} แล้ว"
-            )
+            await query.edit_message_text(f"⚠️ Payment #{payment_id} สถานะเป็น {payment.status.value} แล้ว")
             return
-
-        # Update payment status
-        payment.status = PaymentStatus.CONFIRMED
-        payment.verified_by = query.from_user.id
-        payment.verified_at = datetime.utcnow()
-
-        # Get package for duration
-        package = await session.get(Package, payment.package_id)
-        duration_days = package.duration_days if package else 30
-
-        # Expire existing active subscriptions (prevent duplicates)
-        # BUT skip lifetime subs (duration >= 36500 days) when buying add-on packages
-        from datetime import timedelta
-        from sqlalchemy import update as sa_update_sub
-        is_addon = package and package.tier.value == 'ADD500'
-        if is_addon:
-            # Add-on: only expire subs for the SAME package (don't touch GOD MODE etc)
-            await session.execute(
-                sa_update_sub(Subscription)
-                .where(
-                    Subscription.user_id == payment.user_id,
-                    Subscription.status == SubscriptionStatus.ACTIVE,
-                    Subscription.package_id == payment.package_id,
-                )
-                .values(status=SubscriptionStatus.EXPIRED)
-            )
-        else:
-            await session.execute(
-                sa_update_sub(Subscription)
-                .where(Subscription.user_id == payment.user_id, Subscription.status == SubscriptionStatus.ACTIVE)
-                .values(status=SubscriptionStatus.EXPIRED)
-            )
-
-        # Create subscription
-        now = datetime.utcnow()
-        subscription = Subscription(
-            user_id=payment.user_id,
-            package_id=payment.package_id,
-            status=SubscriptionStatus.ACTIVE,
-            start_date=now,
-            end_date=now + timedelta(days=duration_days),
-            payment_id=payment.id,
-        )
-        session.add(subscription)
-
-        # Update user total spent
         user = await session.get(User, payment.user_id)
-        if user:
-            # FIX2_TRUST_TRIGGER total_spent maintained by DB trigger
+        package = await session.get(Package, payment.package_id)
+        _uid = payment.user_id
+        _cust_tg = user.telegram_id if user else None
+        _pkg_name = package.name if package else "N/A"
+        _amt = payment.amount
+        _pkg_id = payment.package_id
+        _trans = payment.slip_trans_ref
+        _hash = payment.slip_hash
+        _sname = payment.sender_name
+        _sbank = payment.sender_bank_name
+        _sacct = payment.sender_bank_account
+        _sfid = payment.slip_file_id
+        _method = str(payment.method.value if hasattr(payment.method, "value") else (payment.method or "SLIP"))
+        _mrid = getattr(payment, "matched_receiver_account_id", None)
+        _banned = bool(user.is_banned) if user else False
 
-            # Mark teaser clicks as converted for this user
-            from sqlalchemy import update as sa_update
-            from shared.models import TeaserClick
-            await session.execute(
-                sa_update(TeaserClick)
-                .where(TeaserClick.user_id == user.telegram_id, TeaserClick.converted == False)
-                .values(converted=True)
-            )
+    if _banned:
+        await query.edit_message_text(f"🚫 ลูกค้า (TG {_cust_tg}) ถูกแบน — /unban ก่อน")
+        return
+    if not _cust_tg:
+        await query.edit_message_text("❌ ไม่พบ telegram_id ลูกค้า")
+        return
 
-        await session.flush()
-
-    # Log admin action
-    await log_admin_action(
-        admin_id=query.from_user.id,
-        action="approve_payment",
-        target_type="payment",
-        target_id=payment_id,
-        details=f"Approved payment #{payment_id}, amount={payment.amount}",
-    )
-
-    # Send invite links to customer
-    invite_text = ""
-    package_name = package.name if package else "N/A"  # AUDIT FIX: define ก่อน try (เดิม NameError ใน error path)
-    if user:
-        try:
-            from bots.guardian_bot.group_monitor import generate_invite_links_for_user
-            import os
-            import telegram as tg
-            sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
-            await sales_bot.initialize()
-            invite_links = await generate_invite_links_for_user(
-                sales_bot, user.telegram_id, payment.package_id
-            )
-            links_list = []
-            async with get_session() as session:
-                from shared.models import GroupRegistry
-                for slug, link in invite_links.items():
-                    if is_songkran_bonus_slug(slug):
-                        title = get_group_display_title(slug)
-                    else:
-                        grp_result = await session.execute(
-                            select(GroupRegistry).where(GroupRegistry.slug == slug)
-                        )
-                        group = grp_result.scalar_one_or_none()
-                        title = group.title if group else get_group_display_title(slug)
-                    links_list.append(f"• {title}: {link}")
-            links_text = "\n".join(links_list) if links_list else "ไม่สามารถสร้างลิงก์ได้"
-
-            await sales_bot.send_message(
-                chat_id=user.telegram_id,
-                text=(
-                    f"✅ <b>ชำระเงินสำเร็จค่ะ!</b>\n\n"
-                    f"🔗 <b>ลิงก์เข้ากลุ่ม VIP:</b>\n{links_text}\n\n"
-                    f"⚠️ ลิงก์แต่ละลิงก์ใช้ได้ 1 ครั้ง หมดอายุ 24 ชม.\n"
-                    f"กรุณากดเข้าร่วมโดยเร็วนะคะ 🙏"
-                ),
-                parse_mode="HTML",
-            )
-            invite_text = "\n📩 ส่งลิงก์ให้ลูกค้าแล้ว"
-        except Exception as exc:
-            logger.error("Failed to send invite links: %s", exc)
-            invite_text = "\n⚠️ ส่งลิงก์ไม่สำเร็จ"
-            try:
-                admin_group_id = _admin_group_id()
-                await context.bot.send_message(
-                    chat_id=admin_group_id,
-                    text=(
-                        f"🚨 <b>ส่งลิงก์ลูกค้าไม่สำเร็จ</b>\n"
-                        f"👤 ลูกค้า: {user.first_name or '-'} @{user.username or '-'}\n"
-                        f"🆔 TG ID: <code>{user.telegram_id}</code>\n"
-                        f"📦 แพ็กเกจ: {package_name}\n"
-                        f"💰 ยอด: {format_thb(payment.amount)}\n"
-                        f"❗ Error: {type(exc).__name__}: {exc}\n\n"
-                        f"🔗 ลิงก์ที่สร้างไว้แล้ว:\n{links_text}"
-                    ),
-                    parse_mode="HTML",
-                    reply_markup=_build_manual_invite_alert_keyboard(user.telegram_id),
-                )
-            except Exception as notify_exc:
-                logger.error("Failed to notify admin group about invite failure: %s", notify_exc)
-
-            # ส่ง DM ยินดีต้อนรับ + แนะนำชวนเพื่อน หลัง 3 วินาที
-            try:
-                import asyncio
-                await asyncio.sleep(3)
-                await sales_bot.send_message(
-                    chat_id=user.telegram_id,
-                    text=(
-                        '🎉 ยินดีต้อนรับสู่ VIP เจริญพร! 💕\n'
-                        '\n'
-                        '\n'
-                        '\n'
-                        '━━━━━━━━━━━━━━━━━━\n'
-                        '━━━━━━━━━━━━━━━━━━'
-                    ),
-                    parse_mode="HTML",
-                    disable_web_page_preview=True,
-                )
-                logger.info("Welcome referral DM sent to %s (admin approval)", user.telegram_id)
-            except Exception as exc_w:
-                logger.warning("Welcome referral DM failed: %s", exc_w)
-
-        except Exception as exc:
-            logger.error("Failed to send invite links: %s", exc)
-            invite_text = "\n⚠️ ส่งลิงก์ไม่สำเร็จ"
-
-            # ส่ง DM ยินดีต้อนรับ + แนะนำชวนเพื่อน หลัง 3 วินาที
-            try:
-                import asyncio
-                await asyncio.sleep(3)
-                await sales_bot.send_message(
-                    chat_id=user.telegram_id,
-                    text=(
-                        '🎉 ยินดีต้อนรับสู่ VIP เจริญพร! 💕\n'
-                        '\n'
-                        '\n'
-                        '\n'
-                        '━━━━━━━━━━━━━━━━━━\n'
-                        '━━━━━━━━━━━━━━━━━━'
-                    ),
-                    parse_mode="HTML",
-                    disable_web_page_preview=True,
-                )
-                logger.info("Welcome referral DM sent to %s (admin approval)", user.telegram_id)
-            except Exception as exc_w:
-                logger.warning("Welcome referral DM failed: %s", exc_w)
-
-        except Exception as exc:
-            logger.error("Failed to send invite links: %s", exc)
-            invite_text = "\n⚠️ ส่งลิงก์ไม่สำเร็จ"
-
-    package_name = package.name if package else "N/A"
     try:
-        await query.edit_message_caption(
-            caption=(
-                f"✅ <b>อนุมัติ Payment #{payment_id}</b>\n"
-                f"📦 แพ็กเกจ: {package_name}\n"
-                f"💰 จำนวน: {format_thb(payment.amount)}\n"
-                f"⏱ ระยะเวลา: {duration_days} วัน\n"
-                f"👤 อนุมัติโดย: {query.from_user.first_name}"
-                f"{invite_text}"
-            ),
-            parse_mode="HTML",
+        from shared.payment_approval import (
+            apply_payment_approval as _apply, ApprovalInput as _ApIn, ApprovalSource as _ApSrc,
         )
-    except Exception as e:
-        logger.error("Failed to edit approval caption: %s", e)
+        from decimal import Decimal as _Dec
+        result = await _apply(_ApIn(
+            user_id=_uid, telegram_id=_cust_tg, source=_ApSrc.ADMIN_BY_PID,
+            amount_paid=_Dec(str(_amt or 0)), explicit_package_id=_pkg_id,
+            admin_id=query.from_user.id, payment_id=payment_id,
+            slip_trans_ref=_trans, slip_hash=_hash, sender_name=_sname,
+            sender_bank_name=_sbank, sender_bank_account=_sacct, slip_file_id=_sfid,
+            method=_method, matched_receiver_account_id=_mrid, skip_sender_ring=True,
+        ))
+    except Exception as exc:
+        logger.exception("[approve_payment_callback] service crashed pid=%s: %s", payment_id, exc)
+        await query.edit_message_text(f"❌ ระบบขัดข้อง: {str(exc)[:120]}")
+        return
 
-    # ── Sync Google Sheets ──
+    if not result.success:
+        _emap = {
+            "user_banned": "ลูกค้าถูกแบน", "sender_ring": "เข้าข่ายขบวนการสแกม",
+            "blacklisted_sender": "ผู้ส่งอยู่บัญชีดำ", "blacklisted_slip": "สลิปอยู่บัญชีดำ",
+            "dup_transref": "สลิปนี้เคยถูกใช้แล้ว", "dup_hash": "สลิปนี้เคยถูกใช้แล้ว",
+        }
+        _ek = (result.error or "").split(":")[0]
+        await query.edit_message_text(f"❌ อนุมัติไม่สำเร็จ: {_emap.get(_ek, result.error or 'unknown')}")
+        return
+
+    try:
+        from sqlalchemy import update as _sa_upd
+        from shared.models import TeaserClick as _TC
+        async with get_session() as _s2:
+            await _s2.execute(_sa_upd(_TC).where(_TC.user_id == _cust_tg, _TC.converted == False).values(converted=True))
+            await _s2.commit()
+    except Exception:
+        pass
+
+    _dm_txt = "📩 ส่งลิงก์ให้ลูกค้าแล้ว" if result.customer_dm_sent else "⚠️ ส่ง DM ไม่สำเร็จ (ระบบ alert ห้องแอดมินแล้ว)"
+    _cap = (
+        f"✅ <b>อนุมัติ Payment #{payment_id}</b>\n"
+        f"📦 แพ็กเกจ: {_pkg_name}\n"
+        f"💰 จำนวน: {format_thb(_amt)}\n"
+        f"👤 อนุมัติโดย: {query.from_user.first_name}\n"
+        f"{_dm_txt}"
+    )
+    try:
+        await query.edit_message_caption(caption=_cap, parse_mode="HTML")
+    except Exception:
+        try:
+            await query.edit_message_text(_cap, parse_mode="HTML")
+        except Exception:
+            pass
+
     try:
         from sheets.daily_revenue import DailyRevenueSheet
-        from sheets.members import MembersSheet
         from sheets.income_log import IncomeLogSheet
         await DailyRevenueSheet.update()
-        from sheets.daily_summary import DailySummarySheet
-        await DailySummarySheet.update()
         await IncomeLogSheet.log_payment(payment_id, approved_by=query.from_user.first_name or "Admin")
-        if user:
-            await MembersSheet.update_member(user.id)
-        logger.info("Sheets synced for payment #%d", payment_id)
     except Exception as exc:
-        logger.warning("Sheets sync failed for payment #%d: %s", payment_id, exc)
-        logger.warning("Sheets sync failed for payment #%d: %s", payment_id, exc)
+        logger.warning("Sheets sync failed #%d: %s", payment_id, exc)
 
-    # ── Process referral reward ──
-    if user:
-        try:
-            import telegram as tg
-            sales_bot = tg.Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
-            await sales_bot.initialize()
-            from bots.sales_bot.handlers.referral import process_referral_reward
-            await process_referral_reward(user.telegram_id, sales_bot)
-        except Exception as exc_ref:
-            logger.warning("Referral reward failed for payment #%d: %s", payment_id, exc_ref)
+    try:
+        import telegram as _tg_ref, os as _os_ref
+        _sb = _tg_ref.Bot(token=_os_ref.environ.get("SALES_BOT_TOKEN", ""))
+        await _sb.initialize()
+        from bots.sales_bot.handlers.referral import process_referral_reward
+        await process_referral_reward(_cust_tg, _sb)
+    except Exception as exc:
+        logger.warning("Referral reward failed #%d: %s", payment_id, exc)
 
-    logger.info(
-        "[%s] [ADMIN_BOT] [APPROVE_PAYMENT] [%s] [payment_id=%d amount=%s]",
-        datetime.now(timezone.utc).isoformat(),
-        query.from_user.id,
-        payment_id,
-        payment.amount,
-    )
+    logger.info("[ADMIN_BOT][APPROVE_PAYMENT via canonical] pid=%d amount=%s by=%s",
+                payment_id, _amt, query.from_user.id)
+
 
 
 async def reject_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
