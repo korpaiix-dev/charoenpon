@@ -41,9 +41,9 @@ async def resolve_cron_time(
         try:
             row = await conn.fetchrow(
                 """
-                SELECT hour, minute, COALESCE(is_enabled, TRUE) AS enabled
+                SELECT schedule_hour, schedule_minute, COALESCE(is_enabled, TRUE) AS enabled
                 FROM bot_schedules
-                WHERE job_key = $1
+                WHERE job_name = $1
                 LIMIT 1
                 """,
                 str(job_key),
@@ -51,9 +51,12 @@ async def resolve_cron_time(
         finally:
             await conn.close()
         if row:
-            return int(row["hour"]), int(row["minute"]), bool(row["enabled"])
+            return int(row["schedule_hour"]), int(row["schedule_minute"]), bool(row["enabled"])
     except Exception as exc:
-        logger.warning("cron resolve_cron_time(%s) failed: %s — using defaults", job_key, exc)
+        # FAIL-CLOSED: on a query/DB error do NOT fire — a disabled job must never run because
+        # we couldn't read its state (correct columns now: schedule_hour/schedule_minute/job_name).
+        logger.warning("cron resolve_cron_time(%s) failed: %s — fail-closed (disabled)", job_key, exc)
+        return default_hour, default_minute, False
     return default_hour, default_minute, True
 
 
@@ -77,7 +80,7 @@ def resolve_cron_time_sync(
             try:
                 with conn.cursor() as c:
                     c.execute(
-                        "SELECT hour, minute, COALESCE(is_enabled, TRUE) FROM bot_schedules WHERE job_key = %s LIMIT 1",
+                        "SELECT schedule_hour, schedule_minute, COALESCE(is_enabled, TRUE) FROM bot_schedules WHERE job_name = %s LIMIT 1",
                         (str(job_key),),
                     )
                     row = c.fetchone()
@@ -86,5 +89,6 @@ def resolve_cron_time_sync(
             finally:
                 conn.close()
     except Exception as exc:
-        logger.warning("cron resolve_cron_time_sync(%s) failed: %s", job_key, exc)
+        logger.warning("cron resolve_cron_time_sync(%s) failed: %s — fail-closed (disabled)", job_key, exc)
+        return default_hour, default_minute, False
     return default_hour, default_minute, True
