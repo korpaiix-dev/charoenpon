@@ -285,6 +285,42 @@ async def _compute_pkg_price(tier_full: str, promo_id, tg_id=None) -> "dict | No
                     final = max(0, base - dv)
                 elif dt == "fixed_price":
                     final = dv
+    # 1b) AUTO-DISCOVER active public promotion for this tier when the caller gave no explicit
+    #     promo_id — so the mini-app always applies a live campaign (e.g. 7.7 Super VIP -> 3777)
+    #     even if the frontend forgot to pass promo_id. Mirrors purchase_flow.compute_package_price.
+    #     Self-expiring via starts_at/ends_at; best (lowest) wins; never raises the price.
+    if not promo_id:
+        try:
+            _arows = await pool.fetch(
+                "SELECT package_codes, discount_type, discount_value FROM promotions "
+                "WHERE is_active = TRUE "
+                "  AND (starts_at IS NULL OR starts_at <= now()) "
+                "  AND (ends_at IS NULL OR ends_at > now())"
+            )
+        except Exception:
+            _arows = []
+        for _pr in _arows:
+            _raw = _pr["package_codes"]
+            if isinstance(_raw, str):
+                try:
+                    _codes = _json.loads(_raw)
+                except Exception:
+                    _codes = []
+            else:
+                _codes = list(_raw) if _raw else []
+            if tdb in _codes or tshort in _codes:
+                _dt = (_pr["discount_type"] or "none").lower()
+                _dv = float(_pr["discount_value"] or 0)
+                if _dt == "percent":
+                    _cand = base * (100 - _dv) / 100
+                elif _dt == "fixed_off":
+                    _cand = max(0, base - _dv)
+                elif _dt == "fixed_price":
+                    _cand = _dv
+                else:
+                    _cand = base
+                if _cand < final:
+                    final = _cand
     # personal RETENTION discount — best-single (no stacking): keep whichever gives the lowest price
     _src = "campaign" if final < base else "none"
     _credit_used = 0.0
