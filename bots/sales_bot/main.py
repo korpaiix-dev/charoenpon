@@ -103,7 +103,6 @@ from shared.database import close_db, get_session, init_db
 from shared.models import User
 from sqlalchemy import select
 
-from bots.sales_bot.handlers.flash_sale import get_flash_sale_handlers
 from bots.sales_bot.handlers.packages import get_package_handlers
 from bots.sales_bot.handlers.payment import get_payment_handlers
 from bots.sales_bot.handlers.referral import get_referral_handlers
@@ -120,7 +119,6 @@ from shared.exit_survey import run_exit_survey_job, handle_exit_survey_callback
 from bots.sales_bot.handlers.promo_purchase import get_promo_purchase_handlers
 from shared.slip_review import get_slip_review_handlers
 # DEAD (Phase 1) from bots.sales_bot.trial_promo_dm import run_trial_promo_dm_job
-from bots.sales_bot.flash_sale_scheduler import start_flash_sale, end_flash_sale, remind_flash_sale
 from bots.sales_bot.promo_scheduler import (
     broadcast_referral_promo,
     broadcast_songkran_promo,
@@ -375,8 +373,6 @@ def create_application() -> Application:
     # for handler in get_trial_handlers():
     #     app.add_handler(handler, group=0)
 
-    for handler in get_flash_sale_handlers():
-        app.add_handler(handler, group=0)
 
     for handler in get_referral_handlers():
         app.add_handler(handler, group=0)

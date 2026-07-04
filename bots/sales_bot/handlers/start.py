@@ -417,15 +417,6 @@ async def _build_main_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
     state = await _get_customer_state(telegram_id)
     rows = []
 
-    # ── Flash sale top banner (ทุก state ถ้ามี active flash) ──
-    try:
-        from bots.sales_bot.handlers.flash_sale import _get_active_flash_sale
-        flash = await _get_active_flash_sale()
-        if flash and flash.sold_slots < flash.total_slots:
-            rows.append([InlineKeyboardButton("⚡ FLASH SALE — กำลังลด!", callback_data="view_flashsale")])
-    except Exception:
-        pass
-
     if state == "new":
         # ── ลูกค้าใหม่ (ไม่มี sub) — เน้นแพ็คเกจ ──
         rows.append([InlineKeyboardButton(

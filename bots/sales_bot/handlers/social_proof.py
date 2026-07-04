@@ -102,13 +102,7 @@ def mask_telegram_name(name: str | None, fallback: str = "ลูกค้า VIP
 
 async def _get_active_flash() -> object | None:
     """Return active FlashSale row or None."""
-    try:
-        from bots.sales_bot.handlers.flash_sale import _get_active_flash_sale
-        flash = await _get_active_flash_sale()
-        if flash and flash.sold_slots < flash.total_slots:
-            return flash
-    except Exception:
-        pass
+    # flash_sale retired -- always no active flash
     return None
 
 

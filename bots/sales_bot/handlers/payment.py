@@ -154,23 +154,6 @@ async def _get_effective_price(tier: str, context_user_data: dict) -> Decimal:
             discount_pct = promo["discount_pct"]
             return Decimal(str(int(base_price * (100 - discount_pct) / 100)))
 
-    # 2. Active Flash Sale record (dynamic from flash_sales table) — TIER_300 only legacy
-    flash_sale_id = context_user_data.get("flash_sale_id")
-    if flash_sale_id and tier == "300":
-        from bots.sales_bot.handlers.flash_sale import get_flash_sale_price
-        from shared.database import get_session
-        from shared.models import Package, PackageTier
-        from sqlalchemy import select
-        async with get_session() as session:
-            pkg_result = await session.execute(
-                select(Package).where(Package.tier == PackageTier.TIER_300)
-            )
-            package = pkg_result.scalar_one_or_none()
-            if package:
-                flash_price = await get_flash_sale_price(package.id)
-                if flash_price is not None:
-                    return flash_price
-
     # 3. Pricing Hub — covers Lucky 6.6, Birthday, Mid-Month Flash, End-month VIP, base
     return _hub_effective_price(tier, context_user_data)
 

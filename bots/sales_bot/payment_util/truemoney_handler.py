@@ -349,16 +349,6 @@ async def handle_truemoney_link(
             f"• {il.title}: {il.url}" for il in (_tm_ap_result.invite_links or [])
         ]
 
-        # Flash Sale: increment sold_slots if active
-        if context.user_data.get("flash_sale_id") and selected_tier == "300":
-            try:
-                from bots.sales_bot.handlers.flash_sale import increment_sold_slot
-                success_fs, sold_fs, total_fs = await increment_sold_slot(payment.package_id)
-                if success_fs:
-                    logger.info("Flash sale slot incremented (TrueMoney): %d/%d", sold_fs, total_fs)
-            except Exception as exc_fs:
-                logger.warning("Flash sale slot increment failed: %s", exc_fs)
-
         # คำนวณวันหมดอายุ
         async with get_session() as session:
             pkg_result = await session.execute(
