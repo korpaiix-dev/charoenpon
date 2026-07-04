@@ -189,13 +189,13 @@ async def sos_resend_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         keyboard = tg.InlineKeyboardMarkup(link_buttons)
 
         # Send to customer via Sales Bot
-        is_sent = True
         try:
-            await sales_bot.send_message(
-                chat_id=target_user_id,
+            from shared.customer_dm import send_to_customer as _stc
+            is_sent = await _stc(
+                telegram_id=target_user_id,
                 text="🔄 <b>ส่งลิงก์เข้ากลุ่มให้ใหม่แล้วค่า</b>\nกดเข้าได้เลยนะ 👇",
-                parse_mode="HTML",
                 reply_markup=keyboard,
+                alert_on_fail=False,
             )
         except Exception:
             is_sent = False
@@ -327,18 +327,16 @@ async def sos_deny_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     try:
         # Send denial to user via sales bot
-        sales_token = os.environ.get("SALES_BOT_TOKEN", "")
-        if sales_token:
-            sales_bot = tg.Bot(token=sales_token)
-            await sales_bot.initialize()
-            await sales_bot.send_message(
-                chat_id=target_user_id,
-                text=(
-                    "❌ ขออภัยค่ะ ตรวจสอบแล้วไม่พบสิทธิ์การเข้ากลุ่ม\n\n"
-                    "หากคิดว่ามีข้อผิดพลาด กรุณาติดต่อแอดมิน:\n"
-                    "→ https://t.me/sperm6969"
-                ),
-            )
+        from shared.customer_dm import send_to_customer as _stc
+        await _stc(
+            telegram_id=target_user_id,
+            text=(
+                "❌ ขออภัยค่ะ ตรวจสอบแล้วไม่พบสิทธิ์การเข้ากลุ่ม\n\n"
+                "หากคิดว่ามีข้อผิดพลาด กรุณาติดต่อแอดมิน:\n"
+                "→ https://t.me/sperm6969"
+            ),
+            alert_on_fail=False,
+        )
 
         # Update admin message
         old_text = query.message.text_html or query.message.text or ""

@@ -170,24 +170,23 @@ async def kick_expired_members(bot: Bot) -> dict[str, int]:
                 logger.error("Unexpected error kicking %s: %s", user.telegram_id, exc)
                 stats["errors"] += 1
 
-        # Notify user
+        # Notify user — via the SAFE sender (records is_blocked_bot, backoff, skips blocked).
+        # NEVER build a raw Bot here: this loop runs every 6h over all expired users and would
+        # re-DM blocked users forever with the SALES token -> Telegram ban risk.
         try:
-            import os
-            from telegram import Bot as _Bot
-            _sales = _Bot(token=os.environ.get("SALES_BOT_TOKEN", ""))
-            await _sales.initialize()
-            await _sales.send_message(
-                chat_id=user.telegram_id,
+            from shared.customer_dm import send_to_customer
+            await send_to_customer(
+                telegram_id=user.telegram_id,
                 text=(
                     "⏰ แพ็กเกจของคุณหมดอายุแล้วครับ\n\n"
                     f"📦 แพ็กเกจ: {package.name}\n"
                     f"📅 หมดอายุ: {format_datetime_thai(sub.end_date)}\n\n"
                     "หากต้องการต่ออายุ สามารถสมัครใหม่ได้ที่ @NamwarnJarern_bot ครับ"
                 ),
-                parse_mode="HTML",
+                alert_on_fail=False,
             )
         except Exception:
-            pass  # User may have blocked bot
+            pass
 
     logger.info(
         "Kick expired: checked=%d kicked=%d lifetime=%d errors=%d",
