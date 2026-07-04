@@ -472,7 +472,12 @@ async def handle_photo_slip(
             from shared.pricing import amount_to_tier as _amt_to_tier_g
             _s2g_amt = float(slip2go_data.get("amount") or 0)
             _tinfo = _amt_to_tier_g(int(_s2g_amt))
-            if _tinfo and _tinfo[0].startswith("GACHA_") and (not selected_tier or not selected_tier.startswith("GACHA_")):
+            # P1-8: only let the amount override the tier when the customer picked NOTHING
+            # (missing_context). Otherwise an explicit selection wins over the amount — e.g. a
+            # 10%-off VIP pays exactly 270, which is ALSO the GACHA_3 price; without this guard the
+            # button-flow VIP buyer was silently converted to gacha (intent-fallback below is gated
+            # on missing_context, so it could not correct a button selection).
+            if _tinfo and _tinfo[0].startswith("GACHA_") and missing_context and (not selected_tier or not selected_tier.startswith("GACHA_")):
                 logger.info("GACHA fallback: amount=%s detected as %s (selected_tier was %s)", _s2g_amt, _tinfo[0], selected_tier)
                 selected_tier = _tinfo[0]
                 context.user_data["selected_tier"] = _tinfo[0]
