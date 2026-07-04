@@ -556,7 +556,7 @@ def admin_callback_tier_map() -> dict[str, str]:
         "349":   "500",  "500": "500",
         "999":   "1299", "1299": "1299",
         "2000":  "2499", "2499": "2499",
-        "2999":  "4999", "4999": "4999",
+        "4999": "4999",
         "ADD500": "ADD500",
         # Comeback (always-on)
         "180": "300", "210": "300",
@@ -570,6 +570,37 @@ def admin_callback_tier_map() -> dict[str, str]:
     for c in active_campaigns():
         for amount, (tier_str, _label) in c.prices.items():
             out[str(amount)] = tier_str
+    # Add ACTIVE DB promotions (Dashboard Promo Manager) — self-expiring, SAME source + math as
+    # amount_to_tier()/_check_db_promotion_match, so the admin button and auto-approve agree and
+    # expire together (fixes the permanent 2999->4999 leak).
+    try:
+        for _p in _load_active_db_promotions_sync():
+            _codes = _p.get("package_codes") or []
+            if isinstance(_codes, str):
+                import json as _jc
+                try: _codes = _jc.loads(_codes)
+                except Exception: _codes = []
+            _dt = (_p.get("discount_type") or "").lower()
+            try: _dv = float(_p.get("discount_value") or 0)
+            except Exception: _dv = 0.0
+            if _dv <= 0:
+                continue
+            for _code in _codes:
+                _ts = str(_code).replace("TIER_", "")
+                _base = float(TIER_PRICES.get(_ts, 0))
+                if _base <= 0:
+                    continue
+                if _dt == "percent":
+                    _disc = int(round(_base * (100 - _dv) / 100))
+                elif _dt in ("fixed", "amount", "baht", "fixed_off"):
+                    _disc = int(round(_base - _dv))
+                elif _dt == "fixed_price":
+                    _disc = int(round(_dv))
+                else:
+                    continue
+                out[str(_disc)] = _ts
+    except Exception:
+        pass
     return out
 
 
