@@ -633,19 +633,31 @@ async def send_payment_info(telegram_id: int, tier_or_amount: str) -> dict:
 
     pkg_name, price, tier = matched
 
-    # Pick a random enabled receiver account
+    # -- Compute discount-aware price + create a persistent purchase_intent + bind receiver --
+    # Single source of truth: same engine the mini-app uses -> chat is now as safe as mini-app.
+    # (retention % / gacha credit auto-applied best-single; promo_id unknown in chat -> None)
     try:
-        from shared.receiver_pool import pick_random
-        account = await pick_random()
+        from shared.purchase_flow import prepare_purchase
+        pp = await prepare_purchase(telegram_id, tier, source="prae")
     except Exception as exc:
-        return {"error": f"receiver lookup failed: {exc}"}
+        return {"error": f"prepare_purchase failed: {exc}"}
 
-    if not account:
+    if pp.get("error") == "invalid_tier":
+        return {
+            "error": "unknown_tier",
+            "message": f"Package {tier} is not available right now.",
+        }
+    if not pp.get("ok"):
         return {
             "error": "no_receiver",
             "message": "No active receiver account. Customer should contact admin.",
             "admin_url": "https://t.me/sperm6969",
         }
+
+    account = pp["receiver"]
+    price = pp["final"]
+    base_price = pp["base"]
+    discount_source = pp.get("discount_source", "none")
 
     bank_name = account.get("bank_name_th") or "PromptPay"
     account_no = account.get("account_no") or ""
@@ -656,21 +668,29 @@ async def send_payment_info(telegram_id: int, tier_or_amount: str) -> dict:
     # Display: prefer real bank account, fallback to PromptPay number
     display_number = account_no or promptpay or "-"
 
+    if price < base_price:
+        price_block = f"<s>฿{base_price:,}</s> -> <b>฿{price:,}</b> (ราคาพิเศษสำหรับคุณ)"
+    else:
+        price_block = f"ราคา {price:,} บาท"
+
     # Construct customer-facing instructions (HTML for sales bot)
     msg = (
-        f"💰 <b>{pkg_name}</b>\n"
-        f"ราคา {price} บาท\n\n"
-        f"🏦 <b>{bank_name}</b>\n"
+        f"\U0001f4b0 <b>{pkg_name}</b>\n"
+        f"{price_block}\n\n"
+        f"\U0001f3e6 <b>{bank_name}</b>\n"
         f"ชื่อบัญชี: {receiver_name}\n"
         f"เลขบัญชี: <code>{display_number}</code>\n\n"
-        f"📸 โอนแล้วส่งสลิปกลับมาในแชทนี้ ระบบจะตรวจสอบและเปิดสิทธิให้อัตโนมัติค่ะ"
+        f"\U0001f4f8 โอนแล้วส่งสลิปกลับมาในแชทนี้ ระบบจะตรวจสอบและเปิดสิทธิให้อัตโนมัติค่ะ"
     )
 
     return {
         "ok": True,
         "package_name": pkg_name,
         "price": price,
+        "base_price": base_price,
         "tier": tier,
+        "discount_source": discount_source,
+        "intent_id": pp.get("intent_id"),
         "receiver": {
             "bank_name": bank_name,
             "account_number": display_number,

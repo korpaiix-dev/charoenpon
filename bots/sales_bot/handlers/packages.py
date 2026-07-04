@@ -635,6 +635,31 @@ async def buy_package_callback(
     # ──────────────────────────────────────────────────────────────
 
 
+    # Persist a purchase_intent (survives bot restart; slip handler resolves tier+price from it).
+    # Additive only -- does not change the price shown above; mirrors mini-app/Prae intent creation.
+    try:
+        from shared.purchase_intent import create_intent as _ci_buy
+        _final_int = int(str(display_price).replace(",", ""))
+        _credit_int = 0
+        try:
+            _credit_int = int(_use) if _use and _use > 0 else 0
+        except Exception:
+            _credit_int = 0
+        _orig_int = _final_int + _credit_int
+        _promo_id_buy = context.user_data.get("dayzero_promo_id")
+        await _ci_buy(
+            tg_id=query.from_user.id,
+            tier=f"TIER_{tier}",
+            original_price=_orig_int,
+            final_price=_final_int,
+            promo_id=int(_promo_id_buy) if _promo_id_buy else None,
+            source="chat_button",
+            ttl_minutes=1440,
+            discount_credit=_credit_int,
+        )
+    except Exception as _cie:
+        logger.warning("buy_package intent create skipped: %s", _cie)
+
     _np_map = {"300": "300", "2499": "2,499", "500": "500", "1299": "1,299"}
     normal_price = _np_map.get(tier, pkg["price"])
     _pdate = PROMO_MAY_DATE_TEXT if may_promo_active else PROMO_DATE_TEXT
