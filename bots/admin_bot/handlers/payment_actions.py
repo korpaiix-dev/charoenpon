@@ -599,6 +599,12 @@ async def approve_promo_callback(update: Update, context: ContextTypes.DEFAULT_T
                         Payment.status == PaymentStatus.PENDING,
                     ).order_by(Payment.created_at.desc()).limit(1)
                 )).scalar_one_or_none()
+                # P0-3 fix: only treat the pending slip as THIS comeback's payment if it is
+                # recent (within the comeback's own 48h validity). A weeks-stale unpaid pending
+                # must not be auto-confirmed nor have its (wrong) amount booked as the sale.
+                if pending is not None and getattr(pending, "created_at", None) is not None \
+                        and (datetime.utcnow() - pending.created_at) > timedelta(hours=48):
+                    pending = None
                 if pending:
                     _pid = pending.id
                     _pending_amount = pending.amount
@@ -612,9 +618,14 @@ async def approve_promo_callback(update: Update, context: ContextTypes.DEFAULT_T
                 # P0-3: renew the customer's ACTUAL tier (their most recent sub), not a
                 # hardcoded VIP-300. comeback_dm_log has no tier, so infer from last sub.
                 try:
+                    # P0-3 fix: infer only from the customer's REAL base-membership subs —
+                    # never a shaker(TIER_100)/gacha/trial row (those also create subscriptions and
+                    # would renew a GOD customer into the wrong tiny tier).
+                    _base_tiers = [PackageTier.TIER_300, PackageTier.TIER_500,
+                                   PackageTier.TIER_1299, PackageTier.TIER_2499, PackageTier.TIER_4999]
                     _last_pkg = (await session.execute(
                         select(Package).join(Subscription, Subscription.package_id == Package.id)
-                        .where(Subscription.user_id == db_user.id)
+                        .where(Subscription.user_id == db_user.id, Package.tier.in_(_base_tiers))
                         .order_by(Subscription.created_at.desc()).limit(1)
                     )).scalars().first()
                     if _last_pkg:
