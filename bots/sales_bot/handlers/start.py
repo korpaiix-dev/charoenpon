@@ -311,18 +311,6 @@ async def _handle_comeback_start(update: Update, context: ContextTypes.DEFAULT_T
 
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
 
-    # Send QR code
-    QR_URL = "https://img2.pic.in.th/-2026-03-15-143743.png"
-    try:
-        await context.bot.send_photo(
-            chat_id=update.message.chat_id,
-            photo=QR_URL,
-            caption=f"📱 สแกน QR PromptPay เพื่อโอน <b>฿{discounted_price}</b>\nแล้วส่งสลิปมาที่แชทนี้เลยค่ะ 🙏",
-            parse_mode="HTML",
-        )
-    except Exception as exc:
-        logger.warning("Failed to send QR for comeback: %s", exc)
-
     return True
 
 
