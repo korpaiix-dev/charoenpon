@@ -340,19 +340,23 @@ async def customer_subscriptions(user_id: int, admin=Depends(get_current_admin))
 @router.get("/{user_id}/groups")
 async def customer_groups(user_id: int, admin=Depends(get_current_admin)):
     # Get user's active subscription tier, then match groups
-    sub = await pool.fetchrow("""
+    # P2: union groups across ALL active subs (stacked customers) — not just one.
+    subs = await pool.fetch("""
         SELECT p.groups_access FROM subscriptions s
         JOIN packages p ON s.package_id = p.id
-        WHERE s.user_id = $1 AND s.status = 'ACTIVE' LIMIT 1
+        WHERE s.user_id = $1 AND s.status = 'ACTIVE'
     """, user_id)
-    if not sub:
+    if not subs:
         return []
-    
-    try:
-        group_slugs = json.loads(sub["groups_access"]) if isinstance(sub["groups_access"], str) else sub["groups_access"]
-    except Exception:
-        group_slugs = []
-    
+    group_slugs = []
+    for _sub in subs:
+        try:
+            _g = json.loads(_sub["groups_access"]) if isinstance(_sub["groups_access"], str) else _sub["groups_access"]
+        except Exception:
+            _g = []
+        for _s in (_g or []):
+            if _s not in group_slugs:
+                group_slugs.append(_s)
     if not group_slugs:
         return []
     
@@ -1021,25 +1025,25 @@ async def customer_group_memberships(user_id: int, admin=Depends(get_current_adm
         ORDER BY min_tier, slug
     """)
 
-    # Active sub determines which VIP groups customer SHOULD have
-    sub = await pool.fetchrow("""
+    # Active sub(s) determine which VIP groups customer SHOULD have. P2: union ALL active subs so a
+    # stacked customer is never flagged for removal from a room they legitimately hold via another sub.
+    subs_sh = await pool.fetch("""
         SELECT p.groups_access FROM subscriptions s
         JOIN packages p ON s.package_id = p.id
-        WHERE s.user_id = $1 AND s.status = 'ACTIVE' LIMIT 1
+        WHERE s.user_id = $1 AND s.status = 'ACTIVE'
     """, user_id)
     should_have_slugs = set()
-    if sub and sub["groups_access"]:
+    for _sub in subs_sh:
+        raw = _sub["groups_access"]
+        if not raw:
+            continue
         try:
-            raw = sub["groups_access"]
             if isinstance(raw, str):
-                if raw.startswith("["):
-                    should_have_slugs = set(json.loads(raw))
-                else:
-                    should_have_slugs = set(s.strip().strip('\"') for s in raw.split(",") if s.strip())
+                should_have_slugs |= set(json.loads(raw)) if raw.startswith("[") else set(x.strip().strip('"') for x in raw.split(",") if x.strip())
             else:
-                should_have_slugs = set(raw)
+                should_have_slugs |= set(raw)
         except Exception:
-            should_have_slugs = set()
+            pass
 
     GUARDIAN_BOT_TOKEN = os.environ.get("GUARDIAN_BOT_TOKEN")
     if not GUARDIAN_BOT_TOKEN:
