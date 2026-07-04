@@ -1504,11 +1504,23 @@ async def _job_is_enabled(job_name: str) -> bool:
         conn = await _ap.connect(url)
         try:
             row = await conn.fetchrow(
-                "SELECT is_enabled FROM bot_schedules WHERE bot_key='content_bot' AND job_name=$1",
+                "SELECT is_enabled, active_from, active_until FROM bot_schedules "
+                "WHERE bot_key='content_bot' AND job_name=$1",
                 job_name)
         finally:
             await conn.close()
-        return True if row is None else bool(row["is_enabled"])
+        if row is None:
+            return True
+        if not row["is_enabled"]:
+            return False
+        # optional date window (Thai calendar day)
+        from datetime import datetime as _dtj, timezone as _tzj, timedelta as _tdj
+        _today = (_dtj.now(_tzj.utc) + _tdj(hours=7)).date()
+        if row["active_from"] and _today < row["active_from"]:
+            return False
+        if row["active_until"] and _today > row["active_until"]:
+            return False
+        return True
     except Exception as exc:
         logger.warning("_job_is_enabled(%s) failed (fail-open): %s", job_name, exc)
         return True
