@@ -88,7 +88,7 @@ async def get_packages_and_promos(request: Request):
         orig = float(original_price)
         if dt == "percent":
             discounted = orig * (100 - dv) / 100
-        elif dt == "fixed_off":
+        elif dt in ("fixed_off", "fixed", "amount", "baht"):  # P1-10: one discount vocab (match pricing.py)
             discounted = max(0, orig - dv)
         elif dt == "fixed_price":
             discounted = dv
@@ -281,7 +281,7 @@ async def _compute_pkg_price(tier_full: str, promo_id, tg_id=None) -> "dict | No
                 dv = float(pr["discount_value"] or 0)
                 if dt == "percent":
                     final = base * (100 - dv) / 100
-                elif dt == "fixed_off":
+                elif dt in ("fixed_off", "fixed", "amount", "baht"):  # P1-10: one discount vocab (match pricing.py)
                     final = max(0, base - dv)
                 elif dt == "fixed_price":
                     final = dv
@@ -313,7 +313,7 @@ async def _compute_pkg_price(tier_full: str, promo_id, tg_id=None) -> "dict | No
                 _dv = float(_pr["discount_value"] or 0)
                 if _dt == "percent":
                     _cand = base * (100 - _dv) / 100
-                elif _dt == "fixed_off":
+                elif _dt in ("fixed_off", "fixed", "amount", "baht"):  # P1-10: one discount vocab (match pricing.py)
                     _cand = max(0, base - _dv)
                 elif _dt == "fixed_price":
                     _cand = _dv

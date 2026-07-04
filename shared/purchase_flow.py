@@ -78,7 +78,7 @@ async def compute_package_price(tier_full: str, promo_id=None, tg_id=None) -> "d
                     dv = float(pr["discount_value"] or 0)
                     if dt == "percent":
                         final = base * (100 - dv) / 100
-                    elif dt == "fixed_off":
+                    elif dt in ("fixed_off", "fixed", "amount", "baht"):  # P1-10: one discount vocab (match pricing.py)
                         final = max(0, base - dv)
                     elif dt == "fixed_price":
                         final = dv
@@ -110,7 +110,7 @@ async def compute_package_price(tier_full: str, promo_id=None, tg_id=None) -> "d
                     _dv = float(_pr["discount_value"] or 0)
                     if _dt == "percent":
                         _cand = base * (100 - _dv) / 100
-                    elif _dt == "fixed_off":
+                    elif _dt in ("fixed_off", "fixed", "amount", "baht"):  # P1-10: one discount vocab (match pricing.py)
                         _cand = max(0, base - _dv)
                     elif _dt == "fixed_price":
                         _cand = _dv
