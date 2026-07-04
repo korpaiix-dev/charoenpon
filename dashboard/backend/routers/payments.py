@@ -470,6 +470,41 @@ async def reject_payment(payment_id: int, req: PaymentReject, request: Request, 
                {"amount": float(pay["amount"]), "reason": req.reason, "dm_sent": dm_sent}, ip)
     return {"ok": True, "dm_sent": dm_sent}
 
+@router.post("/{payment_id}/cancel")
+async def cancel_payment(payment_id: int, req: PaymentReject, request: Request, admin=Depends(require_role("owner"))):
+    """Reverse a CONFIRMED payment (refund/chargeback/fraud): expire subscription + undo receiver-pool
+    credit + refund discount credit + re-sync total_spent. Owner-only. Uses shared.reverse_payment_approval.
+    """
+    from shared.payment_approval import reverse_payment_approval
+    result = await reverse_payment_approval(payment_id, admin_id=admin.get("telegram_id"), reason=(req.reason or "")[:200])
+    if not result.get("ok"):
+        raise HTTPException(400, result.get("error") or "cancel_failed")
+    ip = request.client.host if request.client else None
+    try:
+        await _log(admin["id"], "cancel_payment", "payment", payment_id, {"reason": req.reason}, ip)
+    except Exception:
+        pass
+    # notify admin group (best-effort)
+    try:
+        if ADMIN_BOT_TOKEN and ADMIN_GROUP_CHAT_ID:
+            _rcv = result.get("receiver_undone") or {}
+            _cr = result.get("credit_refunded") or {}
+            await _telegram_api(ADMIN_BOT_TOKEN, "sendMessage", {
+                "chat_id": ADMIN_GROUP_CHAT_ID,
+                "text": (f"↩️ <b>ยกเลิก/คืนเงิน Payment #{payment_id}</b>\n"
+                         f"💰 ยอด: {result.get('amount')}\n"
+                         f"📦 sub ปิด: {result.get('subs_expired')}\n"
+                         f"🏦 บัญชีลดยอด: {_rcv.get('amount', '-')}\n"
+                         f"💳 คืนเครดิต: {_cr.get('amount', '-')}\n"
+                         f"👤 โดย: {admin.get('display_name') or admin.get('id')}\n"
+                         f"📝 {req.reason or '-'}"),
+                "parse_mode": "HTML",
+            })
+    except Exception:
+        pass
+    return result
+
+
 @router.get("/summary")
 async def payment_summary(admin=Depends(require_role("admin"))):
     # FIX 2026-06-27 (Phase A.2): align timezone with dashboard/summary

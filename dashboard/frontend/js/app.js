@@ -2610,6 +2610,20 @@ async function approvePayment(id) {
     finally { _busy.delete(`appr-${id}`); }
 }
 
+async function cancelPayment(id) {
+    if (!confirm(`ยกเลิก/คืนเงิน Payment #${id}?\n\nระบบจะ: ปิดสมาชิกที่ผูกกับ payment นี้ + ลดยอดสะสมบัญชีรับเงิน + คืนเครดิตส่วนลด\nใช้กับกรณี refund / โกง / กดผิด เท่านั้น`)) return;
+    const reason = prompt('เหตุผล (สำหรับ audit):', 'refund');
+    if (reason === null) return;
+    try {
+        const r = await api(`/payments/${id}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) });
+        toast(`↩️ ยกเลิก #${id} แล้ว · คืนเครดิต ฿${r.credit_refunded ? r.credit_refunded.amount : 0} · ลดบัญชี ฿${r.receiver_undone ? r.receiver_undone.amount : 0}`, 'success');
+        try { closeModal(); } catch(e) {}
+        if (typeof loadPayments === 'function') loadPayments();
+    } catch (e) {
+        toast('ยกเลิกไม่สำเร็จ: ' + (e && e.message ? e.message : e), 'error');
+    }
+}
+
 async function rejectPayment(id) {
     if (_busy.has(`rej-${id}`)) return;
     const reason = prompt('เหตุผลปฏิเสธ:');
@@ -4606,6 +4620,9 @@ async function openSlipImage(paymentId) {
                         ${statusBadge}
                         <span style="font-size:0.78rem;color:var(--text-muted);">#${d.id}</span>
                     </div>
+                    ${d.status === 'CONFIRMED' ? `
+                    <button class="btn btn-sm btn-danger" style="align-self:flex-start;" onclick="cancelPayment(${d.id})">↩️ ยกเลิก/คืนเงิน</button>
+                    ` : ''}
 
                     <!-- Amount -->
                     <div style="background:var(--surface-2);border-radius:8px;padding:0.625rem 0.875rem;">

@@ -1177,8 +1177,88 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
     )
 
 
+async def reverse_payment_approval(payment_id: int, admin_id=None, reason: str = "") -> dict:
+    """Reverse a CONFIRMED payment: expire linked subscription(s), undo receiver-pool credit,
+    refund discount credit, re-sync total_spent, mark payment REJECTED ([CANCELLED]).
+
+    Use for refund / chargeback / fraud-discovered-after-approve. Refuses if not CONFIRMED.
+    Idempotent-ish: a second call finds status REJECTED and no-ops. Returns a summary dict.
+    NOTE: does not auto-reclaim gacha SPIN credits granted by the payment (rare) — logged for manual.
+    """
+    from shared.database import get_session
+    from shared.models import Payment, PaymentStatus
+    import re as _re_rv
+    summary = {"ok": False, "payment_id": payment_id}
+    async with get_session() as s:
+        p = await s.get(Payment, payment_id)
+        if p is None:
+            return {"ok": False, "error": "payment_not_found", "payment_id": payment_id}
+        _status = str(p.status.value if hasattr(p.status, "value") else p.status).upper()
+        if _status != "CONFIRMED":
+            return {"ok": False, "error": "not_confirmed", "status": _status, "payment_id": payment_id}
+        summary["amount"] = float(p.amount or 0)
+        summary["user_id"] = p.user_id
+        p.status = PaymentStatus.REJECTED
+        p.verified_by = admin_id
+        p.verified_at = datetime.utcnow()
+        p.reject_reason = ("[CANCELLED] " + (reason or "reversed by admin"))[:250]
+        _subs = await s.execute(sql_text(
+            "UPDATE subscriptions SET status='EXPIRED', updated_at=NOW() "
+            "WHERE payment_id=:pid AND status='ACTIVE' RETURNING id"), {"pid": payment_id})
+        summary["subs_expired"] = [r[0] for r in _subs.fetchall()]
+        await s.execute(sql_text(
+            "UPDATE users SET total_spent = (SELECT COALESCE(SUM(amount),0) FROM payments "
+            "WHERE user_id=:uid AND status='CONFIRMED' AND amount>0) WHERE id=:uid"), {"uid": p.user_id})
+        await s.commit()
+    # undo receiver-pool credit (subtract + delete marker so a future re-approve can re-credit)
+    try:
+        async with get_session() as s2:
+            _m = (await s2.execute(sql_text(
+                "SELECT details FROM admin_logs WHERE action='receiver_credit' AND target_id=:pid LIMIT 1"),
+                {"pid": payment_id})).fetchone()
+            if _m and _m[0]:
+                _acc = _re_rv.search(r"account_id=(\d+)", _m[0])
+                _amc = _re_rv.search(r"amount=([0-9.]+)", _m[0])
+                if _acc and _amc:
+                    await s2.execute(sql_text(
+                        "UPDATE receiver_accounts SET cumulative_received=GREATEST(0, cumulative_received - :a), "
+                        "updated_at=NOW() WHERE id=:id"), {"a": float(_amc.group(1)), "id": int(_acc.group(1))})
+                    await s2.execute(sql_text(
+                        "DELETE FROM admin_logs WHERE action='receiver_credit' AND target_id=:pid"), {"pid": payment_id})
+                    summary["receiver_undone"] = {"account_id": int(_acc.group(1)), "amount": float(_amc.group(1))}
+            await s2.commit()
+    except Exception as _e_rv:
+        summary["receiver_error"] = str(_e_rv)[:120]
+    # refund discount credit (if any was used for this payment)
+    try:
+        async with get_session() as s3:
+            _du = (await s3.execute(sql_text(
+                "SELECT telegram_id, discount_used FROM discount_usage_log WHERE payment_id=:pid AND discount_used>0 LIMIT 1"),
+                {"pid": payment_id})).fetchone()
+            if _du and _du[1]:
+                await s3.execute(sql_text(
+                    "UPDATE user_discount_credits SET balance=balance + :d, "
+                    "total_used=GREATEST(0, total_used - :d), updated_at=NOW() WHERE telegram_id=:tg"),
+                    {"d": float(_du[1]), "tg": int(_du[0])})
+                await s3.execute(sql_text("DELETE FROM discount_usage_log WHERE payment_id=:pid"), {"pid": payment_id})
+                summary["credit_refunded"] = {"telegram_id": int(_du[0]), "amount": float(_du[1])}
+            await s3.commit()
+    except Exception as _e_du:
+        summary["credit_error"] = str(_e_du)[:120]
+    try:
+        from shared.utils import log_admin_action
+        await log_admin_action(admin_id=admin_id or 0, action="reverse_payment", target_type="payment",
+                               target_id=payment_id, details=(f"reason={reason} " + str(summary))[:500])
+    except Exception:
+        pass
+    summary["ok"] = True
+    logger.warning("[REVERSED] payment %s by admin %s: %s", payment_id, admin_id, summary)
+    return summary
+
+
 __all__ = [
     "apply_payment_approval",
+    "reverse_payment_approval",
     "ApprovalInput",
     "ApprovalResult",
     "ApprovalSource",
