@@ -551,7 +551,7 @@ async def approve_promo_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     from datetime import timedelta
     from decimal import Decimal
-    from shared.models import ComebackDmLog, Package, PackageTier
+    from shared.models import ComebackDmLog, Package, PackageTier, Subscription
 
     try:
         async with get_session() as session:
@@ -591,6 +591,7 @@ async def approve_promo_callback(update: Update, context: ContextTypes.DEFAULT_T
             _uname = db_user.username if db_user else None
             _banned = bool(db_user.is_banned) if db_user else False
             _pid = _ptrans = _phash = _psname = _psbank = _psacct = _psfid = _pmrid = None
+            _pending_amount = None
             if db_user:
                 pending = (await session.execute(
                     select(Payment).where(
@@ -600,6 +601,7 @@ async def approve_promo_callback(update: Update, context: ContextTypes.DEFAULT_T
                 )).scalar_one_or_none()
                 if pending:
                     _pid = pending.id
+                    _pending_amount = pending.amount
                     _ptrans = pending.slip_trans_ref
                     _phash = pending.slip_hash
                     _psname = pending.sender_name
@@ -607,6 +609,19 @@ async def approve_promo_callback(update: Update, context: ContextTypes.DEFAULT_T
                     _psacct = pending.sender_bank_account
                     _psfid = pending.slip_file_id
                     _pmrid = getattr(pending, "matched_receiver_account_id", None)
+                # P0-3: renew the customer's ACTUAL tier (their most recent sub), not a
+                # hardcoded VIP-300. comeback_dm_log has no tier, so infer from last sub.
+                try:
+                    _last_pkg = (await session.execute(
+                        select(Package).join(Subscription, Subscription.package_id == Package.id)
+                        .where(Subscription.user_id == db_user.id)
+                        .order_by(Subscription.created_at.desc()).limit(1)
+                    )).scalars().first()
+                    if _last_pkg:
+                        _pkg_id = _last_pkg.id
+                        _pkg_name = _last_pkg.name
+                except Exception:
+                    pass
 
         if _banned:
             await query.answer("🚫 ลูกค้าถูกแบน — /unban ก่อน", show_alert=True)
@@ -617,7 +632,7 @@ async def approve_promo_callback(update: Update, context: ContextTypes.DEFAULT_T
         )
         result = await _apply(_ApIn(
             user_id=_uid, telegram_id=target_user_id, source=_ApSrc.ADMIN_PROMO,
-            amount_paid=Decimal(str(discounted_price)), explicit_package_id=_pkg_id,
+            amount_paid=Decimal(str(_pending_amount if _pending_amount else discounted_price)), explicit_package_id=_pkg_id,
             admin_id=query.from_user.id, payment_id=_pid, comeback_dm_log_id=_cb_id,
             slip_trans_ref=_ptrans, slip_hash=_phash, sender_name=_psname,
             sender_bank_name=_psbank, sender_bank_account=_psacct, slip_file_id=_psfid,
