@@ -124,14 +124,7 @@ def _looks_like_non_slip_ad(text: str | None) -> bool:
     return any(keyword.casefold().replace(" ", "") in normalized for keyword in NON_SLIP_AD_KEYWORDS)
 
 
-TIER_PRICES: dict[str, Decimal] = {
-    "99": Decimal("99"),
-    "300": Decimal("300"),
-    "500": Decimal("500"),
-    "1299": Decimal("1299"),
-    "2499": Decimal("2499"),
-    "ADD500": Decimal("500"),
-}
+# (C3) removed dead local TIER_PRICES — use shared.pricing.TIER_PRICES (never imported from here)
 
 async def _notify_discord(title: str, details: str, color: int = 0xFFA500, fields: list = None) -> None:
     """[DEPRECATED — use shared.notify.notify(event_key, ...) instead]

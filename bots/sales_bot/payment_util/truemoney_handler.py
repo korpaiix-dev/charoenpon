@@ -249,11 +249,10 @@ async def handle_truemoney_link(
     elif tm_result["amount"] is not None:
         # Accept BOTH promo price (expected) and tier base price.
         # Some customers pay full price even when promo is active.
-        tier_base_map = {
-            "300": Decimal("300"), "500": Decimal("500"),
-            "1299": Decimal("1299"), "2499": Decimal("2499"),
-        }
-        base_price = tier_base_map.get(str(selected_tier), expected_price)
+        # C3: canonical tier ladder (adds 100/4999/ADD500 the local map missed, so a full-price
+        # TrueMoney payment for those tiers is accepted too — matching the "accept base price" intent).
+        from shared.pricing import TIER_PRICES as _TIER_BASE
+        base_price = _TIER_BASE.get(str(selected_tier), expected_price)
         acceptable_amounts = {expected_price, base_price}
         # If envelope matches base price -> auto-bump expected_price + payment.amount
         # so DB logs reflect what customer actually paid.

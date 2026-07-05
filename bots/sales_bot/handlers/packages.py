@@ -109,10 +109,7 @@ async def _get_active_promo_discounts() -> dict:
         from shared.promotion_service import list_active_promotions, calculate_price
         promos = await list_active_promotions()
         result = {}
-        TIER_PRICE_MAP = {
-            "TIER_300": 300, "TIER_500": 500, "TIER_1299": 1299, "TIER_2499": 2499,
-            "TIER_100": 100,
-        }
+        from shared.pricing import TIER_PRICES as _TIER_BASE  # C3: canonical ladder (adds 4999/etc)
         for promo in promos:
             pkg_codes = promo.get("package_codes") or []
             if isinstance(pkg_codes, str):
@@ -120,7 +117,8 @@ async def _get_active_promo_discounts() -> dict:
                 try: pkg_codes = _j.loads(pkg_codes)
                 except Exception: pkg_codes = []
             for tier_str in pkg_codes:
-                base = TIER_PRICE_MAP.get(tier_str)
+                _b = _TIER_BASE.get(tier_str.replace("TIER_", ""))
+                base = int(_b) if _b else None
                 if not base:
                     continue
                 calc = calculate_price(promo, tier_str, base)
