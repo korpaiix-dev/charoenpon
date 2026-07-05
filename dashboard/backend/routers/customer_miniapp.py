@@ -246,113 +246,12 @@ async def _get_customer_retention_pct(tg_id) -> int:
 
 
 async def _compute_pkg_price(tier_full: str, promo_id, tg_id=None) -> "dict | None":
-    """SERVER-SIDE price for a package (revenue-leak fix — never trust client payload.price).
-
-    Returns {"base": int, "final": int}: real DB price minus a *validated* campaign promo
-    (promo must be active AND the package tier must be in its package_codes). None if invalid tier.
-    """
-    import json as _json
-    tdb = tier_full if (tier_full.startswith("TIER_") or tier_full.startswith("GACHA_")) else f"TIER_{tier_full}"
-    tshort = tdb.replace("TIER_", "")
-    row = await pool.fetchrow("SELECT price FROM packages WHERE tier::text = $1 AND is_active = TRUE", tdb)
-    if not row:
-        return None
-    base = float(row["price"])
-    final = base
-    if promo_id:
-        try:
-            pr = await pool.fetchrow(
-                "SELECT package_codes, discount_type, discount_value, is_active FROM promotions WHERE id = $1",
-                int(promo_id),
-            )
-        except Exception:
-            pr = None
-        if pr and pr["is_active"]:
-            raw = pr["package_codes"]
-            if isinstance(raw, str):
-                try:
-                    codes = _json.loads(raw)
-                except Exception:
-                    codes = []
-            else:
-                codes = list(raw) if raw else []
-            if tdb in codes or tshort in codes:
-                dt = (pr["discount_type"] or "none").lower()
-                dv = float(pr["discount_value"] or 0)
-                if dt == "percent":
-                    final = base * (100 - dv) / 100
-                elif dt in ("fixed_off", "fixed", "amount", "baht"):  # P1-10: one discount vocab (match pricing.py)
-                    final = max(0, base - dv)
-                elif dt == "fixed_price":
-                    final = dv
-    # 1b) AUTO-DISCOVER active public promotion for this tier when the caller gave no explicit
-    #     promo_id — so the mini-app always applies a live campaign (e.g. 7.7 Super VIP -> 3777)
-    #     even if the frontend forgot to pass promo_id. Mirrors purchase_flow.compute_package_price.
-    #     Self-expiring via starts_at/ends_at; best (lowest) wins; never raises the price.
-    if not promo_id:
-        try:
-            _arows = await pool.fetch(
-                "SELECT package_codes, discount_type, discount_value FROM promotions "
-                "WHERE is_active = TRUE "
-                "  AND (starts_at IS NULL OR starts_at <= now()) "
-                "  AND (ends_at IS NULL OR ends_at > now())"
-            )
-        except Exception:
-            _arows = []
-        for _pr in _arows:
-            _raw = _pr["package_codes"]
-            if isinstance(_raw, str):
-                try:
-                    _codes = _json.loads(_raw)
-                except Exception:
-                    _codes = []
-            else:
-                _codes = list(_raw) if _raw else []
-            if tdb in _codes or tshort in _codes:
-                _dt = (_pr["discount_type"] or "none").lower()
-                _dv = float(_pr["discount_value"] or 0)
-                if _dt == "percent":
-                    _cand = base * (100 - _dv) / 100
-                elif _dt in ("fixed_off", "fixed", "amount", "baht"):  # P1-10: one discount vocab (match pricing.py)
-                    _cand = max(0, base - _dv)
-                elif _dt == "fixed_price":
-                    _cand = _dv
-                else:
-                    _cand = base
-                if _cand < final:
-                    final = _cand
-    # personal RETENTION discount — best-single (no stacking): keep whichever gives the lowest price
-    _src = "campaign" if final < base else "none"
-    _credit_used = 0.0
-    if tg_id:
-        _ret = await _get_customer_retention_pct(tg_id)
-        if _ret > 0:
-            _ret_final = base * (100 - _ret) / 100
-            if _ret_final < final:
-                final = _ret_final
-                _src = "retention:%d%%" % _ret
-        # personal GACHA CREDIT (฿ balance) — best-single (compare vs current best price)
-        try:
-            _br = await pool.fetchrow("SELECT balance FROM user_discount_credits WHERE telegram_id=$1", int(tg_id))
-            _bal = float(_br["balance"]) if _br and _br["balance"] else 0.0
-        except Exception:
-            _bal = 0.0
-        if _bal > 0:
-            _cap = 50.0
-            try:
-                _cr = await pool.fetchrow("SELECT value_json FROM promo_config WHERE config_key='gacha_discount_cap_per_tier'")
-                if _cr and _cr["value_json"]:
-                    import json as _jgc
-                    _cm = _cr["value_json"] if isinstance(_cr["value_json"], dict) else _jgc.loads(_cr["value_json"])
-                    _cap = float(_cm.get(tshort, 50))
-            except Exception:
-                _cap = 50.0
-            _usable = min(_bal, _cap, base)
-            if _usable > 0 and (base - _usable) < final:
-                final = base - _usable
-                _src = "gacha_credit"
-                _credit_used = _usable
-    return {"base": int(round(base)), "final": int(round(final)), "source": _src, "credit_used": round(_credit_used, 2)}
+    """Server-side discount-aware price. Thin wrapper over the ONE canonical engine
+    (shared.purchase_flow.compute_package_price), passing the dashboard pool so no extra connection
+    is opened. Was a ~110-line line-for-line clone; consolidated 2026-07-05 after proving byte-
+    identical output across every tier x {none, retention 25%/20%, gacha, campaign 4999->2999}."""
+    from shared.purchase_flow import compute_package_price
+    return await compute_package_price(tier_full, promo_id, tg_id, conn=pool)
 
 
 @router.post("/webapp/api/customer/buy")

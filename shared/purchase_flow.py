@@ -36,7 +36,7 @@ async def _get_customer_retention_pct(conn, tg_id) -> int:
         return 0
 
 
-async def compute_package_price(tier_full: str, promo_id=None, tg_id=None) -> "dict | None":
+async def compute_package_price(tier_full: str, promo_id=None, tg_id=None, conn=None) -> "dict | None":
     """SERVER-SIDE discount-aware price (never trust client price).
 
     Mirror of dashboard _compute_pkg_price. Returns
@@ -44,7 +44,9 @@ async def compute_package_price(tier_full: str, promo_id=None, tg_id=None) -> "d
     """
     tdb = tier_full if (tier_full.startswith("TIER_") or tier_full.startswith("GACHA_")) else f"TIER_{tier_full}"
     tshort = tdb.replace("TIER_", "")
-    conn = await _connect()
+    _own_conn = conn is None
+    if _own_conn:
+        conn = await _connect()
     try:
         row = await conn.fetchrow(
             "SELECT price FROM packages WHERE tier::text = $1 AND is_active = TRUE", tdb
@@ -156,6 +158,9 @@ async def compute_package_price(tier_full: str, promo_id=None, tg_id=None) -> "d
                     _src = "gacha_credit"
                     _credit_used = _usable
 
+        # clamp: a discount can never make the price negative nor exceed the list price
+        # (guards a misconfigured promo — same protection promotion_service.calculate_price has).
+        final = max(0.0, min(float(final), float(base)))
         return {
             "base": int(round(base)),
             "final": int(round(final)),
@@ -163,7 +168,8 @@ async def compute_package_price(tier_full: str, promo_id=None, tg_id=None) -> "d
             "credit_used": round(_credit_used, 2),
         }
     finally:
-        await conn.close()
+        if _own_conn:
+            await conn.close()
 
 
 async def prepare_purchase(
