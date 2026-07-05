@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pre_*
+*.bak
+*.bak.*
+*.orig
+_webroot_backups/
+.git/
+*.md
+node_modules/

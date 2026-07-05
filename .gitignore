@@ -52,3 +52,4 @@ _webroot_backups/
 *.backup
 *.orig
 archive/**/*.sql
+bots/relay_bot/data/state.json
