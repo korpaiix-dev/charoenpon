@@ -724,12 +724,9 @@ async def _get_authorized_telegram_ids(group_slug: str) -> set[int]:
         )
 
         for tg_id, groups_access, duration_days, end_date in subs_result.all():
-            # groups_access อาจเป็น JSON array '["G300","G500"]' หรือ comma-separated 'G300,G500'
-            import json as _json
-            try:
-                group_list = _json.loads(groups_access) if groups_access.startswith("[") else [g.strip() for g in groups_access.split(",") if g.strip()]
-            except Exception:
-                group_list = [g.strip().strip('"').strip("'") for g in groups_access.split(",") if g.strip()]
+            # C2: use the ONE canonical parser (JSON-array | comma | list, quote-strip, never raises)
+            from shared.subscription_access import parse_group_slugs
+            group_list = parse_group_slugs(groups_access)
             if group_slug not in group_list:
                 continue
 
