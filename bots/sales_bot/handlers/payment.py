@@ -1341,13 +1341,45 @@ async def handle_photo_slip(
                                 pass
                             import datetime as _dtm_a
                             _t_bkk_a = _dtm_a.datetime.now(_dtm_a.timezone(_dtm_a.timedelta(hours=7))).strftime("%H:%M")
+                            # --- richer detail: discount breakdown + expiry + new/renewal + LTV ---
+                            _base_p = 0
+                            try:
+                                from shared.pricing import TIER_PRICES as _TP_ADMIN
+                                _base_p = int(_TP_ADMIN.get(str(tier_str).replace("TIER_", ""), 0) or 0)
+                            except Exception:
+                                pass
+                            _paid_i = int(s2g_amount)
+                            _disc_i = _base_p - _paid_i if _base_p > _paid_i else 0
+                            _disc_src = ""
+                            try:
+                                if context.user_data.get("comeback_promo"): _disc_src = " · ดึงกลับ/ต่ออายุ"
+                                elif context.user_data.get("dayzero_promo_code"): _disc_src = " · โปร " + str(context.user_data.get("dayzero_promo_code"))
+                                elif is_promo: _disc_src = " · โปรโมชั่น"
+                            except Exception:
+                                pass
+                            _disc_line = (f"\n🏷️ ปกติ <s>฿{_base_p:,}</s> · ลด <b>฿{_disc_i:,}</b> ({round(_disc_i*100/_base_p)}%{_disc_src})") if _disc_i > 0 and _base_p > 0 else ""
+                            if getattr(_ap_result, "is_lifetime", False):
+                                _exp_line = "\n📅 <b>♾️ ถาวร</b> (ตลอดชีพ)"
+                            elif getattr(_ap_result, "expires_at", None):
+                                try: _exp_line = f"\n📅 หมดอายุ <b>{_ap_result.expires_at.strftime('%d/%m/%Y')}</b>"
+                                except Exception: _exp_line = ""
+                            else:
+                                _exp_line = ""
+                            _is_new = bool(getattr(_ap_result,'onboarding_gacha_added',0) or getattr(_ap_result,'onboarding_discount_added',0) or getattr(_ap_result,'onboarding_extra_days',0))
+                            _type_tag = " · 🆕ลูกค้าใหม่" if _is_new else ""
+                            _ltv = getattr(user, "total_spent", None)
+                            _ltv_str = f" · สะสม ฿{int(_ltv):,}" if _ltv else ""
+                            _ngrp = len(getattr(_ap_result, "invite_links", []) or [])
+                            _grp_str = f" · 🚪{_ngrp} ห้อง" if _ngrp else ""
                             _admin_msg = (
                                 f"🟢 <b>อนุมัติอัตโนมัติ</b> ✅\n"
                                 f"<i>Slip2Go ตรวจผ่าน · บัญชีถูกต้อง</i>\n"
                                 f"━━━━━━━━━━━━━━━━\n"
-                                f"💰 ยอด    <b>฿{int(s2g_amount):,}</b>\n"
-                                f"📦 แพ็ก    <b>{_h.escape(_pkg_name_safe)}</b> {'🔥 โปร' if is_promo else ''}\n"
-                                f"👤 ลูกค้า   {_safe_tg_name} · <code>{user.id}</code>\n"
+                                f"📦 แพ็ก    <b>{_h.escape(_pkg_name_safe)}</b> {'🔥' if is_promo else ''}{_type_tag}\n"
+                                f"💰 จ่ายจริง <b>฿{_paid_i:,}</b>"
+                                f"{_disc_line}"
+                                f"{_exp_line}{_grp_str}\n"
+                                f"👤 ลูกค้า   {_safe_tg_name} · <code>{user.id}</code>{_ltv_str}\n"
                                 f"\n"
                                 f"🟢 เข้าบัญชี: <b>{_recv_label}</b>\n"
                                 f"🆔 ผู้โอน: {_safe_real}\n"
