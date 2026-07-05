@@ -1821,6 +1821,9 @@ async def handle_photo_slip(
                 tg.InlineKeyboardButton("🌊 500 (Summer)", callback_data=f"approve_ADD500_{user.id}", api_kwargs={"style": "success"}),
             ],
             [
+                tg.InlineKeyboardButton("👑 4999 (Super VIP)", callback_data=f"approve_4999_{user.id}", api_kwargs={"style": "success"}),
+            ],
+            [
                 tg.InlineKeyboardButton("❌ ปฏิเสธ", callback_data=f"reject_{user.id}", api_kwargs={"style": "danger"}),
             ],
         ]

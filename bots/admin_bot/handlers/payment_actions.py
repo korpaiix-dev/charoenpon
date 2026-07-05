@@ -429,7 +429,22 @@ async def approve_by_price_callback(update: Update, context: ContextTypes.DEFAUL
         # Update admin message caption — preserve UX (button to customer chat if username known)
         safe_admin = query.from_user.first_name or "Admin"
         old_caption = query.message.caption or query.message.text or ""
-        new_caption = f"{old_caption}\n\n✅ <b>สถานะ: อนุมัติ ({price}บ.) โดย {safe_admin}</b>"
+        try:
+            from shared.pricing import TIER_PRICES as _TP_M
+            _base_m = int(_TP_M.get(str(price), 0) or 0)
+        except Exception:
+            _base_m = 0
+        _extra = []
+        _disc_m = (_base_m - int(price)) if (_base_m and _base_m > int(price)) else 0
+        if _disc_m > 0: _extra.append(f"ลด ฿{_disc_m:,}")
+        if getattr(_result, "is_lifetime", False): _extra.append("♾️ ถาวร")
+        elif getattr(_result, "expires_at", None):
+            try: _extra.append("หมดอายุ " + _result.expires_at.strftime("%d/%m/%Y"))
+            except Exception: pass
+        _ngm = len(getattr(_result, "invite_links", []) or [])
+        if _ngm: _extra.append(f"🚪{_ngm} ห้อง")
+        _extra_str = ("\n   " + " · ".join(_extra)) if _extra else ""
+        new_caption = f"{old_caption}\n\n✅ <b>อนุมัติ ฿{price} โดย {safe_admin}</b>{_extra_str}"
         post_keyboard = None
         if db_user and getattr(db_user, "username", None):
             post_keyboard = tg.InlineKeyboardMarkup([[

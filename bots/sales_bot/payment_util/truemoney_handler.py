@@ -357,6 +357,22 @@ async def handle_truemoney_link(
             admin_bot = tg.Bot(token=os.environ.get("ADMIN_BOT_TOKEN", ""))
             await admin_bot.initialize()
             links_count = len(invite_links_raw)
+            try:
+                from shared.pricing import TIER_PRICES as _TP_TM
+                _base_tm = int(_TP_TM.get(str(selected_tier).replace("TIER_", ""), 0) or 0)
+            except Exception:
+                _base_tm = 0
+            _paid_tm = int(expected_price)
+            _disc_tm = _base_tm - _paid_tm if _base_tm > _paid_tm else 0
+            _disc_tm_line = (f"\n🏷️ ปกติ <s>฿{_base_tm:,}</s> · ลด <b>฿{_disc_tm:,}</b> ({round(_disc_tm*100/_base_tm)}%)") if _disc_tm > 0 and _base_tm > 0 else ""
+            if getattr(_tm_ap_result, "is_lifetime", False):
+                _exp_tm = "\n📅 <b>♾️ ถาวร</b>"
+            elif getattr(_tm_ap_result, "expires_at", None):
+                try: _exp_tm = f"\n📅 หมดอายุ <b>{_tm_ap_result.expires_at.strftime('%d/%m/%Y')}</b>"
+                except Exception: _exp_tm = ""
+            else: _exp_tm = ""
+            _ltv_tm = getattr(user, "total_spent", None)
+            _ltv_tm_str = f" · สะสม ฿{int(_ltv_tm):,}" if _ltv_tm else ""
             admin_keyboard = tg.InlineKeyboardMarkup([
                 [tg.InlineKeyboardButton(f"💬 @{user.username}", url=f"https://t.me/{user.username}", api_kwargs={"style": "primary"}) if user.username else tg.InlineKeyboardButton(f"💬 ID: {user.id}", url=f"tg://user?id={user.id}", api_kwargs={"style": "primary"})],
             ])
@@ -364,9 +380,11 @@ async def handle_truemoney_link(
                 chat_id=ADMIN_GROUP_ID,
                 text=(
                     f"✅ <b>TrueMoney อนุมัติอัตโนมัติ</b>\n\n"
-                    f"👤 ลูกค้า: {safe_name} (ID: <code>{user.id}</code>)\n"
-                    f"💰 ยอด: {format_thb(expected_price)}\n"
-                    f"📦 แพ็กเกจ: {pkg_name}\n"
+                    f"📦 แพ็ก: <b>{pkg_name}</b>\n"
+                    f"💰 จ่ายจริง: <b>{format_thb(expected_price)}</b>"
+                    f"{_disc_tm_line}"
+                    f"{_exp_tm}\n"
+                    f"👤 ลูกค้า: {safe_name} (<code>{user.id}</code>){_ltv_tm_str}\n"
                     f"🔗 ส่งลิงก์: {links_count} กลุ่ม\n"
                     f"🏦 Voucher: <code>{tm_result.get('voucher_id', 'N/A')}</code>"
                 ),
