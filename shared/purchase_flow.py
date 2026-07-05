@@ -241,3 +241,42 @@ async def prepare_purchase(
         "intent_id": intent_id,
         "receiver": receiver,
     }
+
+
+async def effective_price_for_user(tier: str, context_user_data: dict):
+    """ONE effective-price resolver for the slip + TrueMoney entry points (was copy-pasted in
+    payment.py and truemoney_handler.py). Precedence: active Day-0/campaign promo (best savings,
+    minus gacha credit) > per-user comeback promo > pricing hub (Lucky6/Birthday/EndMonth/base)."""
+    from decimal import Decimal as _D
+    from shared.pricing import effective_price as _hub, TIER_PRICES as _HUB
+    base_price = _HUB.get(tier, _D("0"))
+    try:
+        from shared.promotion_service import list_active_promotions, calculate_price as _calc
+        _promos = await list_active_promotions()
+        _key = f"TIER_{tier}"
+        _best = None
+        for _pm in _promos:
+            _codes = _pm.get("package_codes") or []
+            if isinstance(_codes, str):
+                import json as _j
+                try: _codes = _j.loads(_codes)
+                except Exception: _codes = []
+            if _key in _codes:
+                _c = _calc(_pm, _key, float(base_price))
+                if _c.get("applied") and _c["savings"] > 0 and (_best is None or _c["savings"] > _best["savings"]):
+                    _best = _c
+        if _best:
+            _price = _D(str(int(_best["discounted"])))
+            _credit = context_user_data.get("gacha_credit_use") or 0
+            try: _credit = _D(str(_credit))
+            except Exception: _credit = _D("0")
+            return max(_D("0"), _price - _credit)
+    except Exception as _exc:
+        import logging; logging.getLogger(__name__).warning("effective_price_for_user dayzero check failed: %s", _exc)
+    comeback_promo = context_user_data.get("comeback_promo")
+    if comeback_promo:
+        from bots.sales_bot.comeback_dm import validate_promo_code
+        promo = await validate_promo_code(comeback_promo)
+        if promo:
+            return _D(str(int(base_price * (100 - promo["discount_pct"]) / 100)))
+    return _hub(tier, context_user_data)

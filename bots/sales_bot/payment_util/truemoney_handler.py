@@ -55,45 +55,11 @@ logger = logging.getLogger(__name__)
 
 # Re-export helpers that may be called as bare names inside the function body
 async def _get_effective_price(tier: str, context_user_data: dict) -> Decimal:
-    """Local effective_price wrapper preserving comeback logic."""
-    base_price = _HUB_TIER_PRICES.get(tier, Decimal('0'))
-    
-    # DAY 0 (2026-06-28): apply Day-0 promo first (highest priority)
-    try:
-        from shared.promotion_service import list_active_promotions, calculate_price as _dz_calc
-        _dz_promos = await list_active_promotions()
-        TIER_KEY = f"TIER_{tier}"
-        _best_dz = None
-        for _pm in _dz_promos:
-            _pkg_codes = _pm.get('package_codes') or []
-            if isinstance(_pkg_codes, str):
-                import json as _json_dz
-                try: _pkg_codes = _json_dz.loads(_pkg_codes)
-                except Exception: _pkg_codes = []
-            if TIER_KEY in _pkg_codes:
-                _calc = _dz_calc(_pm, TIER_KEY, float(base_price))
-                if _calc.get('applied') and _calc['savings'] > 0:
-                    if _best_dz is None or _calc['savings'] > _best_dz['savings']:
-                        _best_dz = _calc
-        if _best_dz:
-            _dz_price = Decimal(str(int(_best_dz['discounted'])))
-            _credit_use = context_user_data.get('gacha_credit_use') or 0
-            try:
-                _credit_use = Decimal(str(_credit_use))
-            except Exception:
-                _credit_use = Decimal('0')
-            return max(Decimal('0'), _dz_price - _credit_use)
-    except Exception as _dz_exc:
-        pass
-    
-    comeback_promo = context_user_data.get('comeback_promo')
-    if comeback_promo:
-        from bots.sales_bot.comeback_dm import validate_promo_code
-        promo = await validate_promo_code(comeback_promo)
-        if promo:
-            discount_pct = promo['discount_pct']
-            return Decimal(str(int(base_price * (100 - discount_pct) / 100)))
-    return _hub_effective_price(tier, context_user_data)
+    """Thin wrapper over the shared resolver (was a ~40-line clone + dead lucky-6 block;
+    consolidated 2026-07-05)."""
+    from shared.purchase_flow import effective_price_for_user
+    return await effective_price_for_user(tier, context_user_data)
+
 
 async def handle_truemoney_link(
     update: Update, context: ContextTypes.DEFAULT_TYPE
