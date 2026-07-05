@@ -364,13 +364,10 @@ async def customer_groups(user_id: int, admin=Depends(get_current_admin)):
     """, user_id)
     if not subs:
         return []
+    from shared.subscription_access import parse_group_slugs
     group_slugs = []
     for _sub in subs:
-        try:
-            _g = json.loads(_sub["groups_access"]) if isinstance(_sub["groups_access"], str) else _sub["groups_access"]
-        except Exception:
-            _g = []
-        for _s in (_g or []):
+        for _s in parse_group_slugs(_sub["groups_access"]):
             if _s not in group_slugs:
                 group_slugs.append(_s)
     if not group_slugs:
@@ -1048,18 +1045,10 @@ async def customer_group_memberships(user_id: int, admin=Depends(get_current_adm
         JOIN packages p ON s.package_id = p.id
         WHERE s.user_id = $1 AND s.status = 'ACTIVE'
     """, user_id)
+    from shared.subscription_access import parse_group_slugs
     should_have_slugs = set()
     for _sub in subs_sh:
-        raw = _sub["groups_access"]
-        if not raw:
-            continue
-        try:
-            if isinstance(raw, str):
-                should_have_slugs |= set(json.loads(raw)) if raw.startswith("[") else set(x.strip().strip('"') for x in raw.split(",") if x.strip())
-            else:
-                should_have_slugs |= set(raw)
-        except Exception:
-            pass
+        should_have_slugs |= set(parse_group_slugs(_sub["groups_access"]))
 
     GUARDIAN_BOT_TOKEN = os.environ.get("GUARDIAN_BOT_TOKEN")
     if not GUARDIAN_BOT_TOKEN:

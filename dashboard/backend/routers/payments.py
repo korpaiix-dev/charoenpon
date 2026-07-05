@@ -234,16 +234,9 @@ async def _generate_invite_links(package_id: int, user_telegram_id: int | None =
     if not pkg or not pkg["groups_access"]:
         return {}
 
-    # Parse groups_access (comma-separated or JSON array)
-    import json as _json
-    raw = pkg["groups_access"].strip()
-    if raw.startswith("["):
-        try:
-            group_slugs = _json.loads(raw)
-        except Exception:
-            group_slugs = [g.strip().strip('"') for g in raw.split(",") if g.strip()]
-    else:
-        group_slugs = [g.strip().strip('"') for g in raw.split(",") if g.strip()]
+    # Cleanup-B: canonical parser
+    from shared.subscription_access import parse_group_slugs
+    group_slugs = parse_group_slugs(pkg["groups_access"])
 
     if user_telegram_id and await should_include_songkran_bonus_group(user_telegram_id, package_id):
         if PROMO_SONGKRAN_SLUG not in group_slugs:

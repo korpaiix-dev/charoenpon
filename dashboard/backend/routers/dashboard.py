@@ -556,16 +556,9 @@ async def sos_resend_links(telegram_id: int, admin=Depends(get_current_admin)):
     if not pkg or not pkg["groups_access"]:
         raise HTTPException(400, "แพ็กเกจไม่มีกลุ่ม")
 
-    # Parse groups_access
-    import json as _json
-    raw = pkg["groups_access"].strip()
-    if raw.startswith("["):
-        try:
-            _group_slugs = _json.loads(raw)
-        except Exception:
-            _group_slugs = [g.strip().strip('"') for g in raw.split(",") if g.strip()]
-    else:
-        _group_slugs = [g.strip().strip('"') for g in raw.split(",") if g.strip()]
+    # Cleanup-B: canonical parser
+    from shared.subscription_access import parse_group_slugs
+    _group_slugs = parse_group_slugs(pkg["groups_access"])
 
     # Generate invite links
     invite_links = {}

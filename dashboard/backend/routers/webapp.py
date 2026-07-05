@@ -110,7 +110,7 @@ async def api_me(request: Request,
             srow = dict(sub_row)
             days_left = None
             if srow["end_date"]:
-                from shared.tz import now_th as _now_th_; _end = srow["end_date"]; _end = _end.replace(tzinfo=None) if hasattr(_end, 'tzinfo') and _end.tzinfo else _end; days_left = (_end - _now_th_().replace(tzinfo=None)).days
+                from shared.subscription_access import days_left as _days_left; days_left = _days_left(srow["end_date"])  # Cleanup-B: utcnow-based (was now_th, ~7h skew)
             # Friendly tier label (strip TIER_ prefix; LIFETIME = 36500 days)
             tier_label = (srow.get("tier_name") or "").replace("TIER_", "") or str(srow.get("package_id") or "?")
             sub = {
@@ -122,7 +122,7 @@ async def api_me(request: Request,
                 "status": srow["status"],
                 "end_date": srow["end_date"].isoformat() if srow["end_date"] else None,
                 "days_left": days_left,
-                "is_lifetime": (days_left is not None and days_left > 30000),
+                "is_lifetime": bool(srow["end_date"] and getattr(srow["end_date"], "year", 0) >= 2099),  # Cleanup-B: robust (was days_left>30000, missed 2099 lifetimes)
             }
         pay_rows = await conn.fetch(
             "SELECT amount, status, created_at FROM payments "
