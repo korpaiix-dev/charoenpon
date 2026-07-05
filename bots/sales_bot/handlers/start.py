@@ -699,10 +699,21 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await upgrade_command(update, context)
         return
 
-    # Handle packages deep link: /start packages
+    # Handle packages deep link: /start packages → open the MINI-APP (primary purchase channel).
+    # Group-post promo/teaser/DM buttons deep-link here; web_app buttons can't live in a group post,
+    # so we land the user in private chat and hand them the mini-app button (1 tap → mini-app).
     if source == "packages":
-        from bots.sales_bot.handlers.packages import view_packages_command
-        await view_packages_command(update, context)
+        _kb_pkg = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🛒 เปิดแอป เลือกแพ็ก + โปร", web_app=WebAppInfo(url=_URL_MINIAPP_PACKAGES))],
+            [InlineKeyboardButton("🔙 เมนูหลัก", callback_data="back_main")],
+        ])
+        await update.message.reply_text(
+            "🎉 <b>ยินดีต้อนรับค่ะ!</b>\n\n"
+            "กดปุ่มด้านล่างเปิดแอป เลือกแพ็กเกจ + โปรโมชั่นได้เลย 👇\n"
+            "<i>ราคาโปรของคุณจะแสดงในแอปอัตโนมัติ ไม่ต้องกรอกโค้ด</i> ✨",
+            parse_mode="HTML",
+            reply_markup=_kb_pkg,
+        )
         return
 
     # Handle gacha buy deeplink (from gacha webapp top-up button)
