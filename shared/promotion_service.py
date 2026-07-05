@@ -130,8 +130,8 @@ def calculate_price(promo: dict, package_code: str, original_price: float) -> di
     if dt == "percent":
         # 20% off
         discounted = orig * (100 - dv) / 100
-    elif dt == "fixed_off":
-        # X baht off
+    elif dt in ("fixed_off", "fixed", "amount", "baht"):
+        # X baht off (Cleanup-C: aliases so this is the ONE promo-math fn with full vocab)
         discounted = max(0, orig - dv)
     elif dt == "fixed_price":
         # set to specific price

@@ -67,23 +67,13 @@ async def compute_package_price(tier_full: str, promo_id=None, tg_id=None, conn=
             except Exception:
                 pr = None
             if pr and pr["is_active"]:
-                raw = pr["package_codes"]
-                if isinstance(raw, str):
-                    try:
-                        codes = _json.loads(raw)
-                    except Exception:
-                        codes = []
-                else:
-                    codes = list(raw) if raw else []
-                if tdb in codes or tshort in codes:
-                    dt = (pr["discount_type"] or "none").lower()
-                    dv = float(pr["discount_value"] or 0)
-                    if dt == "percent":
-                        final = base * (100 - dv) / 100
-                    elif dt in ("fixed_off", "fixed", "amount", "baht"):  # P1-10: one discount vocab (match pricing.py)
-                        final = max(0, base - dv)
-                    elif dt == "fixed_price":
-                        final = dv
+                # Cleanup-C: delegate promo math to the ONE primitive (promotion_service.calculate_price)
+                from shared.promotion_service import calculate_price as _calc
+                _r = _calc(dict(pr), tdb, base)
+                if not _r.get("applied"):
+                    _r = _calc(dict(pr), tshort, base)
+                if _r.get("applied"):
+                    final = float(_r["discounted"])
 
         # 1b) AUTO-DISCOVER active public promotion for this tier (only when caller gave no
         #     explicit promo_id). Lets Prae / in-chat quote launch-promo prices (e.g. Super VIP
@@ -98,28 +88,13 @@ async def compute_package_price(tier_full: str, promo_id=None, tg_id=None, conn=
                 )
             except Exception:
                 arows = []
+            from shared.promotion_service import calculate_price as _calc
             for _pr in arows:
-                _raw = _pr["package_codes"]
-                if isinstance(_raw, str):
-                    try:
-                        _codes = _json.loads(_raw)
-                    except Exception:
-                        _codes = []
-                else:
-                    _codes = list(_raw) if _raw else []
-                if tdb in _codes or tshort in _codes:
-                    _dt = (_pr["discount_type"] or "none").lower()
-                    _dv = float(_pr["discount_value"] or 0)
-                    if _dt == "percent":
-                        _cand = base * (100 - _dv) / 100
-                    elif _dt in ("fixed_off", "fixed", "amount", "baht"):  # P1-10: one discount vocab (match pricing.py)
-                        _cand = max(0, base - _dv)
-                    elif _dt == "fixed_price":
-                        _cand = _dv
-                    else:
-                        _cand = base
-                    if _cand < final:
-                        final = _cand
+                _r = _calc(dict(_pr), tdb, base)
+                if not _r.get("applied"):
+                    _r = _calc(dict(_pr), tshort, base)
+                if _r.get("applied") and float(_r["discounted"]) < final:
+                    final = float(_r["discounted"])
 
         _src = "campaign" if final < base else "none"
         _credit_used = 0.0
