@@ -324,68 +324,6 @@ def _pick_variant(variants: list[tuple[str, callable]], weights: dict[str, float
 
 # ─── Analytics ───────────────────────────────────────────────────────────────
 
-async def analyze_comeback_performance() -> dict:
-    """วิเคราะห์ performance ของ Comeback DM แยกตาม variant.
-
-    Returns dict:
-    {
-        "round1": {"A": {"sent": 10, "responded": 3, "purchased": 1, "conv_rate": 0.1}, ...},
-        "round2": {"A": {...}, ...},
-        "total_sent": 100,
-        "total_responded": 20,
-        "total_purchased": 5,
-        "best_variant_r1": "B",
-        "best_variant_r2": "A",
-    }
-    """
-    cutoff = datetime.utcnow() - timedelta(days=7)
-    result_data = {"round1": {}, "round2": {}, "total_sent": 0, "total_responded": 0, "total_purchased": 0}
-
-    async with get_session() as session:
-        for dm_round in [1, 2]:
-            result = await session.execute(
-                text("""
-                    SELECT variant,
-                           COUNT(*) as sent,
-                           COALESCE(SUM(CASE WHEN responded THEN 1 ELSE 0 END), 0) as responded,
-                           COALESCE(SUM(CASE WHEN purchased THEN 1 ELSE 0 END), 0) as purchased
-                    FROM comeback_dm_log
-                    WHERE round = :round AND sent_at >= :cutoff
-                    GROUP BY variant
-                    ORDER BY variant
-                """),
-                {"round": dm_round, "cutoff": cutoff},
-            )
-            rows = result.fetchall()
-
-            round_key = f"round{dm_round}"
-            best_conv = -1
-            best_variant = None
-
-            for row in rows:
-                v_name = row.variant or "NONE"
-                sent = row.sent
-                responded = row.responded
-                purchased = row.purchased
-                conv_rate = purchased / sent if sent > 0 else 0.0
-
-                result_data[round_key][v_name] = {
-                    "sent": sent,
-                    "responded": responded,
-                    "purchased": purchased,
-                    "conv_rate": round(conv_rate, 4),
-                }
-                result_data["total_sent"] += sent
-                result_data["total_responded"] += responded
-                result_data["total_purchased"] += purchased
-
-                if conv_rate > best_conv:
-                    best_conv = conv_rate
-                    best_variant = v_name
-
-            result_data[f"best_variant_r{dm_round}"] = best_variant
-
-    return result_data
 
 
 # ─── Existing Helpers (preserved) ────────────────────────────────────────────

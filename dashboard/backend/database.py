@@ -40,8 +40,6 @@ async def close_db():
     if _pool:
         await _pool.close()
 
-def get_pool() -> asyncpg.Pool:
-    return _pool
 
 class _PoolProxy:
     """Proxy that always delegates to the current global pool."""

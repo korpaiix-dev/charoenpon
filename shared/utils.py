@@ -27,11 +27,6 @@ logger = logging.getLogger(__name__)
 from shared.tz import TH_TZ
 
 
-async def make_bot(token: str) -> Bot:
-    """สร้าง Bot instance พร้อม initialize() — ป้องกัน Frozen_method_invalid."""
-    bot = Bot(token=token)
-    await bot.initialize()
-    return bot
 
 THAI_MONTHS = [
     "", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
@@ -227,19 +222,3 @@ def compute_slip_unique_hash(file_unique_id: str) -> str:
     return hashlib.sha256(file_unique_id.encode()).hexdigest()
 
 
-async def check_duplicate_slip_by_unique_id(file_unique_id: str) -> Payment | None:
-    """Check duplicate slip by file_unique_id (preferred over check_duplicate_slip).
-
-    Returns the existing Payment if a pending/confirmed payment already uses the same
-    image (by file_unique_id hash), None otherwise.
-    """
-    slip_hash = compute_slip_unique_hash(file_unique_id)
-
-    async with get_session() as session:
-        result = await session.execute(
-            select(Payment).where(
-                Payment.slip_hash == slip_hash,
-                Payment.status.in_([PaymentStatus.CONFIRMED, PaymentStatus.PENDING]),
-            )
-        )
-        return result.scalar_one_or_none()

@@ -85,10 +85,6 @@ async def init_db() -> None:
         await conn.execute(text(CONTENT_PREVIEWS_INDEX_SQL))
 
 
-async def drop_db() -> None:
-    """Drop all tables — use only for testing."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
 
 
 async def close_db() -> None:

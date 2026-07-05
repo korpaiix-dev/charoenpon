@@ -84,10 +84,6 @@ async def list_customers(
     }
 
 # ========== BROADCAST (must be before /{user_id} routes) ==========
-class BroadcastRequest(BaseModel):
-    message: str
-    target: str = "all"  # all | active | expired | trial
-    parse_mode: Optional[str] = "HTML"
 
 
 

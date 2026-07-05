@@ -37,41 +37,6 @@ def now_th() -> datetime:
 # Phase B.2 (2026-06-27): kill-switch from feature_flags (sync, psycopg2)
 _KS_CACHE = {"value": None, "expires": 0.0}
 _KS_TTL = 60.0
-def _legacy_promos_disabled() -> bool:
-    """Sync check of feature_flags.legacy_promos_disabled (cached 60s).
-
-    Returns True if ALL hardcoded promos should be force-disabled.
-    Errors -> False (= old behavior, promos active by date).
-    """
-    import time
-    if _KS_CACHE["expires"] > time.time() and _KS_CACHE["value"] is not None:
-        return _KS_CACHE["value"]
-    try:
-        import os
-        try:
-            import psycopg2
-        except ImportError:
-            return False
-        url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
-        if not url:
-            host = os.getenv("POSTGRES_HOST", "charoenpon-postgres")
-            user = os.getenv("POSTGRES_USER", "postgres")
-            pwd = os.getenv("POSTGRES_PASSWORD", "")
-            db = os.getenv("POSTGRES_DB", "charoenpon")
-            url = f"postgresql://{user}:{pwd}@{host}:5432/{db}"
-        conn = psycopg2.connect(url, connect_timeout=2)
-        try:
-            cur = conn.cursor()
-            cur.execute("SELECT enabled FROM feature_flags WHERE flag_key = 'legacy_promos_disabled'")
-            row = cur.fetchone()
-            value = bool(row[0]) if row else False
-        finally:
-            conn.close()
-        _KS_CACHE["value"] = value
-        _KS_CACHE["expires"] = time.time() + _KS_TTL
-        return value
-    except Exception:
-        return False
 
 def is_endmonth_vip_promo_active(at: datetime | None = None) -> bool:
     """DISABLED 2026-06-28: boss reset all legacy promos."""
@@ -154,19 +119,7 @@ def is_may_combo_promo_active(at=None) -> bool:
     return False
 
 
-def get_may_effective_price(tier: str, base_price):
-    if tier == PROMO_500_TIER and is_may_combo_promo_active():
-        return PROMO_500_PRICE
-    if tier == PROMO_1299_TIER and is_may_combo_promo_active():
-        return PROMO_1299_PRICE
-    return base_price
 
-def get_may_promo_badge(tier: str) -> str:
-    if tier == PROMO_500_TIER and is_may_combo_promo_active():
-        return f"🔥 โปร OF Combo 500 เหลือ 349 บาท — {PROMO_MAY_DATE_TEXT}"
-    if tier == PROMO_1299_TIER and is_may_combo_promo_active():
-        return f"🔥 โปร GOD 3M 1,299 เหลือ 999 บาท — {PROMO_MAY_DATE_TEXT}"
-    return ""
 # <<< MAY26_COMBO_PROMO >>>
 
 
@@ -199,21 +152,7 @@ def is_birthday_promo_active() -> bool:
     return False
 
 
-def is_birthday_promo_entry_open() -> bool:
-    """DISABLED 2026-06-28: boss reset all legacy promos."""
-    return False
 
 
 BIRTHDAY_GIVEAWAY_PRIZE = "GOD MODE ถาวร (มูลค่า ฿2,499)"
-def is_lucky_6_or_grace() -> bool:
-    """Lucky 6.6 promo active OR within 6h grace period after end."""
-    from datetime import datetime, timezone, timedelta
-    now = datetime.now(timezone(timedelta(hours=7)))
-    # active = 6 มิ.ย. 2026 BKK
-    if now.year == 2026 and now.month == 6 and now.day == 6:
-        return True
-    # grace = 7 มิ.ย. 2026 BKK 00:00 - 06:00
-    if now.year == 2026 and now.month == 6 and now.day == 7 and now.hour < 6:
-        return True
-    return False
 

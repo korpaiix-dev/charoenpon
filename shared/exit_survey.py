@@ -50,24 +50,8 @@ async def _es_cfg(key: str, default):
         return default
 
 
-async def is_exit_survey_enabled() -> bool:
-    return bool(await _es_cfg("exit_survey_enabled", True))
 
 
-async def get_tier_discount(tier_str: str) -> tuple[int, int, str] | None:
-    """Get (discount_pct, final_amount, label) for tier. DB if flag ON else hardcoded."""
-    default = TIER_DISCOUNT.get(str(tier_str))
-    if default is None:
-        return None
-    key_map = {"300": "exit_survey_tier_300_pct", "500": "exit_survey_tier_500_pct",
-               "1299": "exit_survey_tier_1299_pct", "2499": "exit_survey_tier_2499_pct"}
-    k = key_map.get(str(tier_str))
-    if not k:
-        return default
-    pct = int(await _es_cfg(k, default[0]))
-    base = int(tier_str)
-    final_amount = int(base * (100 - pct) / 100)
-    return (pct, final_amount, default[2])
 
 REASON_LABELS = {
     "content":   "🎬 ของไม่ถูกใจ",
@@ -246,20 +230,6 @@ async def _build_exit_survey_from_db_or_fallback(first_name: str, last_tier: str
     return build_exit_survey_message(first_name, last_tier)
 
 
-async def _build_exit_thanks_from_db_or_fallback(reason_code: str, last_tier: str, promo_code: str, discount_pct: int = 30) -> str:
-    try:
-        from shared.bot_messages import get_bot_message, render_placeholders
-        template = await get_bot_message(_DB_EXIT_KEYS["thanks"])
-        if template:
-            return render_placeholders(template,
-                first_name=last_tier or "คุณ",
-                discount_pct=discount_pct,
-                promo_code=promo_code,
-                last_tier=last_tier or "VIP",
-            )
-    except Exception:
-        pass
-    return build_thanks_message(reason_code, last_tier, promo_code)
 async def run_exit_survey_job(context) -> dict:
     """Cron job — รายวัน 11:00 BKK."""
     bot = context.bot if hasattr(context, "bot") else None

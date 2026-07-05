@@ -56,8 +56,3 @@ async def find_orphan_subs(within_days: int = 7) -> list[dict]:
         return []
 
 
-async def count_orphan_subs(within_days: int = 7) -> tuple[int, float]:
-    """Count + total revenue value of orphan subs in last N days."""
-    rows = await find_orphan_subs(within_days)
-    total = sum(float(r.get("price") or 0) for r in rows)
-    return len(rows), total

@@ -63,24 +63,10 @@ async def _rt_cfg(key: str, default):
         return default
 
 
-async def is_retention_enabled() -> bool:
-    return bool(await _rt_cfg("retention_enabled", True))
 
 
-async def get_discount_tiers_from_db():
-    """Return DISCOUNT_TIERS with DB values when flag ON."""
-    d0 = int(await _rt_cfg("retention_0d_discount_pct", 20))
-    d1 = int(await _rt_cfg("retention_1d_discount_pct", 15))
-    d3 = int(await _rt_cfg("retention_3d_discount_pct", 10))
-    return [
-        (0, d0, NotificationType.EXPIRED, 202),
-        (1, d1, NotificationType.PRE_EXPIRY_1D, 201),
-        (3, d3, NotificationType.PRE_EXPIRY_3D, 200),
-    ]
 
 
-async def get_promo_expiry_hours() -> int:
-    return int(await _rt_cfg("retention_promo_expiry_hours", PROMO_EXPIRY_HOURS))
 
 
 # ─── Promo Code Helpers ──────────────────────────────────────────────────────

@@ -32,13 +32,6 @@ from shared.admin_perms import is_admin_for_bot, get_allowed_admins
 logger = logging.getLogger(__name__)
 
 
-def _build_manual_invite_alert_keyboard(user_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🔄 ส่งใหม่", callback_data=f"sos_resend_{user_id}", api_kwargs={"style": "primary"}),
-            InlineKeyboardButton("📋 คัดลอกลิงก์", callback_data=f"copy_invites_{user_id}", api_kwargs={"style": "secondary"}),
-        ]
-    ])
 
 
 def _admin_ids() -> list[int]:

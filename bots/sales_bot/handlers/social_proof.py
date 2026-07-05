@@ -90,14 +90,6 @@ def get_random_review() -> tuple[str, str]:
     return random.choice(REVIEW_QUOTES)
 
 
-def mask_telegram_name(name: str | None, fallback: str = "ลูกค้า VIP") -> str:
-    """Mask a Telegram first name → first 2 chars + ***"""
-    if not name:
-        return fallback
-    name = name.strip()
-    if len(name) <= 2:
-        return name + "***"
-    return name[:2] + "***"
 
 
 async def _get_active_flash() -> object | None:

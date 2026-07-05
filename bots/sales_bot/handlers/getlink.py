@@ -44,20 +44,6 @@ _LAST_REQUEST: dict[int, datetime] = {}
 _RATE_LIMIT_SEC = 300
 
 
-def _parse_group_slugs(groups_access: Any) -> list[str]:
-    """Parse Package.groups_access — supports JSON array or comma-separated string."""
-    if isinstance(groups_access, (list, tuple)):
-        return [str(s).strip() for s in groups_access if str(s).strip()]
-    if not isinstance(groups_access, str):
-        return []
-    text = groups_access.strip()
-    if text.startswith("["):
-        try:
-            data = json.loads(text)
-            return [str(s).strip() for s in data if str(s).strip()]
-        except Exception:
-            pass
-    return [s.strip().strip('"') for s in text.split(",") if s.strip()]
 
 
 async def getlink_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -112,9 +112,6 @@ def _is_spam_link(text: str) -> bool:
     return any(pat.search(text) for pat in SPAM_LINK_PATTERNS)
 
 
-def _has_any_url(text: str) -> bool:
-    """Check if message contains any URL."""
-    return bool(re.search(r"https?://\S+", text))
 
 
 async def _notify_discord_spam(user_id: int, username: str | None, text: str) -> None:
@@ -275,16 +272,3 @@ def _reset_nonsense(user_id: int) -> None:
         _nonsense_tracker[user_id]["count"] = 0
 
 
-def cleanup_nonsense_tracker() -> int:
-    """Remove stale entries from nonsense tracker to prevent memory leak.
-    
-    Call periodically (e.g., every hour). Returns number of entries removed.
-    """
-    now = time.time()
-    stale_keys = [
-        uid for uid, data in _nonsense_tracker.items()
-        if now - data["last_time"] > NONSENSE_RESET_SECONDS * 6  # 1 hour
-    ]
-    for uid in stale_keys:
-        del _nonsense_tracker[uid]
-    return len(stale_keys)

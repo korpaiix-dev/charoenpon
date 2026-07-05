@@ -145,57 +145,6 @@ def receiver_is_boss(data: dict) -> tuple[bool, str]:
 
 # Map: amount → (tier, label, is_promo)
 # Used for Smart Match — customer pays any of these amounts → auto-assign tier.
-def _amount_to_tier_legacy(amount: Decimal) -> Optional[tuple[str, str, bool]]:
-    """Return (tier_callback_value, label, is_promo) or None if amount doesn't match any tier.
-
-    Smart Match accepts both base prices and promo prices.
-    """
-    # Import lazily to avoid circular
-    from shared.endmonth_vip_promo import (
-        is_endmonth_vip_promo_active, is_may_combo_promo_active,
-        PROMO_MAY_END_TH, PROMO_END_TH, TH_TZ,
-    )
-    from datetime import datetime as _dt, timedelta as _td2
-    def _may_or_recent():
-        now = _dt.now(TH_TZ)
-        # 24h grace after promo end — admin can manually handle disputes
-        return now < PROMO_MAY_END_TH + _td2(hours=24)
-    def _endmonth_or_recent():
-        now = _dt.now(TH_TZ)
-        return now < PROMO_END_TH + _td2(hours=24)
-    amt = int(amount)  # ignore satang
-    # Exact match table: amount → (price callback string, descriptive label, is_promo_branch)
-    # The price callback string is what admin_bot's tier_map can resolve to a Package.tier
-    # TIER_99 removed 2026-06-01 — no longer offered
-    # if amt == 99: ...
-    if amt == 199:   return ("199", "Flash Sale", False)
-    if amt == 300:   return ("300", "VIP 30 วัน", False)
-    if amt == 500:   return ("500", "OnlyFans+VIP 30 วัน", False)
-    if amt == 1299:  return ("1299", "GOD MODE 90 วัน", False)
-    if amt == 2499:  return ("2499", "GOD MODE ถาวร", False)
-    # Promo prices — only valid during active promo
-    if amt == 200 and _endmonth_or_recent():   return ("200", "VIP โปร (300→200)", True)
-    if amt == 2000 and _endmonth_or_recent():  return ("2000", "GOD โปร (2499→2000)", True)
-    if amt == 349 and _may_or_recent():      return ("349", "OF โปร (500→349)", True)
-    if amt == 999 and _may_or_recent():      return ("999", "3M โปร (1299→999)", True)
-    # COMEBACK_PROMO_PRICES — always-on (per-user validation in payment.py)
-    if amt == 180:   return ("180", "Comeback ลด 40% (300→180)", True)
-    if amt == 210:   return ("210", "Comeback ลด 30% (300→210)", True)
-    # LUCKY_6.6 — only valid on 6 มิ.ย. 2026 BKK
-    def _lucky_6_or_recent():
-        from datetime import datetime as _dt, timedelta as _td, timezone as _tz
-        now = _dt.now(_tz(_td(hours=7)))
-        # Active = 6 มิ.ย. + 6h grace into 7 มิ.ย.
-        if now.year == 2026 and now.month == 6 and now.day == 6:
-            return True
-        if now.year == 2026 and now.month == 6 and now.day == 7 and now.hour < 6:
-            return True
-        return False
-    if amt == 166 and _lucky_6_or_recent():   return ("166", "Lucky 6.6 VIP", True)
-    if amt == 266 and _lucky_6_or_recent():   return ("266", "Lucky 6.6 OF", True)
-    if amt == 666 and _lucky_6_or_recent():   return ("666", "Lucky 6.6 GOD3M", True)
-    if amt == 2266 and _lucky_6_or_recent():  return ("2266", "Lucky 6.6 GOD ถาวร", True)
-    return None
 
 
 # # >>> RECEIVER_POOL_DYNAMIC <<<

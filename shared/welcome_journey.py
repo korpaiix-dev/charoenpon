@@ -47,20 +47,10 @@ async def _wj_cfg(key: str, default):
         return default
 
 
-async def get_welcome_discount_pct() -> int:
-    """Get current welcome discount %. Default 25 (hardcoded)."""
-    return int(await _wj_cfg("welcome_discount_pct", WELCOME_DISCOUNT_PCT))
 
 
-async def get_welcome_valid_hours() -> int:
-    """Get current promo validity in hours. Default 24."""
-    return int(await _wj_cfg("welcome_valid_hours", WELCOME_VALID_HOURS))
 
 
-async def is_welcome_enabled() -> bool:
-    """Master switch for welcome system. Default True."""
-    v = await _wj_cfg("welcome_enabled", True)
-    return bool(v)
 STAGE_3H      = (302, "3h")
 STAGE_12H     = (303, "12h")
 STAGE_23H     = (304, "23h")

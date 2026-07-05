@@ -193,18 +193,3 @@ async def safe_broadcast(
     return result
 
 
-async def broadcast_to_active_users(
-    bot: Bot,
-    text: str,
-    parse_mode: str | None = "HTML",
-    **kwargs: Any,
-) -> BroadcastResult:
-    """Broadcast to all active (non-banned) users."""
-    async with get_session() as session:
-        stmt = select(User.telegram_id).where(
-            User.is_banned == False,  # noqa: E712
-        )
-        rows = await session.execute(stmt)
-        chat_ids = [row[0] for row in rows.all()]
-
-    return await safe_broadcast(bot, chat_ids, text, parse_mode, **kwargs)

@@ -92,14 +92,6 @@ TIER_PATTERNS = {
 }
 
 
-def detect_tier(text: Optional[str]) -> Optional[str]:
-    if not text:
-        return None
-    text_lower = text.lower()
-    for tier, pat in TIER_PATTERNS.items():
-        if re.search(pat, text_lower, re.IGNORECASE):
-            return tier
-    return None
 
 
 def build_url(tier: Optional[str]) -> str:

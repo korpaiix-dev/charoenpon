@@ -46,39 +46,6 @@ async def _safe_edit(query, text: str, reply_markup=None, parse_mode="HTML",
 
 
 # FIX 2026-06-26 (audit): show boss-created promotion_campaigns from dashboard in menu
-async def _active_campaign_banner() -> str:
-    """Return banner text for any active promotion_campaigns from dashboard.
-
-    Boss creates campaigns in dashboard → this auto-shows in bot menu.
-    Returns empty string if none active."""
-    try:
-        from shared.database import get_session
-        from sqlalchemy import text as _t
-        async with get_session() as s:
-            rows = (await s.execute(_t("""
-                SELECT pc.name, pc.normal_price, pc.promo_price, pc.bot_badge, pc.bot_sales_text,
-                       pk.name AS pkg_name
-                FROM promotion_campaigns pc
-                LEFT JOIN packages pk ON pk.id = pc.package_id
-                WHERE pc.is_active = TRUE
-                  AND pc.starts_at IS NOT NULL AND pc.ends_at IS NOT NULL
-                  AND pc.starts_at <= NOW() AND pc.ends_at >= NOW()
-                  AND pc.promo_price IS NOT NULL
-                ORDER BY pc.ends_at
-                LIMIT 3
-            """))).fetchall()
-        if not rows:
-            return ""
-        lines = []
-        for r in rows:
-            badge = r.bot_badge or "🎁"
-            if r.normal_price and r.promo_price and r.pkg_name:
-                lines.append(f"{badge} <b>{r.name}</b>: <s>{int(r.normal_price)}</s> {int(r.promo_price)} บาท ({r.pkg_name})")
-            else:
-                lines.append(f"{badge} <b>{r.name}</b>")
-        return "🎁 <b>โปรพิเศษวันนี้!</b>\n" + "\n".join(lines) + "\n━━━━━━━━━━━━━━━━━━━━━\n\n"
-    except Exception:
-        return ""
 
 from shared.endmonth_vip_promo import (
     is_mid_month_flash_active,
