@@ -93,3 +93,45 @@ async def still_covered_if_sub_expires(user_id: int, sub_id: int) -> bool:
     except Exception as exc:
         logger.warning("still_covered_if_sub_expires(%s,%s) failed: %s", user_id, sub_id, exc)
         return False
+
+
+def parse_group_slugs(raw) -> list:
+    """Canonical parser for a package's groups_access value — use everywhere instead of inline
+    JSON/comma parsing. Accepts a JSON-array string ('["G300","G500"]'), a comma string
+    ('G300, G500'), or an already-parsed list/tuple. Returns a de-duped list of slug strings.
+    Never raises (returns [] on anything unparseable)."""
+    import json as _json
+    if not raw:
+        return []
+    if isinstance(raw, (list, tuple)):
+        items = list(raw)
+    elif isinstance(raw, str):
+        s = raw.strip()
+        if s.startswith("["):
+            try:
+                items = _json.loads(s)
+            except Exception:
+                items = s.strip("[]").split(",")
+        else:
+            items = s.split(",")
+    else:
+        return []
+    out = []
+    for it in items:
+        v = str(it).strip().strip('"').strip("'").strip()
+        if v and v not in out:
+            out.append(v)
+    return out
+
+
+def days_left(end_date):
+    """Whole days until end_date, comparing against utcnow (end_date is stored naive-UTC).
+    Returns None if end_date is falsy. Lifetime sentinels (year>=2099) yield a large positive int.
+    ONE definition — replaces the ~5 inline (end_date - now/now_th/utcnow).days variants."""
+    if not end_date:
+        return None
+    try:
+        ed = end_date.replace(tzinfo=None) if getattr(end_date, "tzinfo", None) else end_date
+        return (ed - datetime.utcnow()).days
+    except Exception:
+        return None
