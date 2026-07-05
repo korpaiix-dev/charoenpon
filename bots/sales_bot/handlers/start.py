@@ -699,22 +699,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await upgrade_command(update, context)
         return
 
-    # Handle packages deep link: /start packages → open the MINI-APP (primary purchase channel).
-    # Group-post promo/teaser/DM buttons deep-link here; web_app buttons can't live in a group post,
-    # so we land the user in private chat and hand them the mini-app button (1 tap → mini-app).
-    if source == "packages":
-        _kb_pkg = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🛒 เปิดแอป เลือกแพ็ก + โปร", web_app=WebAppInfo(url=_URL_MINIAPP_PACKAGES))],
-            [InlineKeyboardButton("🔙 เมนูหลัก", callback_data="back_main")],
-        ])
-        await update.message.reply_text(
-            "🎉 <b>ยินดีต้อนรับค่ะ!</b>\n\n"
-            "กดปุ่มด้านล่างเปิดแอป เลือกแพ็กเกจ + โปรโมชั่นได้เลย 👇\n"
-            "<i>ราคาโปรของคุณจะแสดงในแอปอัตโนมัติ ไม่ต้องกรอกโค้ด</i> ✨",
-            parse_mode="HTML",
-            reply_markup=_kb_pkg,
-        )
-        return
+    # /start packages (7.7 promo/teaser/DM buttons) → fall through to the FULL welcome below (photo +
+    # dynamic menu, same as bare /start). Its "🛒 ดูแพ็คเกจ + โปร" button opens the mini-app. The
+    # promo-code handler further down is guarded to ignore the literal word "packages".
 
     # Handle gacha buy deeplink (from gacha webapp top-up button)
     if source == "gacha_buy":
@@ -744,8 +731,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await cmd_shaker(update, context)
         return
 
-    # Bare promo code deep link: /start <CODE> (dashboard share-link format, no prefix)
-    if source:
+    # Bare promo code deep link: /start <CODE> (dashboard share-link format, no prefix).
+    # "packages" is not a promo code — skip so it falls through to the full welcome.
+    if source and source != "packages":
         handled = await _handle_promo_start(update, context, source)
         if handled:
             return
