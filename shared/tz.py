@@ -64,6 +64,39 @@ def bkk_timestamp_sql(col_expr: str) -> str:
     return f"(({col_expr}) AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')"
 
 
+def th_day_start_utc(ref: datetime | None = None) -> datetime:
+    """Start (00:00) of the Thai calendar day containing `ref`, as a NAIVE-UTC datetime.
+
+    THE single source for "today 00:00 Thai" when comparing against naive-UTC DB
+    timestamps (Payment.created_at etc). Every revenue/report/day-boundary MUST use
+    this so the UTC-vs-Thai off-by-7h bug can never recur.
+
+    `ref` may be None (=> now), a naive-UTC datetime, or a tz-aware datetime.
+    Idempotent on values already equal to a TH-midnight boundary.
+    """
+    r = datetime.utcnow() if ref is None else ref
+    if r.tzinfo is not None:
+        r = r.astimezone(timezone.utc).replace(tzinfo=None)
+    th = r + timedelta(hours=7)                       # naive-UTC -> Thai wall-clock
+    th_midnight = th.replace(hour=0, minute=0, second=0, microsecond=0)
+    return th_midnight - timedelta(hours=7)           # Thai wall-clock -> naive-UTC
+
+
+def th_day_bounds(ref: datetime | None = None) -> tuple[datetime, datetime]:
+    """(start, end) naive-UTC of the Thai calendar day containing `ref` (end = next 00:00)."""
+    start = th_day_start_utc(ref)
+    return start, start + timedelta(days=1)
+
+
+def th_month_start_utc(ref: datetime | None = None) -> datetime:
+    """Start (day 1, 00:00) of the Thai calendar month containing `ref`, as NAIVE-UTC."""
+    r = datetime.utcnow() if ref is None else ref
+    if r.tzinfo is not None:
+        r = r.astimezone(timezone.utc).replace(tzinfo=None)
+    th = (r + timedelta(hours=7)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return th - timedelta(hours=7)
+
+
 __all__ = [
     "TH_TZ",
     "now_th",
@@ -71,4 +104,7 @@ __all__ = [
     "utc_to_bkk",
     "bkk_date_sql",
     "bkk_timestamp_sql",
+    "th_day_start_utc",
+    "th_day_bounds",
+    "th_month_start_utc",
 ]

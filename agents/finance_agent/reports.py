@@ -33,6 +33,7 @@ from shared.models import (
     User,
 )
 from shared.utils import TH_TZ, format_thb
+from shared.tz import th_day_start_utc
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +51,7 @@ ALERT_CHURN_THRESHOLD = 10
 
 async def _get_daily_revenue(date: datetime) -> dict[str, Any]:
     """ดึงรายรับประจำวัน แยกตามวิธีชำระ."""
-    _th = date + timedelta(hours=7)  # FIX: Thai calendar day, not UTC (created_at naive-UTC; TH=UTC+7)
-    day_start = _th.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=7)
+    day_start = th_day_start_utc(date)
     day_end = day_start + timedelta(days=1)
 
     async with get_session() as session:
@@ -105,8 +105,7 @@ async def _get_daily_revenue(date: datetime) -> dict[str, Any]:
 
 async def _get_daily_expenses(date: datetime) -> dict[str, Any]:
     """ดึงรายจ่ายประจำวัน (Ads + API costs)."""
-    _th = date + timedelta(hours=7)  # FIX: Thai calendar day, not UTC (created_at naive-UTC; TH=UTC+7)
-    day_start = _th.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=7)
+    day_start = th_day_start_utc(date)
     day_end = day_start + timedelta(days=1)
 
     async with get_session() as session:
@@ -405,8 +404,7 @@ async def check_alerts() -> list[dict[str, Any]]:
     alerts: list[dict[str, Any]] = []
     # BKK timezone — convert to naive UTC for DB compare
     now_bkk = datetime.now(TH_TZ)
-    today_bkk = now_bkk.replace(hour=0, minute=0, second=0, microsecond=0)
-    today_start = today_bkk.astimezone(timezone.utc).replace(tzinfo=None)
+    today_start = th_day_start_utc()
     yesterday_start = today_start - timedelta(days=1)
 
     # 1. Revenue drop > 30%

@@ -35,7 +35,7 @@ from shared.models import (
 
 logger = logging.getLogger(__name__)
 
-from shared.tz import TH_TZ
+from shared.tz import TH_TZ, th_day_start_utc
 from shared.admin_alert import _admin_group_id
 
 # Config
@@ -738,7 +738,7 @@ async def run_comeback_dm_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 
             # ดึงสถิติ responded/purchased ของวันนี้
             today_start = now_th.replace(hour=0, minute=0, second=0, microsecond=0)
-            today_start_utc = today_start.astimezone(timezone.utc).replace(tzinfo=None)
+            today_start_utc = th_day_start_utc()
 
             async with get_session() as session:
                 stats = await session.execute(

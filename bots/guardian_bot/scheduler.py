@@ -42,6 +42,7 @@ from shared.models import (
 from shared.utils import format_datetime_thai, format_thb, log_admin_action
 
 from bots.guardian_bot.group_monitor import check_and_kick_unauthorized, _log_kick_action
+from shared.tz import th_day_start_utc
 
 logger = logging.getLogger(__name__)
 
@@ -331,7 +332,7 @@ async def generate_daily_report(bot: Bot) -> str:
     Includes: new users, payments, kicks, subscription stats.
     """
     now = datetime.utcnow()
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = th_day_start_utc()
 
     async with get_session() as session:
         # New users today

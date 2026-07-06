@@ -23,14 +23,12 @@ from shared.models import (
 
 logger = logging.getLogger(__name__)
 
-from shared.tz import TH_TZ
+from shared.tz import TH_TZ, th_day_start_utc
 
 
 async def get_daily_stats() -> dict[str, Any]:
     """ดึงข้อมูลภาพรวมประจำวัน."""
-    # FIX: Thai calendar day, not UTC (created_at naive-UTC; TH=UTC+7)
-    _th_now = datetime.utcnow() + timedelta(hours=7)
-    today_start = _th_now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=7)
+    today_start = th_day_start_utc()
     today_end = today_start + timedelta(days=1)
     expiry_7d = today_start + timedelta(days=7)
 
@@ -177,8 +175,7 @@ async def get_daily_stats() -> dict[str, Any]:
 
 async def get_weekly_stats() -> dict[str, Any]:
     """ดึงข้อมูล 7 วันย้อนหลังสำหรับ weekly analysis."""
-    now_utc = datetime.utcnow()
-    week_end = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_end = th_day_start_utc()
     week_start = week_end - timedelta(days=7)
 
     async with get_session() as session:

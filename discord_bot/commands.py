@@ -24,6 +24,7 @@ from shared.utils import format_thb
 from shared.api_cost_tracker import daily_summary
 
 from discord_bot.channels import SHEETS_LINKS, get_channel_id
+from shared.tz import th_day_start_utc, th_month_start_utc
 
 logger = logging.getLogger(__name__)
 
@@ -386,14 +387,13 @@ class CharoenponCommands(commands.Cog):
         from zoneinfo import ZoneInfo as _ZI; now = datetime.now(_ZI('Asia/Bangkok'))
 
         if period == "today":
-            start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            start = th_day_start_utc()
             period_label = "วันนี้"
         elif period == "week":
-            start = now - timedelta(days=now.weekday())
-            start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+            start = th_day_start_utc() - timedelta(days=now.weekday())
             period_label = "สัปดาห์นี้"
         elif period == "month":
-            start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            start = th_month_start_utc()
             period_label = "เดือนนี้"
         else:
             await ctx.send("❓ ใช้: `!revenue today`, `!revenue week`, หรือ `!revenue month`")

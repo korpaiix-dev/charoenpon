@@ -16,6 +16,7 @@ import httpx
 
 from shared.database import get_session
 from shared.models import ApiCostLog
+from shared.tz import th_day_start_utc
 
 logger = logging.getLogger(__name__)
 
@@ -369,7 +370,7 @@ async def daily_summary() -> dict[str, Any]:
     """
     from sqlalchemy import func, select
 
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = th_day_start_utc()
     today_end = today_start + timedelta(days=1)
 
     async with get_session() as session:

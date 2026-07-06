@@ -10,6 +10,7 @@ import io
 import os
 import sys
 from datetime import datetime, timedelta, timezone, time
+from shared.tz import th_day_start_utc, th_month_start_utc
 
 import discord
 from discord.ext import commands, tasks
@@ -279,10 +280,8 @@ async def daily_report_task() -> None:
     now_bkk = datetime.now(BKK)
     now_naive = now.replace(tzinfo=None)
     # คำนวณขอบเขตใน BKK ก่อน แล้วแปลงเป็น naive UTC (DB เก็บแบบ naive UTC)
-    today_bkk = now_bkk.replace(hour=0, minute=0, second=0, microsecond=0)
-    month_bkk = now_bkk.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    today_start = today_bkk.astimezone(UTC).replace(tzinfo=None)
-    month_start = month_bkk.astimezone(UTC).replace(tzinfo=None)
+    today_start = th_day_start_utc()
+    month_start = th_month_start_utc()
 
     async with get_session() as session:
         # Revenue today

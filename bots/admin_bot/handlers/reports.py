@@ -42,20 +42,17 @@ def _admin_ids() -> list[int]:
 from zoneinfo import ZoneInfo as _ZoneInfo
 from datetime import timezone as _tz
 from shared.admin_perms import is_admin_for_bot
+from shared.tz import th_day_start_utc, th_month_start_utc
 
 _BKK = _ZoneInfo("Asia/Bangkok")
 
 def _bkk_today_start_utc_naive() -> datetime:
     """Return UTC-naive datetime for today 00:00:00 in Bangkok."""
-    now_bkk = datetime.now(_BKK)
-    today_bkk = now_bkk.replace(hour=0, minute=0, second=0, microsecond=0)
-    return today_bkk.astimezone(_tz.utc).replace(tzinfo=None)
+    return th_day_start_utc()
 
 def _bkk_month_start_utc_naive() -> datetime:
     """Return UTC-naive datetime for first of this month 00:00:00 in Bangkok."""
-    now_bkk = datetime.now(_BKK)
-    month_bkk = now_bkk.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    return month_bkk.astimezone(_tz.utc).replace(tzinfo=None)
+    return th_month_start_utc()
 
 
 def _is_admin(user_id: int) -> bool:

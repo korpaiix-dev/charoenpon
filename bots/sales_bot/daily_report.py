@@ -17,7 +17,7 @@ from shared.database import get_session
 
 logger = logging.getLogger(__name__)
 
-from shared.tz import TH_TZ
+from shared.tz import TH_TZ, th_day_start_utc
 from shared.admin_alert import _admin_group_id
 ADMIN_GROUP_ID = _admin_group_id()
 
@@ -32,7 +32,7 @@ async def generate_daily_report() -> str:
     """Generate compact daily report — max 10 lines."""
     now_th = datetime.now(TH_TZ)
     today_start = now_th.replace(hour=0, minute=0, second=0, microsecond=0)
-    today_start_utc = today_start.astimezone(timezone.utc).replace(tzinfo=None)
+    today_start_utc = th_day_start_utc()
     yesterday_start_utc = today_start_utc - timedelta(days=1)
 
     # Monday of this week (for weekly sum)
