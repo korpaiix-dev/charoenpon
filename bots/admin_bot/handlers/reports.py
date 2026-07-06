@@ -82,7 +82,7 @@ async def cmd_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             ).where(
                 Payment.status == PaymentStatus.CONFIRMED,
                 Payment.amount > 0,
-                Payment.verified_at >= today_start,
+                Payment.created_at >= today_start,
             )
         )
         today_row = today_q.one()
@@ -95,7 +95,7 @@ async def cmd_revenue(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             ).where(
                 Payment.status == PaymentStatus.CONFIRMED,
                 Payment.amount > 0,
-                Payment.verified_at >= month_start,
+                Payment.created_at >= month_start,
             )
         )
         month_row = month_q.one()
@@ -364,7 +364,7 @@ async def cmd_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             ).where(
                 Payment.status == PaymentStatus.CONFIRMED,
                 Payment.amount > 0,
-                Payment.verified_at >= today_start,
+                Payment.created_at >= today_start,
             )
         )
         rev_today = rev_today_q.one()
@@ -376,7 +376,7 @@ async def cmd_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             ).where(
                 Payment.status == PaymentStatus.CONFIRMED,
                 Payment.amount > 0,
-                Payment.verified_at >= month_start,
+                Payment.created_at >= month_start,
             )
         )
         rev_month = rev_month_q.scalar()
