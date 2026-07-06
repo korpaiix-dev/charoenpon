@@ -50,7 +50,8 @@ ALERT_CHURN_THRESHOLD = 10
 
 async def _get_daily_revenue(date: datetime) -> dict[str, Any]:
     """ดึงรายรับประจำวัน แยกตามวิธีชำระ."""
-    day_start = date.replace(hour=0, minute=0, second=0, microsecond=0)
+    _th = date + timedelta(hours=7)  # FIX: Thai calendar day, not UTC (created_at naive-UTC; TH=UTC+7)
+    day_start = _th.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=7)
     day_end = day_start + timedelta(days=1)
 
     async with get_session() as session:
@@ -75,8 +76,12 @@ async def _get_daily_revenue(date: datetime) -> dict[str, Any]:
                 Payment.method,
                 func.sum(Payment.amount).label("amount"),
                 func.count(Payment.id).label("count"),
-            ).where(
+            )
+            .join(User, User.id == Payment.user_id)
+            .where(
                 Payment.status == PaymentStatus.CONFIRMED,
+                Payment.amount > 0,
+                User.telegram_id < 9000000000,
                 Payment.created_at >= day_start,
                 Payment.created_at < day_end,
             ).group_by(Payment.method)
@@ -100,7 +105,8 @@ async def _get_daily_revenue(date: datetime) -> dict[str, Any]:
 
 async def _get_daily_expenses(date: datetime) -> dict[str, Any]:
     """ดึงรายจ่ายประจำวัน (Ads + API costs)."""
-    day_start = date.replace(hour=0, minute=0, second=0, microsecond=0)
+    _th = date + timedelta(hours=7)  # FIX: Thai calendar day, not UTC (created_at naive-UTC; TH=UTC+7)
+    day_start = _th.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=7)
     day_end = day_start + timedelta(days=1)
 
     async with get_session() as session:

@@ -28,8 +28,9 @@ from shared.tz import TH_TZ
 
 async def get_daily_stats() -> dict[str, Any]:
     """ดึงข้อมูลภาพรวมประจำวัน."""
-    now_utc = datetime.utcnow()
-    today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    # FIX: Thai calendar day, not UTC (created_at naive-UTC; TH=UTC+7)
+    _th_now = datetime.utcnow() + timedelta(hours=7)
+    today_start = _th_now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=7)
     today_end = today_start + timedelta(days=1)
     expiry_7d = today_start + timedelta(days=7)
 
