@@ -424,6 +424,39 @@ async def handle_photo_slip(
         except Exception as _pe:
             logger.warning("Prae-chat amount fallback failed: %s", _pe)
 
+    # ROOT FIX: the ACTUAL amount paid is authoritative — a (possibly stale) gacha selection must
+    # NOT force a payment to be booked at the gacha bundle price. If context says gacha but the slip
+    # amount does not match the gacha price, the customer did not buy this bundle: re-resolve the tier
+    # from the real amount (e.g. 2,999 -> Super VIP) and let the normal approval flow record the real
+    # amount + credit the receiver. Only a real gacha-priced slip stays on the gacha path.
+    if selected_tier and selected_tier.startswith("GACHA_") and slip2go_data:
+        try:
+            from shared.pricing import TIER_PRICES as _TP_GCHK
+            _ga_chk = float(_TP_GCHK.get(selected_tier, 0) or 0)
+            _aa_chk = float((slip2go_data or {}).get("amount") or 0)
+            if _ga_chk > 0 and abs(_aa_chk - _ga_chk) > 5:
+                _re_chk = None
+                try:
+                    _re_chk = amount_to_tier(int(_aa_chk))
+                except Exception:
+                    _re_chk = None
+                if _re_chk and not str(_re_chk[0]).startswith("GACHA_"):
+                    logger.warning("GACHA-AMOUNT-MISMATCH: paid %.0f != %s(%.0f) -> re-resolve to %s (real amount wins)", _aa_chk, selected_tier, _ga_chk, _re_chk[0])
+                    selected_tier = _re_chk[0]
+                    context.user_data["selected_tier"] = _re_chk[0]
+                    try:
+                        expected_price = await _get_effective_price(selected_tier, context.user_data)
+                    except Exception:
+                        pass
+                    missing_context = False
+                else:
+                    logger.warning("GACHA-AMOUNT-MISMATCH: paid %.0f != %s(%.0f), amount maps to no non-gacha tier -> manual review", _aa_chk, selected_tier, _ga_chk)
+                    selected_tier = None
+                    context.user_data.pop("selected_tier", None)
+                    missing_context = True
+        except Exception as _gchk_exc:
+            logger.warning("gacha amount-consistency check failed (non-fatal): %s", _gchk_exc)
+
     if selected_tier and selected_tier.startswith("GACHA_") and slip2go_data:
         from shared.pricing import TIER_PRICES
         _spins_map = {"GACHA_1": 1, "GACHA_3": 3, "GACHA_10": 10}
