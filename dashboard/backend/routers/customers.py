@@ -477,9 +477,20 @@ async def dm_customer(user_id: int, req: DMRequest, request: Request, admin=Depe
         raise HTTPException(404, "User not found")
     
     result = await tg_send_dm(user["telegram_id"], req.message)
+    tg_ok = bool(result.get("ok")) if isinstance(result, dict) else False
+    err_code = result.get("error_code") if isinstance(result, dict) else None
+    err_desc = (result.get("description") if isinstance(result, dict) else "") or ""
+    # Customer blocked the bot / never started chat -> mark so DM jobs skip, report truthfully
+    if not tg_ok and err_code == 403:
+        try:
+            await pool.execute(
+                "UPDATE users SET is_blocked_bot = TRUE, blocked_bot_at = NOW() "
+                "WHERE id = $1 AND is_blocked_bot = FALSE", user_id)
+        except Exception:
+            pass
     ip = request.client.host if request.client else None
-    await _log(admin["id"], "send_dm", "user", user_id, {"message_preview": req.message[:100]}, ip)
-    return {"ok": True, "result": result}
+    await _log(admin["id"], "send_dm", "user", user_id, {"message_preview": req.message[:100], "dm_sent": tg_ok, "error": None if tg_ok else err_desc}, ip)
+    return {"ok": True, "dm_sent": tg_ok, "blocked": err_code == 403, "error": None if tg_ok else (err_desc or "ส่งไม่สำเร็จ"), "result": result}
 
 @router.get("/{user_id}/timeline")
 async def get_customer_timeline(user_id: int, admin=Depends(require_role("moderator"))):

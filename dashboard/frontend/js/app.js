@@ -2488,8 +2488,9 @@ async function doDM(uid) {
     if (_busy.has(`dm-${uid}`)) return;
     _busy.add(`dm-${uid}`);
     try {
-        await api(`/customers/${uid}/dm`, { method: 'POST', body: JSON.stringify({ message: document.getElementById('dm-message').value }) });
-        toast('ส่ง DM แล้ว', 'success'); closeModal();
+        const r = await api(`/customers/${uid}/dm`, { method: 'POST', body: JSON.stringify({ message: document.getElementById('dm-message').value }) });
+        if (r.dm_sent) { toast('✅ ส่ง DM แล้ว', 'success'); closeModal(); }
+        else { toast(r.blocked ? '⚠️ ลูกค้าบล็อคบอท / ยังไม่เริ่มแชต — ส่งไม่ได้' : ('⚠️ ส่งไม่สำเร็จ: ' + (r.error || '')), 'error', 8000); }
     } catch (e) { toast(e.message, 'error'); }
     finally { _busy.delete(`dm-${uid}`); }
 }
@@ -5819,7 +5820,7 @@ async function sendPraeDM(uid, telegramId) {
             method: 'POST',
             body: JSON.stringify({ message: msg }),
         });
-        if (r.ok) {
+        if (r.dm_sent) {
             toast('✅ ส่ง DM แล้ว', 'success');
             input.value = '';
             // Append the new admin message to bubble area visually
@@ -5838,7 +5839,7 @@ async function sendPraeDM(uid, telegramId) {
                 bubbleArea.scrollTop = bubbleArea.scrollHeight;
             }
         } else {
-            toast('❌ ส่งไม่สำเร็จ', 'error');
+            toast(r.blocked ? '⚠️ ลูกค้าบล็อคบอท / ยังไม่เริ่มแชต — ส่งไม่ได้' : ('❌ ส่งไม่สำเร็จ: ' + (r.error || '')), 'error', 8000);
         }
     } catch (err) {
         toast('❌ ' + (err.message || 'ส่งไม่สำเร็จ'), 'error');
