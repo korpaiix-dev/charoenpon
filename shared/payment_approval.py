@@ -367,6 +367,19 @@ async def apply_payment_approval(inp: ApprovalInput) -> ApprovalResult:
                                 idempotent_skip=True,
                             )
 
+                    if _exist_status == "REJECTED":
+                        logger.warning(
+                            "[approval] STEP 0: payment %s already REJECTED — refuse re-approve (stale-button guard)",
+                            inp.payment_id,
+                        )
+                        return ApprovalResult(
+                            success=False,
+                            payment_id=inp.payment_id,
+                            error="payment_already_rejected",
+                            error_details="การชำระนี้ถูกปิด/ปฏิเสธไปแล้ว — ไม่อนุมัติซ้ำ (กันกดปุ่มเก่า)",
+                            idempotent_skip=True,
+                        )
+
             # STEP 1: upsert user
             db_user_id, user_first_name = await _resolve_user(
                 session, inp.user_id, inp.telegram_id, None
