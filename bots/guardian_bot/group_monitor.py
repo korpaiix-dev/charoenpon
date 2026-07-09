@@ -412,7 +412,7 @@ async def _guardian_timeout_kick(context) -> None:
                         Subscription.user_id == user_db_id,
                         Subscription.status == SubscriptionStatus.ACTIVE,
                         Subscription.end_date > datetime.utcnow(),
-                    )
+                    ).limit(1)
                 )
                 if sub_check.scalar_one_or_none() is not None:
                     logger.info(

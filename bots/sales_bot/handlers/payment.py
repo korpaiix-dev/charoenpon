@@ -1766,7 +1766,7 @@ async def handle_photo_slip(
                     select(Subscription).where(
                         Subscription.user_id == user_db_id,
                         Subscription.status == SubscriptionStatus.ACTIVE,
-                    )
+                    ).limit(1)
                 )
                 _has_active_sub = _active_sub_result.scalar_one_or_none() is not None
 

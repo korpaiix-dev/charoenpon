@@ -81,6 +81,7 @@ async def _is_vip_active(telegram_id: int) -> bool:
                 Subscription.status == SubscriptionStatus.ACTIVE,
                 Subscription.end_date > datetime.utcnow(),
             )
+            .limit(1)
         )
         return result.scalar_one_or_none() is not None
 
@@ -682,7 +683,7 @@ async def process_referral_reward(referred_telegram_id: int, bot) -> None:
             select(Subscription).join(User, Subscription.user_id == User.id).where(
                 User.id == referrer_user_id,
                 Subscription.status == SubscriptionStatus.ACTIVE,
-            ).order_by(Subscription.end_date.desc())
+            ).order_by(Subscription.end_date.desc()).limit(1)
         )
         active_sub = sub_result.scalar_one_or_none()
 
