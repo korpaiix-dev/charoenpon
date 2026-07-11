@@ -385,25 +385,31 @@ async def handle_photo_slip(
     # แม้ selected_tier ในบอท memory จะว่าง — ระบบยังรู้ว่าลูกค้าซื้ออะไร
     # ทำก่อน PRAE-CHAT FALLBACK + ก่อน Layer 2 → เร็วและแม่นยำสุด
     pending_intent = None
-    if missing_context:
+    try:
+        # ROOT-FIX 2026-07-11: load the mini-app intent ALWAYS (not only when missing_context) so the
+        # intent-authoritative amount-match (below) can honour a per-customer discount even when the
+        # customer already selected a tier (missing_context=False). Otherwise a discounted price
+        # (e.g. ห้องมีคนชัก 100 -25% = 75) matches no standard tier and is wrongly routed to admin.
+        pending_intent = await _intent_find_pending(user.id)
+    except Exception as _ie:
+        logger.warning("INTENT load failed: %s", _ie)
+    if missing_context and pending_intent:
         try:
-            pending_intent = await _intent_find_pending(user.id)
-            if pending_intent:
-                _i_tier_full = (pending_intent.get("tier") or "").strip()
-                _i_short = _i_tier_full.replace("TIER_", "") if _i_tier_full else ""
-                if _i_short:
-                    selected_tier = _i_short
-                    context.user_data["selected_tier"] = _i_short
-                    expected_price = await _get_effective_price(_i_short, context.user_data)
-                    if expected_price:
-                        missing_context = False
-                        logger.info(
-                            "INTENT-FALLBACK: tg=%s intent_id=%s tier=%s final=%s — recovering missing_context",
-                            user.id, pending_intent.get("id"),
-                            _i_short, pending_intent.get("final_price"),
-                        )
-        except Exception as _ie:
-            logger.warning("INTENT-FALLBACK failed: %s", _ie)
+            _i_tier_full = (pending_intent.get("tier") or "").strip()
+            _i_short = _i_tier_full.replace("TIER_", "") if _i_tier_full else ""
+            if _i_short:
+                selected_tier = _i_short
+                context.user_data["selected_tier"] = _i_short
+                expected_price = await _get_effective_price(_i_short, context.user_data)
+                if expected_price:
+                    missing_context = False
+                    logger.info(
+                        "INTENT-FALLBACK: tg=%s intent_id=%s tier=%s final=%s — recovering missing_context",
+                        user.id, pending_intent.get("id"),
+                        _i_short, pending_intent.get("final_price"),
+                    )
+        except Exception as _ie2:
+            logger.warning("INTENT-FALLBACK override failed: %s", _ie2)
 
     # FIX 2026-06-26 (PRAE-CHAT FALLBACK): if customer talked via Prae chat instead of pressing buttons,
     # selected_tier may be empty. Use Slip2Go amount → tier mapping as fallback.
@@ -1720,6 +1726,14 @@ async def handle_photo_slip(
         try:
             promo_info = await _get_active_promo_for_user(user.id)
             if promo_info:
+                # ROOT-FIX 2026-07-11: the generic promo price is computed off a fixed VIP-300 base.
+                # If the customer bought a specific tier via mini-app intent, show THAT tier's real
+                # discounted price (e.g. 75) instead of the misleading 225.
+                if pending_intent and pending_intent.get("final_price"):
+                    try:
+                        promo_info["discounted_price"] = int(float(pending_intent["final_price"]))
+                    except Exception:
+                        pass
                 promo_caption = (
                     f"\n🎟 <b>โปรโมชั่น:</b> {promo_info['source']} "
                     f"ลด {promo_info['discount_pct']}% (฿{promo_info['discounted_price']})"
@@ -1861,8 +1875,11 @@ async def handle_photo_slip(
             ],
         ]
 
-        # Insert promo button row if active promo exists
-        if promo_info:
+        # Insert promo button row if active promo exists.
+        # ROOT-FIX 2026-07-11: skip the generic (VIP-300-based) promo button when the customer bought
+        # a specific tier via mini-app intent — approve_promo grants TIER_300 and would be the wrong
+        # package/price; the correct action is the specific tier button below.
+        if promo_info and not pending_intent:
             dp = promo_info["discounted_price"]
             pct = promo_info["discount_pct"]
             kb_rows.insert(0, [
