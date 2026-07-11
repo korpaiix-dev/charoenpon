@@ -1601,12 +1601,26 @@ async def handle_photo_slip(
 
         payment_id = None
         if not missing_context:
+            # ROOT-FIX 2026-07-11: store the REAL transferred amount (verified slip2go amount,
+            # else AI/OCR amount), NOT the tier's expected price. This is the single source of the
+            # recurring 'ยอดไม่ตรง' — the pending payment stored the tier base, so manual approval,
+            # receiver credit and total_spent over-counted whenever a per-customer discount applied.
+            from decimal import Decimal as _Dp
+            _real_paid = expected_price
+            try:
+                _s2g_v = locals().get("s2g_amount")
+                if _s2g_v is not None and float(_s2g_v) > 0:
+                    _real_paid = _Dp(str(_s2g_v))
+                elif ocr_amount and float(ocr_amount) > 0:
+                    _real_paid = _Dp(str(ocr_amount))
+            except Exception:
+                _real_paid = expected_price
             # Duplicate payment guard: same user + same amount within 60 seconds
             dedup_cutoff = datetime.utcnow() - timedelta(seconds=60)
             dup_check = await session.execute(
                 select(Payment).where(
                     Payment.user_id == db_user.id,
-                    Payment.amount == expected_price,
+                    Payment.amount == _real_paid,
                     Payment.method == PaymentMethod.SLIP,
                     Payment.created_at >= dedup_cutoff,
                 )
@@ -1620,7 +1634,7 @@ async def handle_photo_slip(
             payment = Payment(
                 user_id=db_user.id,
                 package_id=package.id,
-                amount=expected_price,
+                amount=_real_paid,
                 method=PaymentMethod.SLIP,
                 status=PaymentStatus.PENDING,
                 slip_file_id=file_id,
@@ -1656,7 +1670,7 @@ async def handle_photo_slip(
                 logger.error("Non-dup IntegrityError on payment insert: %s", _ie)
                 raise
             payment_id = payment.id
-            logger.info("Payment created: id=%s user=%s amount=%s", payment_id, user.id, expected_price)
+            logger.info("Payment created: id=%s user=%s amount=%s (expected=%s)", payment_id, user.id, _real_paid, expected_price)
         else:
             logger.warning(
                 "Slip routed to admin fallback without payment record: user=%s ocr_amount=%s selected_tier=%s",
