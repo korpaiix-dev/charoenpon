@@ -37,6 +37,7 @@ from bots.admin_bot.handlers.approval import (
     sos_deny_callback,
     sos_ban_callback,
     chat_user_callback,
+    pickpkg_callback,
 )
 from bots.admin_bot.handlers.where import cmd_where
 from bots.admin_bot.handlers.broadcast import get_broadcast_handlers
@@ -278,6 +279,7 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(sos_ban_callback, pattern=r"^sos_ban_\d+$"))
     application.add_handler(CallbackQueryHandler(sos_resolve_callback, pattern=r"^sos_resolve:\d+$"))
     application.add_handler(CallbackQueryHandler(chat_user_callback, pattern=r"^chat_user_\d+$"))
+    application.add_handler(CallbackQueryHandler(pickpkg_callback, pattern=r"^pickpkg_\d+$"))
 
 
     # Unknown command handler

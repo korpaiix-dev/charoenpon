@@ -906,3 +906,50 @@ async def reject_payment_callback(update: Update, context: ContextTypes.DEFAULT_
 
 # ─── Pending Broadcasts ──────────────────────────────────────────────────────
 
+
+
+
+# ── Step 3b (2026-07-11): reveal the full tier grid when the collapsed new slip card shows
+#    '⚙️ เลือกแพ็กเอง'. Rebuilds the same grid as bots/sales_bot/handlers/payment.py. ──
+async def pickpkg_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """เปิดปุ่มเลือกแพ็กเอง (pickpkg_<uid>) — กางตารางปุ่ม tier ทั้งหมดในการ์ดสลิป."""
+    query = update.callback_query
+    await query.answer()
+    if not query.from_user or not _is_admin(query.from_user.id):
+        await query.answer("⛔ คุณไม่มีสิทธิ์", show_alert=True)
+        return
+    try:
+        uid = int(query.data.split("_")[1])
+    except Exception:
+        await query.answer("bad callback", show_alert=True)
+        return
+    import telegram as _tg
+    try:
+        from shared.endmonth_vip_promo import (
+            is_endmonth_vip_promo_active as _ev,
+            is_may_combo_promo_active as _mc,
+        )
+        _endmonth = _ev()
+        _maycombo = _mc()
+    except Exception:
+        _endmonth = _maycombo = False
+
+    def _B(text, code):
+        return _tg.InlineKeyboardButton(text, callback_data=f"approve_{code}_{uid}", api_kwargs={"style": "success"})
+
+    rows = [
+        [_B("🎰 100 (ห้องมีคนชัก)", "100"), _B("⚡ 199 (Flash)", "199"),
+         (_B("🔥 200 (VIP โปร)", "200") if _endmonth else _B("✅ 300 (VIP)", "300"))],
+        [(_B("🔥 349 (OF โปร)", "349") if _maycombo else _B("✅ 500 (OF)", "500")),
+         (_B("🔥 999 (3M โปร)", "999") if _maycombo else _B("✅ 1299 (3M)", "1299"))],
+        [(_B("💎 2000 (GOD โปร)", "2000") if _endmonth else _B("✅ 2499 (GOD)", "2499")),
+         _B("🌊 500 (Summer)", "ADD500")],
+        [_B("👑 4999 (Super VIP)", "4999")],
+        [_tg.InlineKeyboardButton("❌ ปฏิเสธ", callback_data=f"reject_{uid}", api_kwargs={"style": "danger"})],
+        [_tg.InlineKeyboardButton("🚫 แบน", callback_data=f"ban_{uid}", api_kwargs={"style": "danger"}),
+         _tg.InlineKeyboardButton("💬 เปิดข้อมูลลูกค้า", callback_data=f"chat_user_{uid}", api_kwargs={"style": "primary"})],
+    ]
+    try:
+        await query.edit_message_reply_markup(reply_markup=_tg.InlineKeyboardMarkup(rows))
+    except Exception as _e:
+        logger.warning("pickpkg expand failed for uid=%s: %s", uid, _e)

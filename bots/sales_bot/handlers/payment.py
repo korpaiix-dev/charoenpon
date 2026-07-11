@@ -1898,10 +1898,10 @@ async def handle_photo_slip(
             f"{fallback_caption}"
         )
 
-        # Build keyboard rows — add promo price button if active promo
-        kb_rows = [
+        # Step 3 (2026-07-11): full tier grid — shown directly when there's no clear recommendation,
+        # or revealed on demand via '⚙️ เลือกแพ็กเอง' (see pickpkg_callback in admin_bot).
+        _tier_grid = [
             [
-                # TIER_99 button removed 2026-06-01
                 tg.InlineKeyboardButton("🎰 100 (ห้องมีคนชัก)", callback_data=f"approve_100_{user.id}", api_kwargs={"style": "success"}),
                 tg.InlineKeyboardButton("⚡ 199 (Flash)", callback_data=f"approve_199_{user.id}", api_kwargs={"style": "success"}),
                 tg.InlineKeyboardButton("🔥 200 (VIP โปร)", callback_data=f"approve_200_{user.id}", api_kwargs={"style": "success"}) if is_endmonth_vip_promo_active() else tg.InlineKeyboardButton("✅ 300 (VIP)", callback_data=f"approve_300_{user.id}", api_kwargs={"style": "success"}),
@@ -1917,41 +1917,37 @@ async def handle_photo_slip(
             [
                 tg.InlineKeyboardButton("👑 4999 (Super VIP)", callback_data=f"approve_4999_{user.id}", api_kwargs={"style": "success"}),
             ],
-            [
-                tg.InlineKeyboardButton("❌ ปฏิเสธ", callback_data=f"reject_{user.id}", api_kwargs={"style": "danger"}),
-            ],
         ]
 
-        # Insert promo button row if active promo exists.
-        # ROOT-FIX 2026-07-11: skip the generic (VIP-300-based) promo button when the customer bought
-        # a specific tier via mini-app intent — approve_promo grants TIER_300 and would be the wrong
-        # package/price; the correct action is the specific tier button below.
-        if promo_info and not pending_intent:
-            dp = promo_info["discounted_price"]
-            pct = promo_info["discount_pct"]
-            kb_rows.insert(0, [
+        _has_rec = (not missing_context and str(selected_tier) in ("100", "199", "300", "500", "1299", "2499", "4999"))
+        kb_rows = []
+        if _has_rec:
+            # Collapsed view: recommended action on top; tier grid hidden behind ⚙️ เลือกแพ็กเอง.
+            kb_rows.append([
                 tg.InlineKeyboardButton(
-                    f"🎟 {dp} (โปร{pct}%)",
-                    callback_data=f"approve_promo_{user.id}",
+                    f"✅ อนุมัติ · {_selected_pkg_name} · ลงยอด {ai_amount_str}",
+                    callback_data=f"approve_{selected_tier}_{user.id}",
                     api_kwargs={"style": "success"},
                 ),
             ])
-
-        # Step 3a (2026-07-11): recommended one-click approval when the intended tier is clear.
-        # Reuses approve_by_price (approve_<code>_<uid>), which records min(slip,tier) = the REAL
-        # slip amount now that the pending payment stores it (Step 1). Makes the correct action
-        # obvious and always books the real cash.
-        try:
-            if not missing_context and str(selected_tier) in ("100", "199", "300", "500", "1299", "2499", "4999"):
+            kb_rows.append([
+                tg.InlineKeyboardButton("⚙️ เลือกแพ็กเอง", callback_data=f"pickpkg_{user.id}", api_kwargs={"style": "primary"}),
+                tg.InlineKeyboardButton("❌ ปฏิเสธ", callback_data=f"reject_{user.id}", api_kwargs={"style": "danger"}),
+            ])
+        else:
+            # No clear recommendation → show the full grid directly.
+            kb_rows.extend(_tier_grid)
+            if promo_info and not pending_intent:
                 kb_rows.insert(0, [
                     tg.InlineKeyboardButton(
-                        f"✅ อนุมัติ · {_selected_pkg_name} · ลงยอด {ai_amount_str}",
-                        callback_data=f"approve_{selected_tier}_{user.id}",
+                        f"🎟 {promo_info['discounted_price']} (โปร{promo_info['discount_pct']}%)",
+                        callback_data=f"approve_promo_{user.id}",
                         api_kwargs={"style": "success"},
                     ),
                 ])
-        except Exception as _rec_exc:
-            logger.warning("recommended-button build failed: %s", _rec_exc)
+            kb_rows.append([
+                tg.InlineKeyboardButton("❌ ปฏิเสธ", callback_data=f"reject_{user.id}", api_kwargs={"style": "danger"}),
+            ])
 
         kb_rows.append([
             tg.InlineKeyboardButton("🚫 แบน", callback_data=f"ban_{user.id}", api_kwargs={"style": "danger"}),

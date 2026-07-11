@@ -275,6 +275,7 @@ from bots.admin_bot.handlers.payment_actions import (
     approve_by_price_callback,
     inspect_payment_callback,
     approve_promo_callback,
+    pickpkg_callback,
 )
 
 async def reject_user_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
