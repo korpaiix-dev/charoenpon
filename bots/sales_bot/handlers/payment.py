@@ -1848,6 +1848,38 @@ async def handle_photo_slip(
         elif _intent_caption:
             fallback_caption = _intent_caption
 
+        # Step 2 (2026-07-11): clear ตั้งใจซื้อ / ต้องจ่าย / จ่ายจริง / match block
+        _should_pay = None
+        try:
+            _pi2 = locals().get("pending_intent")
+            if _pi2 and _pi2.get("final_price"):
+                _should_pay = float(_pi2["final_price"])
+            elif not missing_context:
+                _should_pay = float(expected_price)
+        except Exception:
+            _should_pay = None
+        _paid_val = None
+        try:
+            _paid_val = float(ocr_amount) if ocr_amount else None
+        except Exception:
+            _paid_val = None
+        _match_line = ""
+        if _should_pay is not None and _paid_val is not None:
+            _diff = round(_paid_val - _should_pay)
+            if abs(_diff) <= 1:
+                _match_line = "  ✅ <b>ตรง</b>"
+            elif _diff < 0:
+                _match_line = f"  ⚠️ <b>ขาด {abs(_diff):,}</b>"
+            else:
+                _match_line = f"  ⚠️ <b>เกิน {_diff:,}</b>"
+        _summary_block = ""
+        if _should_pay is not None:
+            _paid_disp = ai_amount_str if _paid_val is not None else "อ่านไม่ได้"
+            _summary_block = (
+                f"\n\n🎯 <b>ตั้งใจซื้อ:</b> {_selected_pkg_name}"
+                f"\n💰 <b>ต้องจ่าย:</b> ฿{int(_should_pay):,}"
+                f"\n🧾 <b>จ่ายจริง:</b> ฿{_paid_disp}{_match_line}"
+            )
         caption = (
             f"📩 <b>สลิปใหม่ (รอตรวจ)</b>\n"
             f"🕒 {now_th.strftime('%d/%m/%Y %H:%M')}\n\n"
@@ -1857,8 +1889,9 @@ async def handle_photo_slip(
             f"• ID: <code>{user.id}</code>"
             f"{customer_tag}\n\n"
             f"📦 <b>แพ็กเกจ</b>\n"
-            f"• {_selected_pkg_name}{selected_pkg_price_label}\n\n"
-            f"💳 <b>ผลอ่านสลิปจาก AI</b>\n"
+            f"• {_selected_pkg_name}{selected_pkg_price_label}"
+            f"{_summary_block}\n\n"
+            f"💳 <b>ผลอ่านสลิปจาก AI (รายละเอียด)</b>\n"
             f"• ยอดเงิน: <b>{ai_amount_str} บาท</b>\n"
             f"{ai_summary}"
             f"{promo_caption}"
@@ -1903,6 +1936,22 @@ async def handle_photo_slip(
                     api_kwargs={"style": "success"},
                 ),
             ])
+
+        # Step 3a (2026-07-11): recommended one-click approval when the intended tier is clear.
+        # Reuses approve_by_price (approve_<code>_<uid>), which records min(slip,tier) = the REAL
+        # slip amount now that the pending payment stores it (Step 1). Makes the correct action
+        # obvious and always books the real cash.
+        try:
+            if not missing_context and str(selected_tier) in ("100", "199", "300", "500", "1299", "2499", "4999"):
+                kb_rows.insert(0, [
+                    tg.InlineKeyboardButton(
+                        f"✅ อนุมัติ · {_selected_pkg_name} · ลงยอด {ai_amount_str}",
+                        callback_data=f"approve_{selected_tier}_{user.id}",
+                        api_kwargs={"style": "success"},
+                    ),
+                ])
+        except Exception as _rec_exc:
+            logger.warning("recommended-button build failed: %s", _rec_exc)
 
         kb_rows.append([
             tg.InlineKeyboardButton("🚫 แบน", callback_data=f"ban_{user.id}", api_kwargs={"style": "danger"}),
