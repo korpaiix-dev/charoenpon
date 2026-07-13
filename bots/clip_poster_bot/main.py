@@ -62,16 +62,16 @@ pending_uploads: dict[int, dict] = {}
 # Caption templates with clickable HTML links + tier-aware deep-link for tracking.
 # {tier} = price hint, {url} = full deep link (e.g. https://t.me/bot?start=clip_300)
 CAPTION_TEMPLATES = [
-    "🔥 <b>ตัวอย่างหลุด</b> — ดูเต็มในห้อง VIP เจริญพร\n💎 เริ่ม <b>฿{tier}</b>/30 วัน\n\n👉 <a href=\"{url}\">สมัครที่นี่ — ทักบอทเลย</a>",
-    "💕 <b>แค่ตัวอย่าง</b> — ของเต็มจัดเต็มกว่านี้\n💎 สมัคร VIP เริ่ม <b>฿{tier}</b>\n\n👉 <a href=\"{url}\">กดเลย — เข้าห้อง VIP</a>",
-    "🍃 <b>น้ำจิ้มก่อน</b> — เคลียร์ๆ ในห้องจริง\n📦 VIP <b>฿{tier}</b> ดูเต็มเลย\n\n👉 <a href=\"{url}\">สมัครที่นี่</a>",
-    "✨ <b>ตัวอย่างเด็ดๆ</b> จากห้องเจริญพร\n🎬 ดูเต็มเริ่ม <b>฿{tier}</b>\n\n👉 <a href=\"{url}\">สมัครเลย — กดที่นี่</a>",
-    "🎯 <b>ดูได้แค่ตัวอย่าง</b> — สมัครเข้า VIP ดูเต็ม\n💰 <b>฿{tier}</b>/30 วัน คุ้มสุดๆ\n\n👉 <a href=\"{url}\">สมัครที่นี่ — ทักบอท</a>",
-    "🚀 <b>อยากดูเต็มไหม?</b> เข้า VIP เจริญพรเลย\n💸 เริ่ม <b>฿{tier}</b>\n\n👉 <a href=\"{url}\">กดเลย — สมัครที่นี่</a>",
-    "🌟 <b>ตัวอย่างคลิป VIP เจริญพร</b>\n💎 สมัคร <b>฿{tier}</b> ทักบอท\n\n👉 <a href=\"{url}\">กดเลย — เข้าห้อง</a>",
-    "💥 <b>ของจริงเต็มในห้อง</b> — นี่แค่ตัวอย่าง\n💎 VIP เริ่ม <b>฿{tier}</b>\n\n👉 <a href=\"{url}\">สมัครที่นี่ — ทักบอทเลย</a>",
-    "🎁 <b>ดูฟรีแค่นี้</b> — เต็มอยู่ห้อง VIP\n📲 สมัคร <b>฿{tier}</b>/30 วัน\n\n👉 <a href=\"{url}\">กดที่นี่ — เข้าเลย</a>",
-    "⭐ <b>ตัวอย่างเด็ดๆ</b> — สมัครดูเต็ม\n💎 เริ่ม <b>฿{tier}</b> เท่านั้น\n\n👉 <a href=\"{url}\">สมัครที่นี่ — กดเลย</a>",
+    "🔥 <b>ตัวอย่างหลุด</b> — ดูเต็มในห้อง VIP เจริญพร\n💎 <b>{offer}</b>\n\n👉 <a href=\"{url}\">สมัครที่นี่ — ทักบอทเลย</a>",
+    "💕 <b>แค่ตัวอย่าง</b> — ของเต็มจัดเต็มกว่านี้\n💎 สมัคร <b>{offer}</b>\n\n👉 <a href=\"{url}\">กดเลย — เข้าห้อง VIP</a>",
+    "🍃 <b>น้ำจิ้มก่อน</b> — เคลียร์ๆ ในห้องจริง\n📦 <b>{offer}</b> ดูเต็มเลย\n\n👉 <a href=\"{url}\">สมัครที่นี่</a>",
+    "✨ <b>ตัวอย่างเด็ดๆ</b> จากห้องเจริญพร\n🎬 ดูเต็ม <b>{offer}</b>\n\n👉 <a href=\"{url}\">สมัครเลย — กดที่นี่</a>",
+    "🎯 <b>ดูได้แค่ตัวอย่าง</b> — สมัครเข้า VIP ดูเต็ม\n💰 <b>{offer}</b> คุ้มสุดๆ\n\n👉 <a href=\"{url}\">สมัครที่นี่ — ทักบอท</a>",
+    "🚀 <b>อยากดูเต็มไหม?</b> เข้า VIP เจริญพรเลย\n💸 <b>{offer}</b>\n\n👉 <a href=\"{url}\">กดเลย — สมัครที่นี่</a>",
+    "🌟 <b>ตัวอย่างคลิป VIP เจริญพร</b>\n💎 <b>{offer}</b> — ทักบอท\n\n👉 <a href=\"{url}\">กดเลย — เข้าห้อง</a>",
+    "💥 <b>ของจริงเต็มในห้อง</b> — นี่แค่ตัวอย่าง\n💎 <b>{offer}</b>\n\n👉 <a href=\"{url}\">สมัครที่นี่ — ทักบอทเลย</a>",
+    "🎁 <b>ดูฟรีแค่นี้</b> — เต็มอยู่ห้อง VIP\n📲 สมัคร <b>{offer}</b>\n\n👉 <a href=\"{url}\">กดที่นี่ — เข้าเลย</a>",
+    "⭐ <b>ตัวอย่างเด็ดๆ</b> — สมัครดูเต็ม\n💎 <b>{offer}</b> เท่านั้น\n\n👉 <a href=\"{url}\">สมัครที่นี่ — กดเลย</a>",
 ]
 # When no tier hint → general fallback list (also clickable link)
 CAPTION_GENERIC = [
@@ -89,6 +89,7 @@ TIER_PATTERNS = {
     "500": r"\b500\b|tier.?500|TIER_500|G500",
     "1299": r"\b1[,.]?299\b|tier.?1299|TIER_1299|GOD|VGOD|SSS|INTER|RANDOM|SERIES",
     "2499": r"\b2[,.]?499\b|tier.?2499|TIER_2499|SUMMER|STORAGE",
+    "4999": r"\b4[,.]?999\b|tier.?4999|TIER_4999|SUPER\s*VIP|SUPERVIP|WISDOM",
 }
 
 
@@ -114,12 +115,62 @@ def build_clip_keyboard(tier: Optional[str], credit_url: Optional[str]) -> Inlin
     return InlineKeyboardMarkup(rows)
 
 
+# Real package facts from the packages table (single source of truth) — cached 300s.
+_pkg_offer_cache: dict = {}
+
+
+async def get_tier_offer(tier: str) -> dict:
+    """Return {price_str, dur, name} for a tier from the ACTUAL packages table so captions never
+    hardcode price/duration. dur = 'ตลอดชีพ' for lifetime, 'N เดือน'/'N วัน' otherwise. On any
+    error falls back to the raw tier number with no duration (safe)."""
+    import time as _t
+    now = _t.time()
+    cached = _pkg_offer_cache.get(tier)
+    if cached and cached[1] > now:
+        return cached[0]
+    offer = {"price_str": str(tier), "dur": "", "name": ""}
+    try:
+        import asyncpg
+        db_url = os.environ.get("DATABASE_URL", "").replace("postgresql+asyncpg://", "postgresql://")
+        if db_url:
+            conn = await asyncpg.connect(db_url)
+            try:
+                row = await conn.fetchrow(
+                    "SELECT name, price, duration_days FROM packages WHERE tier = $1 AND is_active = TRUE",
+                    f"TIER_{tier}",
+                )
+            finally:
+                await conn.close()
+            if row:
+                price = int(float(row["price"]))
+                dd = row["duration_days"]
+                if dd is None or dd >= 3650:
+                    dur = "ตลอดชีพ"
+                elif dd >= 90 and dd % 30 == 0:
+                    dur = f"{dd // 30} เดือน"
+                else:
+                    dur = f"{dd} วัน"
+                offer = {"price_str": f"{price:,}", "dur": dur, "name": row["name"]}
+                _pkg_offer_cache[tier] = (offer, now + 300)
+    except Exception as exc:
+        logger.warning("get_tier_offer(%s) failed: %s", tier, exc)
+    return offer
+
+
 async def pick_caption(tier: Optional[str]) -> str:
-    """Build caption text (CTAs handled by inline buttons below)."""
+    """Build caption text (CTAs handled by inline buttons below).
+
+    ROOT-FIX 2026-07-11: price + duration come from the ACTUAL packages table (get_tier_offer),
+    never a hardcoded '30 วัน'. 2499 = ตลอดชีพ, 1299 = 3 เดือน, 300/500 = 30 วัน, etc.
+    """
     url = build_url(tier)
     if tier:
+        offer = await get_tier_offer(tier)
+        offer_str = f"฿{offer['price_str']}"
+        if offer.get("dur"):
+            offer_str += f" · {offer['dur']}"
         tmpl = random.choice(CAPTION_TEMPLATES)
-        return tmpl.format(tier=tier, url=url)
+        return tmpl.format(offer=offer_str, url=url)
     tmpl = random.choice(CAPTION_GENERIC)
     return tmpl.format(url=url)
 
