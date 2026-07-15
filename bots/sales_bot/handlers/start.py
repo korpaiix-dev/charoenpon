@@ -412,10 +412,6 @@ async def _build_main_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
             "🛒 ดูแพ็คเกจ + โปร",
             web_app=WebAppInfo(url=_URL_MINIAPP_PACKAGES),
         )])
-        rows.append([InlineKeyboardButton(
-            "🎰 VIPมีคนชัก ฿100 — ลุ้น GOD ทุกจันทร์!",
-            callback_data="view_shaker",
-        )])
     elif state == "god":
         # ── GOD MODE (TIER_2499 ถาวร) — เน้น engagement ──
         rows.append([InlineKeyboardButton(

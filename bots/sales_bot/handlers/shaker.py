@@ -94,14 +94,9 @@ def _build_main_caption(available: int) -> str:
 
 
 def _build_buy_keyboard(available: int, *, with_back: bool = False) -> InlineKeyboardMarkup:
-    if available == 0:
-        rows = []
-    else:
-        rows = [
-            [InlineKeyboardButton("🎫 ซื้อ 1 ใบ ฿100", callback_data="shaker_buy_1")],
-            [InlineKeyboardButton("🎫🎫 ซื้อ 2 ใบ ฿200", callback_data="shaker_buy_2")],
-            [InlineKeyboardButton("🎫🎫🎫 ซื้อ 5 ใบ ฿500", callback_data="shaker_buy_5")],
-        ]
+    # RETIRED 2026-07-14: ห้องมีคนชัก is no longer sold — never offer buy buttons.
+    # Existing ticket holders keep their tickets and the weekly draw.
+    rows: list = []
     if with_back:
         rows.append([InlineKeyboardButton("🔙 กลับเมนูหลัก", callback_data="back_main")])
     return InlineKeyboardMarkup(rows)

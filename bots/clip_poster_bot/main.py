@@ -84,7 +84,6 @@ CAPTION_GENERIC = [
 
 # ─── Tier detection from admin's caption ────────────────────────────────────
 TIER_PATTERNS = {
-    "100": r"\b100\b|tier.?100|TIER_100|SHAKER|ห้องชัก",
     "300": r"\b300\b|tier.?300|TIER_300|VIP\s*300|G300",
     "500": r"\b500\b|tier.?500|TIER_500|G500",
     "1299": r"\b1[,.]?299\b|tier.?1299|TIER_1299|GOD|VGOD|SSS|INTER|RANDOM|SERIES",
