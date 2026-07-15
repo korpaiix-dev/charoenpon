@@ -287,6 +287,30 @@ services:
     volumes:
       - ./assets:/app/assets
 
+  relay-bot:
+    build:
+      context: ./bots/relay_bot
+      dockerfile: Dockerfile
+    image: charoenpon-relay-bot:latest
+    container_name: charoenpon-relay-bot
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@charoenpon-postgres:5432/charoenpon
+      BOT_TOKEN: ${RELAY_BOT_TOKEN}
+      SOURCE_CHAT_ID: '-1003625687303'
+      # bootstrap fallback only — refreshDestsFromDb() syncs this from bot_group_targets every 60s
+      DEST_CHAT_IDS: '-1003723154612,-1004231430931,-1003414401674,-1003987085494,-1003831199018,-1003981084328,-1003942767612,-1003733093219,-1003772512123,-1003706880995,-1003740382332,-1003861673687,-1003841389411,-1004322908602'
+      ADMIN_IDS: '8502597269'
+      SALES_BOT_URL: https://t.me/NamwarnJarern_bot
+      CLOSING_COOLDOWN_MS: '300000'
+      PORT: '3010'
+    volumes:
+      - ./bots/relay_bot/data:/data
+
 volumes:
   postgres_data:
     driver: local

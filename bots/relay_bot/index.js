@@ -167,13 +167,23 @@ setInterval(() => refreshDestsFromDb().catch(() => {}), DEST_REFRESH_MS);
 log(`Relay Bot v2 starting — source=${SOURCE_CHAT_ID}, dests=${DEST_CHAT_IDS.length}, admins=${ADMIN_IDS.length}`);
 
 // ─── Polling auto-restart ───────────────────────
+// FIX 2026-07-15: polling_error fires repeatedly, and the old handler scheduled a NEW
+// stopPolling -> startPolling for EVERY error. That stacked several polling loops which then
+// conflicted with each other (409 "terminated by other getUpdates request") forever, so the
+// relay never recovered on its own. Allow only ONE restart in flight.
+let _pollRestarting = false;
 bot.on('polling_error', (err) => {
-  log(`⚠️ Polling error: ${err.code || err.message}`);
+  log(`⚠️ Polling error: ${err.code || ""} ${err.message || ""}`.trim());
+  if (_pollRestarting) return;
   if (err.code === 'EFATAL' || (err.message || '').includes('terminated') || err.code === 'ETELEGRAM') {
+    _pollRestarting = true;
     log('🔄 Polling crashed — restart in 5s');
     bot.stopPolling()
-      .then(() => setTimeout(() => bot.startPolling(), 5000))
-      .catch(() => setTimeout(() => bot.startPolling(), 5000));
+      .catch(() => {})
+      .then(() => setTimeout(() => {
+        bot.startPolling().catch(() => {});
+        _pollRestarting = false;
+      }, 5000));
   }
 });
 
