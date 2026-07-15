@@ -31,8 +31,12 @@ async def health_check_payment_system():
         # ไม่ใช่ package ที่ลูกค้าซื้อตรง — admin คลิกปุ่ม "🌊 500 (Summer)" เท่านั้น
         # ลูกค้า 5 คนใช้อยู่ (legacy subs) — Package row id=6 ยังอยู่แค่ is_active=FALSE
         # ไม่ต้องอยู่ใน health check
+        # RETIRED 2026-07-14: TIER_100 (ห้องมีคนชัก) taken off sale (is_active=FALSE), same as
+        # TIER_ADD500 above. 88 legacy subs keep the room + tickets + weekly draw; grants look
+        # up Package by tier WITHOUT an is_active filter, so nothing breaks — it just must not
+        # be REQUIRED to have an ACTIVE package here.
         REQUIRED_TIERS = [
-            "TIER_100", "TIER_300", "TIER_500",
+            "TIER_300", "TIER_500",
             "TIER_1299", "TIER_2499", "TIER_4999",
             "GACHA_1", "GACHA_3", "GACHA_10",
         ]
