@@ -591,8 +591,17 @@ async def on_media(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     now = _time.time()
     existing = pending_uploads.get(user.id)
 
-    # ถ้ามี pending เดิมและเป็น media_group เดียวกัน → append
+    # FIX 2026-07-18: Telegram usually delivers several clips as SEPARATE messages
+    # (media_group_id=None). The old code created a NEW batch + fired a NEW picker for EACH of
+    # them while overwriting the buffer — so N clips produced N pickers and only the last clip
+    # survived. Clicking the extra pickers then found an empty buffer and answered
+    # "Session หมดอายุ", which looked like the picker popping up again and again.
+    # Now: same album OR a burst of singles whose picker has not been shown yet → ONE batch.
     if existing and mgid and existing.get("media_group_id") == mgid:
+        existing["items"].append(info)
+        existing["updated_at"] = now
+    elif (existing and mgid is None and existing.get("media_group_id") is None
+            and not existing.get("picker_sent")):
         existing["items"].append(info)
         existing["updated_at"] = now
     else:
@@ -605,16 +614,12 @@ async def on_media(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "picker_sent": False,
         }
 
-    # Debounce: schedule flush หลัง 2 วินาที
-    # ถ้า media_group_id = None (ไฟล์เดี่ยว) → flush ทันที (no debounce)
-    if mgid is None:
-        await _show_tier_picker(ctx, user.id, pending_uploads[user.id]["items"])
-        pending_uploads[user.id]["picker_sent"] = True
-    else:
-        async def _delayed_flush():
-            await asyncio.sleep(MEDIA_GROUP_DEBOUNCE_SEC)
-            await _flush_pending(ctx, user.id)
-        asyncio.create_task(_delayed_flush())
+    # Debounce for BOTH singles and albums → wait for the burst to finish, then _flush_pending
+    # shows exactly ONE picker for the whole batch (it guards on picker_sent + updated_at).
+    async def _delayed_flush():
+        await asyncio.sleep(MEDIA_GROUP_DEBOUNCE_SEC)
+        await _flush_pending(ctx, user.id)
+    asyncio.create_task(_delayed_flush())
 
 
 async def _process_item_for_send(ctx, item: dict, td: str) -> Optional[dict]:
