@@ -147,12 +147,27 @@ async def ban_user(
             result.first_name = u.first_name
 
             # 2. mark banned + metadata
+            # FIX 2026-07-18: the User model maps ONLY `is_banned`. banned_at / banned_reason /
+            # banned_by / is_blocked_bot / blocked_bot_at all exist as real columns but are NOT
+            # mapped, so assigning them on the ORM object silently did nothing (no error) —
+            # every ban lost its reason AND never set is_blocked_bot, so banned users kept
+            # receiving marketing DMs. Write them explicitly.
             u.is_banned = True
-            u.banned_at = started
-            u.banned_reason = (reason or "")[:255]
-            u.banned_by = admin_id
-            u.is_blocked_bot = True  # skip DM workers
-            u.blocked_bot_at = started
+            await session.execute(sql_text("""
+                UPDATE users
+                   SET is_banned      = TRUE,
+                       banned_at      = :ts,
+                       banned_reason  = :rsn,
+                       banned_by      = :adm,
+                       is_blocked_bot = TRUE,
+                       blocked_bot_at = :ts
+                 WHERE id = :uid
+            """), {
+                "ts": started,
+                "rsn": (reason or "")[:255],
+                "adm": admin_id,
+                "uid": u.id,
+            })
 
             # 3. expire active subscriptions
             r = await session.execute(sql_text(
