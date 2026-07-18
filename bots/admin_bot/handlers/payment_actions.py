@@ -99,15 +99,19 @@ async def _verify_approve_amount(payment: "Payment", button_amount) -> tuple[boo
                 return True, ""
     except Exception:
         pass
-    # FIX 2026-07-02: accept a lower payment when a gacha/discount intent explains the gap
-    # (customer paid final_price < tier price using credit) — not a real mismatch.
+    # FIX 2026-07-02 / 2026-07-18: accept a lower payment when a mini-app intent explains the gap.
+    # The intent is created server-side, so paid == intent.final_price proves the discounted
+    # price is legitimate — whether the discount came from a gacha CREDIT (discount_credit > 0)
+    # OR a Retention/percentage promo (discount_credit = 0, final_price already discounted).
+    # The old check required discount_credit > 0, which falsely warned on % discounts (Kamon:
+    # TIER_500 intent, final 375, credit 0) so the approve button appeared to do nothing.
     if pay < btn:
         try:
             from sqlalchemy import text as _t2
             async with get_session() as _s2:
                 _r2 = await _s2.execute(_t2(
                     "SELECT 1 FROM purchase_intents pi JOIN users u ON u.telegram_id = pi.user_telegram_id "
-                    "WHERE u.id = :uid AND pi.final_price = :pay AND pi.discount_credit > 0 "
+                    "WHERE u.id = :uid AND pi.final_price = :pay AND pi.consumed_at IS NULL "
                     "AND pi.created_at > NOW() - interval '2 days' LIMIT 1"
                 ), {"uid": payment.user_id, "pay": pay})
                 if _r2.first():
