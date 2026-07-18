@@ -196,16 +196,18 @@ async def ban_user(
                 senders = [row[0] for row in r.fetchall() if row[0]]
                 for sn in senders:
                     try:
-                        await session.execute(sql_text("""
+                        # SAVEPOINT: a failure here must not poison the ban transaction
+                        async with session.begin_nested():
+                          await session.execute(sql_text("""
                             INSERT INTO banned_senders
                               (sender_name, source_user_id, source_telegram_id,
                                reason, banned_by)
                             VALUES (:sn, :uid, :tg, :rsn, :adm)
                             ON CONFLICT (sender_name) DO NOTHING
-                        """), {
+                          """), {
                             "sn": sn, "uid": u.id, "tg": telegram_id,
                             "rsn": reason[:255], "adm": admin_id,
-                        })
+                          })
                         result.senders_added.append(sn)
                     except Exception as exc:
                         logger.warning("ban_user: blacklist sender %r fail: %s", sn, exc)
@@ -219,36 +221,43 @@ async def ban_user(
                 slips_count = 0
                 for tref, shash in r.fetchall():
                     try:
-                        await session.execute(sql_text("""
+                        # SAVEPOINT: a failure here must not poison the ban transaction
+                        async with session.begin_nested():
+                          await session.execute(sql_text("""
                             INSERT INTO banned_slips
                               (slip_trans_ref, slip_hash, source_user_id,
                                source_telegram_id, reason, banned_by)
                             VALUES (:tref, :sh, :uid, :tg, :rsn, :adm)
                             ON CONFLICT DO NOTHING
-                        """), {
+                          """), {
                             "tref": tref, "sh": shash, "uid": u.id, "tg": telegram_id,
                             "rsn": reason[:255], "adm": admin_id,
-                        })
+                          })
                         slips_count += 1
                     except Exception as exc:
                         logger.warning("ban_user: blacklist slip fail: %s", exc)
                 result.slips_added_count = slips_count
 
             # 8. stop pending DM jobs (best-effort — tables may differ across deployments)
+            # FIX 2026-07-18: these used to run bare try/except inside the transaction. In
+            # Postgres a failed statement aborts the WHOLE transaction, so one bad statement
+            # (trial_dm_log has clicked/purchased — never a `responded` column) silently killed
+            # every ban at the final flush. Each statement now runs in its own SAVEPOINT.
+            # trial_dm_log removed: it has no stop-flag, and is_blocked_bot (step 9) already
+            # makes DM workers skip this user.
             dm_stopped = 0
             for sql in (
                 "UPDATE comeback_dm_log SET responded = TRUE "
                 "WHERE user_id = :uid AND responded = FALSE",
                 "UPDATE expiry_notifications SET acknowledged = TRUE "
                 "WHERE user_id = :uid AND acknowledged = FALSE",
-                "UPDATE trial_dm_log SET responded = TRUE "
-                "WHERE user_id = :uid AND responded = FALSE",
             ):
                 try:
-                    r = await session.execute(sql_text(sql), {"uid": u.id})
-                    dm_stopped += r.rowcount or 0
-                except Exception:
-                    pass
+                    async with session.begin_nested():
+                        r = await session.execute(sql_text(sql), {"uid": u.id})
+                        dm_stopped += r.rowcount or 0
+                except Exception as exc:
+                    logger.warning("ban_user: dm-stop stmt skipped (%s): %s", sql[:40], exc)
             result.dm_jobs_stopped = dm_stopped
 
         # ───── 10. Audit log (own session — isolated from main txn) ─────
