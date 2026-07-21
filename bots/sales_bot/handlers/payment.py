@@ -464,6 +464,26 @@ async def handle_photo_slip(
             logger.warning("gacha amount-consistency check failed (non-fatal): %s", _gchk_exc)
 
     if selected_tier and selected_tier.startswith("GACHA_") and slip2go_data:
+        # SECURITY FIX 2026-07-21: verify the money actually landed in one of OUR receiver
+        # accounts BEFORE auto-approving a gacha spin. The normal package path hard-rejects a
+        # wrong-receiver slip further down (~receiver_match_pool), but the gacha branch used to
+        # approve + return before that check — so a ฿99 transfer to any PromptPay got a free
+        # spin (repro: Worravit2499 #1266 paid to 'ณัฐพร ไทยเมืองพล / PromptPay 7164', not ours).
+        # If the receiver is not us, do NOT auto-approve: leave the gacha branch and fall through
+        # to the normal AI/admin review path so an admin verifies it.
+        try:
+            from shared.slip2go import receiver_match_pool as _gacha_rcv_match
+            _grcv_ok, _grcv_reason, _grcv_acct = await _gacha_rcv_match(slip2go_data)
+        except Exception as _grcv_exc:
+            _grcv_ok, _grcv_reason = False, f"receiver check error: {_grcv_exc}"
+        if not _grcv_ok:
+            logger.warning(
+                "GACHA receiver mismatch — NOT auto-approving, routing to admin review: "
+                "user=%s reason=%s", user.id, _grcv_reason,
+            )
+            slip2go_data = None  # drop the auto-approve trust; normal path will send to admin
+
+    if selected_tier and selected_tier.startswith("GACHA_") and slip2go_data:
         from shared.pricing import TIER_PRICES
         _spins_map = {"GACHA_1": 1, "GACHA_3": 3, "GACHA_10": 10}
         _spins = _spins_map.get(selected_tier, 0)
